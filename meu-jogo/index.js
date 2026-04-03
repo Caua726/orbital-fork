@@ -35,7 +35,7 @@ const areaJogo = {
   },
 };
 
-const cachorro = criarCachorro(app, areaJogo);
+const cachorro = await criarCachorro(app, areaJogo);
 const jogador = await criarJogador(app, areaJogo);
 
 app.stage.addChild(cachorro);
