@@ -1,7 +1,9 @@
 import { Application } from 'pixi.js';
-import { criarMundo, atualizarMundo } from './world/mundo.js';
-import { configurarControles, criarJogador, atualizarJogador } from './player/player.js';
-import { criarMinimapa, atualizarMinimapa } from './hud/minimapa.js';
+import { criarMundo, atualizarMundo, getEstadoJogo } from './world/mundo.js';
+import { configurarCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador } from './player/player.js';
+import { criarMinimapa, atualizarMinimapa, onMinimapClick } from './hud/minimapa.js';
+import { criarPainel, atualizarPainel } from './hud/painel.js';
+import { criarTelaSelecao } from './hud/selecao.js';
 
 const app = new Application();
 await app.init({
@@ -21,21 +23,32 @@ window.addEventListener('resize', () => {
   app.renderer.resize(window.innerWidth, window.innerHeight);
 });
 
-const mundo = await criarMundo(app);
+const tipoEscolhido = await criarTelaSelecao(app);
+setTipoJogador(tipoEscolhido);
+
+const mundo = await criarMundo(app, tipoEscolhido);
 app.stage.addChild(mundo.container);
 
-const jogador = await criarJogador(mundo);
-mundo.container.addChild(jogador);
+// Câmera é o centro da visão em coords do mundo
+const planetaJogador = mundo.planetas.find(p => p.dados.dono === 'jogador');
+setCameraPos(planetaJogador.x, planetaJogador.y);
 
-configurarControles(app);
+configurarCamera(app, mundo);
 
 const minimapa = criarMinimapa(app, mundo);
 app.stage.addChild(minimapa);
 
-const velJogador = 6;
+onMinimapClick((worldX, worldY) => {
+  setCameraPos(worldX, worldY);
+});
+
+const painel = criarPainel(app);
+app.stage.addChild(painel);
 
 app.ticker.add(() => {
-  atualizarJogador(jogador, app, mundo, velJogador);
-  atualizarMundo(mundo, jogador, app);
-  atualizarMinimapa(minimapa, jogador, app);
+  const camera = getCamera();
+  atualizarCamera(mundo, app);
+  atualizarMundo(mundo, app, camera);
+  atualizarMinimapa(minimapa, camera, app);
+  atualizarPainel(painel, mundo, tipoEscolhido, app);
 });
