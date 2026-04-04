@@ -6,7 +6,7 @@ const COLUNAS = 5;
 const LINHAS = 6;
 
 export async function criarPlaneta(app) {
-  const texture = await Assets.load('../assets/planeta.png');
+  const texture = await Assets.load('/assets/planeta.png');
   texture.source.scaleMode = SCALE_MODES.NEAREST;
 
   const frames = {};

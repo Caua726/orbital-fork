@@ -11,8 +11,9 @@ export function criarTutorial(app) {
   tutorial.addChild(bg);
 
   const linhas = [
-    'Arraste do seu planeta (azul) para outro para enviar tropas',
-    'Scroll durante o arraste para ajustar a porcentagem',
+    'Clique em um planeta para abrir as opcoes dele',
+    'Fabrica T1 libera a colonizadora',
+    'Clique na colonizadora e depois em um planeta neutro ou sol',
     'Arraste em area vazia para mover a camera',
     'Scroll para zoom',
   ];
@@ -26,7 +27,7 @@ export function criarTutorial(app) {
   };
 
   for (let i = 0; i < linhas.length; i++) {
-    const t = new Text({ text: `• ${linhas[i]}`, style: estilo });
+    const t = new Text({ text: `- ${linhas[i]}`, style: estilo });
     t.anchor.set(0.5, 0.5);
     t.x = 0;
     t.y = -altura / 2 + 35 + i * 42;
@@ -35,7 +36,6 @@ export function criarTutorial(app) {
 
   tutorial.x = app.screen.width / 2;
   tutorial.y = app.screen.height / 2;
-
   tutorial._fadeOut = false;
   tutorial._alpha = 1;
 
@@ -45,7 +45,9 @@ export function criarTutorial(app) {
 export function atualizarTutorial(tutorial, mundo) {
   if (!tutorial.visible) return;
 
-  if (!tutorial._fadeOut && mundo.frotas.length > 0) {
+  const temPlanetaSelecionado = mundo.planetas.some((p) => p.dados.selecionado);
+  const temNaveSelecionada = mundo.naves?.some((n) => n.selecionado);
+  if (!tutorial._fadeOut && (temPlanetaSelecionado || temNaveSelecionada)) {
     tutorial._fadeOut = true;
   }
 

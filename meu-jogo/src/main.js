@@ -1,10 +1,10 @@
 import { Application } from 'pixi.js';
-import { criarMundo, atualizarMundo, getEstadoJogo } from './world/mundo.js';
-import { configurarCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador } from './player/player.js';
-import { criarMinimapa, atualizarMinimapa, onMinimapClick } from './hud/minimapa.js';
-import { criarPainel, atualizarPainel } from './hud/painel.js';
-import { criarTelaSelecao } from './hud/selecao.js';
-import { criarTutorial, atualizarTutorial } from './hud/tutorial.js';
+import { criarMundo, atualizarMundo, getEstadoJogo, construirNoPlaneta } from './world/mundo.js';
+import { configurarCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador } from './core/player.js';
+import { criarMinimapa, atualizarMinimapa, onMinimapClick } from './ui/minimapa.js';
+import { criarPainel, atualizarPainel, definirAcaoPainel } from './ui/painel.js';
+import { criarTelaSelecao } from './ui/selecao.js';
+import { criarTutorial, atualizarTutorial } from './ui/tutorial.js';
 import { somVitoria, somDerrota } from './audio/som.js';
 
 const app = new Application();
@@ -46,6 +46,9 @@ onMinimapClick((worldX, worldY) => {
 
 const painel = criarPainel(app);
 app.stage.addChild(painel);
+definirAcaoPainel(painel, (acao, planeta) => {
+  construirNoPlaneta(mundo, planeta, acao);
+});
 
 const tutorial = criarTutorial(app);
 app.stage.addChild(tutorial);

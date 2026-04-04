@@ -3,21 +3,21 @@ import { Container, Graphics, Text, Assets, Texture, Rectangle, AnimatedSprite }
 const TIPOS = [
   {
     nome: 'Industrial',
-    desc: 'Produção +50%',
+    desc: 'Producao +50%',
     cor: 0xffaa00,
     bonus: { producao: 1.5 },
   },
   {
     nome: 'Militar',
-    desc: 'Tropas iniciais +100%\nFrotas +30% velocidade',
+    desc: 'Infraestrutura inicial +1',
     cor: 0xff4444,
-    bonus: { tropasIniciais: 2, velocidadeFrota: 1.3 },
+    bonus: { infraestruturaInicial: 1 },
   },
   {
     nome: 'Expansionista',
-    desc: 'Conquista: planetas capturados\ncomeçam com +50% produção',
+    desc: 'Fabrica inicial T1',
     cor: 0x44ff88,
-    bonus: { producaoConquista: 1.5 },
+    bonus: { fabricasIniciais: 1 },
   },
 ];
 
@@ -26,7 +26,7 @@ export function getTipos() {
 }
 
 async function carregarFramesPlaneta() {
-  const texture = await Assets.load('../assets/planeta.png');
+  const texture = await Assets.load('/assets/planeta.png');
   const frames = [];
   const fw = 250;
   const fh = 250;
@@ -51,14 +51,12 @@ export function criarTelaSelecao(app) {
 
     const overlay = new Container();
 
-    // Fundo escuro
     const bg = new Graphics();
     bg.rect(0, 0, app.screen.width, app.screen.height).fill({ color: 0x0a0a18, alpha: 0.92 });
     overlay.addChild(bg);
 
-    // Título
     const titulo = new Text({
-      text: 'Escolha seu Império',
+      text: 'Escolha seu Imperio',
       style: {
         fontSize: 44,
         fill: 0xffffff,
@@ -75,7 +73,7 @@ export function criarTelaSelecao(app) {
     overlay.addChild(titulo);
 
     const subtitulo = new Text({
-      text: 'O tipo define os bônus do seu império',
+      text: 'O tipo define os bonus do seu imperio',
       style: { fontSize: 16, fill: 0x888888, fontFamily: 'monospace' },
     });
     subtitulo.anchor.set(0.5);
@@ -83,7 +81,6 @@ export function criarTelaSelecao(app) {
     subtitulo.y = 130;
     overlay.addChild(subtitulo);
 
-    // Cards
     const largCard = 300;
     const altCard = 320;
     const gap = 50;
@@ -101,23 +98,21 @@ export function criarTelaSelecao(app) {
       const fundo = new Graphics();
       const drawCard = (hover) => {
         fundo.clear();
-        fundo
-          .roundRect(0, 0, largCard, altCard, 14)
-          .fill({ color: hover ? 0x1e1e3a : 0x12122a });
-        fundo
-          .roundRect(0, 0, largCard, altCard, 14)
-          .stroke({ color: tipo.cor, width: hover ? 3 : 1.5, alpha: hover ? 1 : 0.5 });
+        fundo.roundRect(0, 0, largCard, altCard, 14).fill({ color: hover ? 0x1e1e3a : 0x12122a });
+        fundo.roundRect(0, 0, largCard, altCard, 14).stroke({
+          color: tipo.cor,
+          width: hover ? 3 : 1.5,
+          alpha: hover ? 1 : 0.5,
+        });
       };
       drawCard(false);
       card.addChild(fundo);
 
-      // Glow circle behind planet
       const glow = new Graphics();
       glow.circle(largCard / 2, 80, 50).fill({ color: tipo.cor, alpha: 0.12 });
       glow.circle(largCard / 2, 80, 35).fill({ color: tipo.cor, alpha: 0.08 });
       card.addChild(glow);
 
-      // Animated planet sprite
       const planeta = new AnimatedSprite(frames);
       planeta.anchor.set(0.5);
       planeta.x = largCard / 2;
@@ -129,7 +124,6 @@ export function criarTelaSelecao(app) {
       planeta.tint = tipo.cor;
       card.addChild(planeta);
 
-      // Separator line
       const sep = new Graphics();
       sep.moveTo(30, 145).lineTo(largCard - 30, 145).stroke({ color: tipo.cor, width: 1, alpha: 0.3 });
       card.addChild(sep);
@@ -165,7 +159,6 @@ export function criarTelaSelecao(app) {
       desc.y = 230;
       card.addChild(desc);
 
-      // "Selecionar" hint at bottom
       const hint = new Text({
         text: 'Clique para selecionar',
         style: { fontSize: 11, fill: 0x666666, fontFamily: 'monospace' },
@@ -186,7 +179,6 @@ export function criarTelaSelecao(app) {
       });
 
       card.on('pointertap', () => {
-        // Stop all planet animations before removing
         overlay.children.forEach((c) => {
           if (c._planeta) c._planeta.stop();
         });

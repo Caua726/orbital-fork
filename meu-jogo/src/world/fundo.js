@@ -8,7 +8,7 @@ function gerarTile(w, h, seed) {
   canvas.height = h;
   const ctx = canvas.getContext('2d');
 
-  ctx.fillStyle = '#0a0a1a';
+  ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, w, h);
 
   // Seed simples para estrelas consistentes por tile

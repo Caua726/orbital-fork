@@ -6,9 +6,6 @@ const MARGEM = 15;
 const CORES_DONO = {
   neutro: 0x888888,
   jogador: 0x44aaff,
-  inimigo1: 0xff4444,
-  inimigo2: 0xffaa00,
-  inimigo3: 0xaa44ff,
 };
 
 let _clickCallback = null;
@@ -61,10 +58,15 @@ export function atualizarMinimapa(minimapa, camera, app) {
   const mundo = minimapa._mundo;
   const escala = TAMANHO_MAPA / mundo.tamanho;
 
-  // Planetas
   const dots = minimapa._dots;
   dots.clear();
+  for (const sol of mundo.sois) {
+    if (!sol._visivelAoJogador) continue;
+    dots.circle(sol.x * escala, sol.y * escala, 2.5).fill({ color: sol._cor || 0xffdd88, alpha: 0.9 });
+  }
+
   for (const p of mundo.planetas) {
+    if (!p._visivelAoJogador) continue;
     const mx = p.x * escala;
     const my = p.y * escala;
     const r = Math.max(2, (p.dados.tamanho * escala) / 2);
@@ -72,25 +74,15 @@ export function atualizarMinimapa(minimapa, camera, app) {
     dots.circle(mx, my, Math.min(r, 5)).fill({ color: cor });
   }
 
-  // Fleet lines and moving dots
-  const fl = minimapa._fleetLines;
-  fl.clear();
-  for (const f of mundo.frotas) {
-    const cor = CORES_DONO[f.dono] || 0xffffff;
-    // Fleet dot (moving)
-    const fx = f.x * escala;
-    const fy = f.y * escala;
-    dots.circle(fx, fy, 1.5).fill({ color: cor });
-
-    // Line from current position to destination
-    if (f.destino) {
-      const dx = f.destino.x * escala;
-      const dy = f.destino.y * escala;
-      fl.moveTo(fx, fy).lineTo(dx, dy).stroke({ color: cor, width: 0.5, alpha: 0.4 });
-    }
+  for (const nave of mundo.naves) {
+    const mx = nave.x * escala;
+    const my = nave.y * escala;
+    dots.circle(mx, my, 1.4).fill({ color: 0xffffff, alpha: 0.95 });
   }
 
-  // Viewport rectangle
+  const fl = minimapa._fleetLines;
+  fl.clear();
+
   const vp = minimapa._viewport;
   vp.clear();
   const zoom = camera.zoom || 1;
