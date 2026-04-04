@@ -1,6 +1,11 @@
 import { Container, Graphics } from 'pixi.js';
 import { criarFundo, atualizarFundo } from './fundo.js';
-import { criarPlaneta, criarPlanetaSprite } from './planeta.js';
+import {
+  aplicarAparenciaTipoPlaneta,
+  criarPlaneta,
+  criarPlanetaSprite,
+  TIPO_PLANETA,
+} from './planeta.js';
 
 const DONOS = {
   neutro: 0x888888,
@@ -18,9 +23,21 @@ const RAIO_VISAO_NAVE = 900;
 const DIST_MIN_SISTEMA = 2800;
 const TEMPO_BASE_CONSTRUCAO_MS = 60 * 1000;
 const TEMPO_BASE_COLONIZADORA_MS = 60 * 1000;
-const CUSTO_COLONIZADORA = 20;
+const CUSTO_NAVE_COMUM = 20;
+const CUSTO_PESQUISA_RARO = 5;
+const TEMPO_PESQUISA_MS = 60 * 1000;
 const VELOCIDADE_NAVE = 0.28;
 const VELOCIDADE_ORBITA_NAVE = 0.0018;
+
+const CATEGORIAS_PESQUISA = ['torreta', 'cargueira', 'batedora'];
+
+function criarEstadoPesquisas() {
+  return {
+    torreta: [false, false, false, false, false],
+    cargueira: [false, false, false, false, false],
+    batedora: [false, false, false, false, false],
+  };
+}
 
 export function getEstadoJogo() {
   return estadoJogo;
@@ -54,8 +71,67 @@ export function calcularTempoRestantePlaneta(planeta) {
   return Math.max(0, cicloAtualMs - planeta.dados.acumuladorRecursosMs);
 }
 
-function calcularRecursosPorCiclo(planeta) {
-  return 1 + planeta.dados.infraestrutura;
+function sortearTipoPlaneta() {
+  const tipos = Object.values(TIPO_PLANETA);
+  return tipos[Math.floor(Math.random() * tipos.length)];
+}
+
+/** Produção base por ciclo (antes do multiplicador do planeta / tipo de império). */
+function obterProducaoNaturalCiclo(planeta) {
+  const tipo = planeta.dados.tipoPlaneta;
+  const infra = planeta.dados.infraestrutura || 0;
+
+  switch (tipo) {
+    case TIPO_PLANETA.COMUM:
+      return { comum: 1 + infra, raro: 1, combustivel: 1 };
+    case TIPO_PLANETA.MARTE:
+      return { comum: 0.5, raro: 0.5, combustivel: 0.5 };
+    case TIPO_PLANETA.ROXO:
+      return { comum: 2, raro: 3, combustivel: 1 };
+    case TIPO_PLANETA.GASOSO:
+      return { comum: 0, raro: 0, combustivel: 7 };
+    default:
+      return { comum: 1 + infra, raro: 1, combustivel: 1 };
+  }
+}
+
+function aplicarProducaoCicloAoImperio(mundo, planeta) {
+  const base = obterProducaoNaturalCiclo(planeta);
+  const mult = planeta.dados.producao || 1;
+  const acc = planeta.dados.fracProducao;
+
+  acc.comum += base.comum * mult;
+  acc.raro += base.raro * mult;
+  acc.combustivel += base.combustivel * mult;
+
+  for (const k of ['comum', 'raro', 'combustivel']) {
+    while (acc[k] >= 1) {
+      mundo.recursosJogador[k] += 1;
+      acc[k] -= 1;
+    }
+  }
+}
+
+export function textoProducaoCicloPlaneta(planeta) {
+  const base = obterProducaoNaturalCiclo(planeta);
+  const mult = planeta.dados.producao || 1;
+  const fmt = (n) => (Number.isInteger(n * mult) ? String(n * mult) : (n * mult).toFixed(1));
+  return `C:${fmt(base.comum)} R:${fmt(base.raro)} F:${fmt(base.combustivel)}`;
+}
+
+export function nomeTipoPlaneta(tipo) {
+  switch (tipo) {
+    case TIPO_PLANETA.COMUM:
+      return 'Comum';
+    case TIPO_PLANETA.MARTE:
+      return 'Marte';
+    case TIPO_PLANETA.ROXO:
+      return 'Roxo';
+    case TIPO_PLANETA.GASOSO:
+      return 'Gasoso';
+    default:
+      return tipo || '?';
+  }
 }
 
 function calcularRaioVisaoPlaneta(planeta) {
@@ -122,22 +198,37 @@ function criarSol(x, y, raio, cor) {
   return sol;
 }
 
-function criarGfxNave() {
-  const gfx = new Graphics();
-  gfx.poly([0, -10, 8, 8, 0, 4, -8, 8]).fill({ color: 0xffffff, alpha: 0.95 });
-  gfx.circle(0, 0, 14).stroke({ color: 0x44aaff, width: 1.2, alpha: 0 });
-  return gfx;
+function desenharNaveGfx(nave) {
+  const g = nave.gfx;
+  const tipo = nave.tipo || 'colonizadora';
+  const tier = nave.tier || 1;
+  const sel = nave.selecionado ? 0.95 : 0;
+  g.clear();
+
+  if (tipo === 'colonizadora') {
+    g.poly([0, -10, 8, 8, 0, 4, -8, 8]).fill({ color: 0xffffff, alpha: 0.95 });
+  } else if (tipo === 'cargueira') {
+    const w = 10 + tier * 1.2;
+    g.roundRect(-w, -7, w * 2, 14, 2).fill({ color: 0xa8d4ff, alpha: 0.95 });
+    g.rect(-w * 0.4, -4, w * 0.8, 5).fill({ color: 0x446688, alpha: 0.9 });
+  } else if (tipo === 'batedora') {
+    g.poly([0, -9, 10, 0, 0, 9, -6, 0]).fill({ color: 0xffcc66, alpha: 0.95 });
+  } else if (tipo === 'torreta') {
+    const s = 5 + tier * 0.6;
+    g.rect(-s, -s, s * 2, s * 2).fill({ color: 0xff6666, alpha: 0.95 });
+    g.circle(0, 0, 3).fill({ color: 0xffaaaa, alpha: 0.95 });
+  }
+
+  g.circle(0, 0, 14).stroke({ color: 0x44aaff, width: 1.2, alpha: sel });
 }
 
 function atualizarSelecaoNave(nave) {
-  const g = nave.gfx;
-  g.clear();
-  g.poly([0, -10, 8, 8, 0, 4, -8, 8]).fill({ color: 0xffffff, alpha: 0.95 });
-  g.circle(0, 0, 14).stroke({ color: 0x44aaff, width: 1.2, alpha: nave.selecionado ? 0.95 : 0 });
+  desenharNaveGfx(nave);
 }
 
 function obterRaioAlvo(alvo) {
   if (!alvo) return 0;
+  if (alvo._tipoAlvo === 'ponto') return 16;
   if (alvo._tipoAlvo === 'sol') return alvo._raio + 45;
   return alvo.dados.tamanho / 2 + 28;
 }
@@ -153,10 +244,11 @@ function entrarEmOrbita(nave, alvo) {
   };
 }
 
-function criarNaveColonizadora(mundo, planetaOrigem) {
+function criarNave(mundo, planetaOrigem, tipo, tier = 1) {
   const nave = {
     id: formatarId('nave'),
-    tipo: 'colonizadora',
+    tipo,
+    tier,
     dono: 'jogador',
     x: planetaOrigem.x,
     y: planetaOrigem.y,
@@ -164,7 +256,7 @@ function criarNaveColonizadora(mundo, planetaOrigem) {
     alvo: planetaOrigem,
     selecionado: false,
     origem: planetaOrigem,
-    gfx: criarGfxNave(),
+    gfx: new Graphics(),
     _tipoAlvo: 'nave',
   };
   atualizarSelecaoNave(nave);
@@ -195,15 +287,18 @@ function criarSistemaSolar(container, planetaSheet, centroX, centroY, indiceSist
     const raioOrbita = raioSol + 300 + i * (220 + Math.random() * 80);
     const anguloInicial = Math.random() * Math.PI * 2;
     const velocidade = 0.00003 + Math.random() * 0.000025;
+    const tipoPlaneta = sortearTipoPlaneta();
     const p = criarPlanetaSprite(
       planetaSheet,
       centroX + Math.cos(anguloInicial) * raioOrbita,
       centroY + Math.sin(anguloInicial) * raioOrbita,
-      tamanho
+      tamanho,
+      tipoPlaneta
     );
 
     p.dados = {
       dono: 'neutro',
+      tipoPlaneta,
       producao: 1,
       tamanho,
       selecionado: false,
@@ -211,6 +306,7 @@ function criarSistemaSolar(container, planetaSheet, centroX, centroY, indiceSist
       infraestrutura: 0,
       naves: 0,
       acumuladorRecursosMs: 0,
+      fracProducao: { comum: 0, raro: 0, combustivel: 0 },
       sistemaId: indiceSistema,
       construcaoAtual: null,
       producaoNave: null,
@@ -289,6 +385,12 @@ export async function criarMundo(app, tipoJogador) {
     planetas.push(...sistema.planetas);
   }
 
+  if (!planetas.some((p) => p.dados.tipoPlaneta === TIPO_PLANETA.COMUM) && planetas.length > 0) {
+    const p = planetas[0];
+    p.dados.tipoPlaneta = TIPO_PLANETA.COMUM;
+    aplicarAparenciaTipoPlaneta(p, TIPO_PLANETA.COMUM);
+  }
+
   const mundo = {
     container,
     tamanho,
@@ -302,13 +404,16 @@ export async function criarMundo(app, tipoJogador) {
     navesContainer,
     planetaSheet,
     tipoJogador,
-    recursosJogador: 0,
+    recursosJogador: { comum: 0, raro: 0, combustivel: 0 },
     ultimoTickMs: performance.now(),
     visaoContainer,
     fontesVisao: [],
+    pesquisas: criarEstadoPesquisas(),
+    pesquisaAtual: null,
   };
 
-  const planetaInicial = planetas[Math.floor(Math.random() * planetas.length)];
+  const planetasComuns = planetas.filter((p) => p.dados.tipoPlaneta === TIPO_PLANETA.COMUM);
+  const planetaInicial = planetasComuns[Math.floor(Math.random() * planetasComuns.length)];
   planetaInicial.dados.dono = 'jogador';
   planetaInicial.dados.producao *= tipoJogador?.bonus?.producao || 1;
   planetaInicial.dados.fabricas += tipoJogador?.bonus?.fabricasIniciais || 0;
@@ -383,6 +488,13 @@ export function enviarNaveParaAlvo(mundo, nave, alvo) {
   return true;
 }
 
+export function parseAcaoNave(acao) {
+  if (acao === 'nave_colonizadora') return { tipo: 'colonizadora', tier: 1 };
+  const m = acao.match(/^nave_(cargueira|batedora|torreta)_([1-5])$/);
+  if (m) return { tipo: m[1], tier: Number(m[2]) };
+  return null;
+}
+
 function finalizarColonizacao(mundo, nave, planeta) {
   planeta.dados.dono = 'jogador';
   planeta.dados.selecionado = false;
@@ -390,7 +502,7 @@ function finalizarColonizacao(mundo, nave, planeta) {
 }
 
 function removerNave(mundo, nave) {
-  if (nave.origem?.dados) {
+  if (nave.origem?.dados && nave.tipo === 'colonizadora') {
     nave.origem.dados.naves = Math.max(0, nave.origem.dados.naves - 1);
   }
   const idx = mundo.naves.indexOf(nave);
@@ -404,7 +516,7 @@ function atualizarFilasPlaneta(mundo, planeta, deltaMs) {
   planeta.dados.acumuladorRecursosMs += deltaMs;
   while (planeta.dados.acumuladorRecursosMs >= CICLO_RECURSO_MS) {
     planeta.dados.acumuladorRecursosMs -= CICLO_RECURSO_MS;
-    mundo.recursosJogador += calcularRecursosPorCiclo(planeta);
+    aplicarProducaoCicloAoImperio(mundo, planeta);
   }
 
   const construcao = planeta.dados.construcaoAtual;
@@ -423,8 +535,10 @@ function atualizarFilasPlaneta(mundo, planeta, deltaMs) {
     producao.tempoRestanteMs = Math.max(0, producao.tempoRestanteMs - deltaMs);
     if (producao.tempoRestanteMs <= 0) {
       planeta.dados.producaoNave = null;
-      planeta.dados.naves += 1;
-      criarNaveColonizadora(mundo, planeta);
+      const tipoNave = producao.tipoNave || producao.tipo || 'colonizadora';
+      const tier = producao.tier || 1;
+      if (tipoNave === 'colonizadora') planeta.dados.naves += 1;
+      criarNave(mundo, planeta, tipoNave, tier);
     }
   }
 }
@@ -478,9 +592,8 @@ function atualizarNaves(mundo, deltaMs) {
   for (let i = mundo.naves.length - 1; i >= 0; i--) {
     const nave = mundo.naves[i];
     const alvo = nave.alvo;
-    if (!alvo) continue;
 
-    if (nave.estado === 'viajando') {
+    if (nave.estado === 'viajando' && alvo) {
       const dx = alvo.x - nave.x;
       const dy = alvo.y - nave.y;
       const dist = Math.hypot(dx, dy);
@@ -492,7 +605,15 @@ function atualizarNaves(mundo, deltaMs) {
           continue;
         }
 
-        entrarEmOrbita(nave, alvo);
+        if (alvo._tipoAlvo === 'ponto') {
+          nave.x = alvo.x;
+          nave.y = alvo.y;
+          nave.estado = 'parado';
+          nave.alvo = null;
+          nave.orbita = null;
+        } else {
+          entrarEmOrbita(nave, alvo);
+        }
       } else if (dist > 0) {
         nave.x += (dx / dist) * VELOCIDADE_NAVE * deltaMs;
         nave.y += (dy / dist) * VELOCIDADE_NAVE * deltaMs;
@@ -510,10 +631,75 @@ function atualizarNaves(mundo, deltaMs) {
   }
 }
 
+function atualizarPesquisaGlobal(mundo, deltaMs) {
+  const p = mundo.pesquisaAtual;
+  if (!p) return;
+  p.tempoRestanteMs = Math.max(0, p.tempoRestanteMs - deltaMs);
+  if (p.tempoRestanteMs <= 0) {
+    const arr = mundo.pesquisas[p.categoria];
+    if (arr) arr[p.tier - 1] = true;
+    mundo.pesquisaAtual = null;
+  }
+}
+
+function enfileirarProducaoNave(mundo, planeta, tipoNave, tier) {
+  if (planeta.dados.fabricas < 1 || planeta.dados.producaoNave) return false;
+  if (tipoNave !== 'colonizadora') {
+    if (planeta.dados.fabricas < tier) return false;
+    const pesq = mundo.pesquisas[tipoNave];
+    if (!pesq || !pesq[tier - 1]) return false;
+  }
+  const tempo = calcularTempoColonizadoraMs(planeta);
+  if (!tempo || mundo.recursosJogador.comum < CUSTO_NAVE_COMUM) return false;
+  mundo.recursosJogador.comum -= CUSTO_NAVE_COMUM;
+  planeta.dados.producaoNave = {
+    tipoNave,
+    tier,
+    tempoRestanteMs: tempo,
+    tempoTotalMs: tempo,
+  };
+  return true;
+}
+
+export function iniciarPesquisa(mundo, categoria, tier) {
+  if (!CATEGORIAS_PESQUISA.includes(categoria)) return false;
+  if (tier < 1 || tier > TIER_MAX) return false;
+  const arr = mundo.pesquisas[categoria];
+  if (!arr || arr[tier - 1]) return false;
+  if (mundo.pesquisaAtual) return false;
+  if (mundo.recursosJogador.raro < CUSTO_PESQUISA_RARO) return false;
+  mundo.recursosJogador.raro -= CUSTO_PESQUISA_RARO;
+  mundo.pesquisaAtual = {
+    categoria,
+    tier,
+    tempoRestanteMs: TEMPO_PESQUISA_MS,
+    tempoTotalMs: TEMPO_PESQUISA_MS,
+  };
+  return true;
+}
+
+export function pesquisaTierLiberada(mundo, categoria, tier) {
+  return !!mundo.pesquisas[categoria]?.[tier - 1];
+}
+
+export function getPesquisaAtual(mundo) {
+  return mundo.pesquisaAtual || null;
+}
+
+export function enviarNaveParaPosicao(mundo, nave, wx, wy) {
+  if (!nave || nave.dono !== 'jogador') return false;
+  nave.estado = 'viajando';
+  nave.alvo = { _tipoAlvo: 'ponto', x: wx, y: wy };
+  nave.orbita = null;
+  return true;
+}
+
 export function atualizarMundo(mundo, app, camera) {
   const agora = performance.now();
   const deltaMs = agora - (mundo.ultimoTickMs || agora);
   mundo.ultimoTickMs = agora;
+
+  atualizarPesquisaGlobal(mundo, deltaMs);
 
   for (const planeta of mundo.planetas) {
     atualizarOrbitaPlaneta(planeta, deltaMs);
@@ -570,12 +756,17 @@ export function atualizarMundo(mundo, app, camera) {
 export function construirNoPlaneta(mundo, planeta, tipo) {
   if (!planeta || planeta.dados.dono !== 'jogador') return false;
 
+  const parsedNave = parseAcaoNave(tipo);
+  if (parsedNave) {
+    return enfileirarProducaoNave(mundo, planeta, parsedNave.tipo, parsedNave.tier);
+  }
+
   if (tipo === 'fabrica') {
     if (planeta.dados.construcaoAtual) return false;
     const custo = calcularCustoTier(planeta.dados.fabricas);
     const tempo = calcularTempoConstrucaoMs(planeta.dados.fabricas);
-    if (!custo || !tempo || mundo.recursosJogador < custo) return false;
-    mundo.recursosJogador -= custo;
+    if (!custo || !tempo || mundo.recursosJogador.comum < custo) return false;
+    mundo.recursosJogador.comum -= custo;
     planeta.dados.construcaoAtual = {
       tipo: 'fabrica',
       tierDestino: planeta.dados.fabricas + 1,
@@ -589,24 +780,11 @@ export function construirNoPlaneta(mundo, planeta, tipo) {
     if (planeta.dados.construcaoAtual) return false;
     const custo = calcularCustoTier(planeta.dados.infraestrutura);
     const tempo = calcularTempoConstrucaoMs(planeta.dados.infraestrutura);
-    if (!custo || !tempo || mundo.recursosJogador < custo) return false;
-    mundo.recursosJogador -= custo;
+    if (!custo || !tempo || mundo.recursosJogador.comum < custo) return false;
+    mundo.recursosJogador.comum -= custo;
     planeta.dados.construcaoAtual = {
       tipo: 'infraestrutura',
       tierDestino: planeta.dados.infraestrutura + 1,
-      tempoRestanteMs: tempo,
-      tempoTotalMs: tempo,
-    };
-    return true;
-  }
-
-  if (tipo === 'colonizadora') {
-    if (planeta.dados.fabricas < 1 || planeta.dados.producaoNave) return false;
-    const tempo = calcularTempoColonizadoraMs(planeta);
-    if (!tempo || mundo.recursosJogador < CUSTO_COLONIZADORA) return false;
-    mundo.recursosJogador -= CUSTO_COLONIZADORA;
-    planeta.dados.producaoNave = {
-      tipo: 'colonizadora',
       tempoRestanteMs: tempo,
       tempoTotalMs: tempo,
     };

@@ -4,6 +4,7 @@ import {
   encontrarPlanetaNoPonto,
   encontrarSolNoPonto,
   enviarNaveParaAlvo,
+  enviarNaveParaPosicao,
   limparSelecoes,
   obterNaveSelecionada,
   selecionarNave,
@@ -94,13 +95,16 @@ export function configurarCamera(app, mundo) {
 
     if (movedDist < 5) {
       const naveSelecionada = obterNaveSelecionada(mundo);
-      const alvoClique = clickInfo?.planeta || clickInfo?.sol;
+      const destinoMapa = screenToWorld(e.clientX, e.clientY, app);
 
-      if (naveSelecionada && alvoClique && clickInfo?.nave !== naveSelecionada) {
-        enviarNaveParaAlvo(mundo, naveSelecionada, alvoClique);
-        somClique();
-      } else if (clickInfo?.nave) {
+      if (clickInfo?.nave) {
         selecionarNave(mundo, clickInfo.nave);
+        somClique();
+      } else if (naveSelecionada && (clickInfo?.planeta || clickInfo?.sol)) {
+        enviarNaveParaAlvo(mundo, naveSelecionada, clickInfo.planeta || clickInfo.sol);
+        somClique();
+      } else if (naveSelecionada) {
+        enviarNaveParaPosicao(mundo, naveSelecionada, destinoMapa.x, destinoMapa.y);
         somClique();
       } else if (clickInfo?.planeta) {
         selecionarPlaneta(mundo, clickInfo.planeta);

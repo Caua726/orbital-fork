@@ -1,5 +1,23 @@
 import { Assets, AnimatedSprite, Spritesheet, SCALE_MODES } from 'pixi.js';
 
+export const TIPO_PLANETA = {
+  COMUM: 'comum',
+  MARTE: 'marte',
+  ROXO: 'roxo',
+  GASOSO: 'gasoso',
+};
+
+const TINT_POR_TIPO = {
+  [TIPO_PLANETA.COMUM]: 0xffffff,
+  [TIPO_PLANETA.MARTE]: 0xd4785a,
+  [TIPO_PLANETA.ROXO]: 0x9b5cff,
+  [TIPO_PLANETA.GASOSO]: 0xa8e0ff,
+};
+
+export function aplicarAparenciaTipoPlaneta(sprite, tipoPlaneta) {
+  sprite.tint = TINT_POR_TIPO[tipoPlaneta] ?? 0xffffff;
+}
+
 const FRAME_W = 250;
 const FRAME_H = 250;
 const COLUNAS = 5;
@@ -34,7 +52,7 @@ export async function criarPlaneta(app) {
   return sheet;
 }
 
-export function criarPlanetaSprite(sheet, x, y, tamanho) {
+export function criarPlanetaSprite(sheet, x, y, tamanho, tipoPlaneta = TIPO_PLANETA.COMUM) {
   const sprite = new AnimatedSprite(sheet.animations['rotacao']);
   sprite.animationSpeed = 0.02 + Math.random() * 0.08;
   sprite.gotoAndStop(Math.floor(Math.random() * 30));
@@ -43,5 +61,6 @@ export function criarPlanetaSprite(sheet, x, y, tamanho) {
   sprite.height = tamanho;
   sprite.x = x;
   sprite.y = y;
+  aplicarAparenciaTipoPlaneta(sprite, tipoPlaneta);
   return sprite;
 }
