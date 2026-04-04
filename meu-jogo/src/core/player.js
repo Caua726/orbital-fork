@@ -109,8 +109,6 @@ export function configurarCamera(app, mundo) {
       } else if (clickInfo?.planeta) {
         selecionarPlaneta(mundo, clickInfo.planeta);
         somClique();
-      } else {
-        limparSelecoes(mundo);
       }
     }
 

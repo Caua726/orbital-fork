@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Retro Space UI Mockup - 90s Space Game</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #070714;
+    font-family: 'VT323', monospace;
+    color: #c0d8ff;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ============================================
+     TOP BAR — metallic strip across the top
+     ============================================ */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    height: 36px;
+    background:
+      linear-gradient(180deg,
+        #2a3050 0%,
+        #1a2040 40%,
+        #0e1428 60%,
+        #1a2040 100%);
+    border-bottom: 2px solid #3a5080;
+    border-top: 1px solid #4a6090;
+    position: relative;
+    z-index: 10;
+  }
+
+  .top-bar::after {
+    content: '';
+    position: absolute;
+    bottom: -3px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #0a0e1a;
+  }
+
+  .stat-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    height: 26px;
+    background: linear-gradient(180deg, #0c1428 0%, #0a1020 100%);
+    border: 1px solid #2a4070;
+    border-radius: 2px;
+    box-shadow: inset 0 1px 3px #00000080;
+  }
+
+  .stat-group .icon { font-size: 14px; opacity: 0.7; }
+
+  .stat-group .val {
+    font-size: 18px;
+    letter-spacing: 1px;
+  }
+
+  .val.cyan { color: #60ccff; }
+  .val.green { color: #60ff90; }
+  .val.amber { color: #ffcc40; }
+  .val.pink { color: #ff6090; }
+
+  .top-spacer { flex: 1; }
+
+  .top-divider {
+    width: 1px;
+    height: 20px;
+    background: linear-gradient(180deg, transparent, #3a5080, transparent);
+    margin: 0 4px;
+  }
+
+  /* ============================================
+     PANEL — the main planet info window
+     ============================================ */
+  .panel {
+    position: absolute;
+    bottom: 20px;
+    left: 16px;
+    width: 400px;
+    z-index: 5;
+  }
+
+  /* Panel frame — thick metallic border with corner accents */
+  .panel-frame {
+    background: linear-gradient(180deg, #101830 0%, #0a1020 50%, #0c1428 100%);
+    border: 2px solid #2a4070;
+    border-radius: 4px;
+    box-shadow:
+      0 0 12px #0a1840aa,
+      inset 0 1px 0 #2a406044;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Corner brackets */
+  .panel-frame::before,
+  .panel-frame::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-color: #4a80cc;
+    border-style: solid;
+    z-index: 2;
+  }
+  .panel-frame::before {
+    top: 0; left: 0;
+    border-width: 2px 0 0 2px;
+  }
+  .panel-frame::after {
+    top: 0; right: 0;
+    border-width: 2px 2px 0 0;
+  }
+
+  .corner-bl, .corner-br {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-color: #4a80cc;
+    border-style: solid;
+    z-index: 2;
+  }
+  .corner-bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
+  .corner-br { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+  /* Title bar — gradient strip */
+  .panel-title {
+    display: flex;
+    align-items: center;
+    padding: 4px 10px;
+    background: linear-gradient(90deg, #1a3060, #2a5090, #1a3060);
+    border-bottom: 1px solid #2a4070;
+    gap: 8px;
+  }
+
+  .panel-title .diamond {
+    width: 6px;
+    height: 6px;
+    background: #60ccff;
+    transform: rotate(45deg);
+    flex-shrink: 0;
+    box-shadow: 0 0 4px #60ccff88;
+  }
+
+  .panel-title span {
+    font-size: 17px;
+    color: #a0d0ff;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* Info area — dark recessed field */
+  .info-field {
+    margin: 6px 8px;
+    padding: 6px 10px;
+    background: #060c1a;
+    border: 1px solid #1a2848;
+    border-radius: 2px;
+    box-shadow: inset 0 2px 6px #00000060;
+  }
+
+  .info-row {
+    display: flex;
+    font-size: 17px;
+    line-height: 1.6;
+    gap: 4px;
+  }
+
+  .info-row .lbl {
+    color: #5070a0;
+    min-width: 100px;
+  }
+
+  .info-row .val {
+    color: #90ccff;
+  }
+
+  .info-row .val.warn {
+    color: #ffaa40;
+  }
+
+  .info-row .val.good {
+    color: #60ff90;
+  }
+
+  /* Section divider */
+  .section-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 8px 2px;
+    font-size: 14px;
+    color: #4070a0;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+
+  .section-bar::before,
+  .section-bar::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #2a4070, transparent);
+  }
+
+  /* ============================================
+     BUTTONS
+     ============================================ */
+  .btn-row {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding: 4px 8px;
+  }
+
+  .btn {
+    font-family: 'VT323', monospace;
+    font-size: 16px;
+    padding: 4px 10px;
+    color: #a0c8ff;
+    background: linear-gradient(180deg, #1a2848 0%, #101c38 50%, #0c1830 100%);
+    border: 1px solid #2a4878;
+    border-radius: 2px;
+    cursor: pointer;
+    text-align: center;
+    min-width: 80px;
+    line-height: 1.3;
+    transition: all 0.1s;
+    position: relative;
+    box-shadow: 0 1px 3px #00000040;
+  }
+
+  .btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #3a6098, transparent);
+  }
+
+  .btn:hover {
+    background: linear-gradient(180deg, #2a3868 0%, #1a2c50 50%, #162440 100%);
+    border-color: #4a70aa;
+    color: #c0e0ff;
+    box-shadow: 0 0 8px #2a4a8044;
+  }
+
+  .btn:active {
+    background: linear-gradient(180deg, #0c1830 0%, #1a2848 100%);
+    border-color: #2a4070;
+    transform: translateY(1px);
+    box-shadow: none;
+  }
+
+  .btn .sub {
+    font-size: 14px;
+    color: #406090;
+    display: block;
+  }
+
+  .btn.disabled {
+    color: #304060;
+    border-color: #1a2848;
+    background: linear-gradient(180deg, #0e1828 0%, #0a1420 100%);
+    cursor: default;
+    box-shadow: none;
+  }
+
+  .btn.disabled::before { display: none; }
+  .btn.disabled .sub { color: #1a2838; }
+
+  .btn.action {
+    border-color: #28705a;
+    color: #60ffa0;
+    background: linear-gradient(180deg, #102838 0%, #0c2030 50%, #0a1c28 100%);
+  }
+
+  .btn.action::before {
+    background: linear-gradient(90deg, transparent, #309870, transparent);
+  }
+
+  .btn.action:hover {
+    border-color: #40a080;
+    color: #90ffc0;
+    background: linear-gradient(180deg, #183848 0%, #143040 50%, #102838 100%);
+    box-shadow: 0 0 8px #30806044;
+  }
+
+  .btn.action .sub { color: #307050; }
+
+  /* ============================================
+     PRODUCTION GRID
+     ============================================ */
+  .prod-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px 8px;
+  }
+
+  .prod-grid .btn {
+    min-width: unset;
+    font-size: 15px;
+    padding: 3px 6px;
+  }
+
+  /* Research row */
+  .research-row {
+    display: flex;
+    gap: 3px;
+    padding: 4px 8px;
+    align-items: center;
+  }
+
+  .research-label {
+    font-size: 14px;
+    color: #5070a0;
+    min-width: 76px;
+  }
+
+  .btn-sm {
+    font-family: 'VT323', monospace;
+    font-size: 15px;
+    width: 30px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #a0c8ff;
+    background: linear-gradient(180deg, #1a2848 0%, #101c38 100%);
+    border: 1px solid #2a4878;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.1s;
+  }
+
+  .btn-sm:hover {
+    border-color: #4a70aa;
+    color: #c0e0ff;
+    background: linear-gradient(180deg, #2a3868 0%, #1a2c50 100%);
+  }
+
+  .btn-sm.disabled {
+    color: #304060;
+    border-color: #1a2848;
+    background: #0e1828;
+    cursor: default;
+  }
+
+  .btn-sm.done {
+    color: #40705a;
+    border-color: #1a3830;
+    background: #0a1820;
+  }
+
+  /* bottom padding */
+  .panel-pad { height: 6px; }
+
+  /* ============================================
+     MINIMAP
+     ============================================ */
+  .minimap {
+    position: absolute;
+    bottom: 20px;
+    right: 16px;
+    width: 210px;
+    z-index: 5;
+  }
+
+  .minimap-frame {
+    background: linear-gradient(180deg, #101830 0%, #0a1020 100%);
+    border: 2px solid #2a4070;
+    border-radius: 4px;
+    box-shadow: 0 0 12px #0a1840aa, inset 0 1px 0 #2a406044;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .minimap-frame::before,
+  .minimap-frame::after {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-color: #4a80cc;
+    border-style: solid;
+    z-index: 2;
+  }
+  .minimap-frame::before { top: 0; left: 0; border-width: 2px 0 0 2px; }
+  .minimap-frame::after { top: 0; right: 0; border-width: 2px 2px 0 0; }
+
+  .minimap-title {
+    display: flex;
+    align-items: center;
+    padding: 3px 8px;
+    background: linear-gradient(90deg, #1a3060, #2a5090, #1a3060);
+    border-bottom: 1px solid #2a4070;
+    gap: 6px;
+    font-size: 14px;
+    color: #a0d0ff;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .minimap-title .diamond {
+    width: 5px;
+    height: 5px;
+    background: #60ccff;
+    transform: rotate(45deg);
+    box-shadow: 0 0 3px #60ccff88;
+  }
+
+  .minimap-content {
+    margin: 4px;
+    height: 180px;
+    background: #040810;
+    border: 1px solid #1a2848;
+    border-radius: 1px;
+    box-shadow: inset 0 2px 6px #00000060;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .minimap-dot {
+    position: absolute;
+    border-radius: 50%;
+    box-shadow: 0 0 3px currentColor;
+  }
+
+  .minimap-viewport {
+    position: absolute;
+    border: 1px solid #60ccff44;
+    box-shadow: 0 0 4px #60ccff22;
+    width: 60px;
+    height: 40px;
+    top: 35px;
+    left: 45px;
+  }
+
+  /* ============================================
+     SUBTLE SCANLINES
+     ============================================ */
+  .scanlines {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 3px,
+      #00000008 3px,
+      #00000008 4px
+    );
+  }
+</style>
+</head>
+<body>
+
+<div class="scanlines"></div>
+
+<!-- ======== TOP BAR ======== -->
+<div class="top-bar">
+  <div class="stat-group">
+    <span class="icon">&#9672;</span>
+    <span class="val cyan">Planetas: 3</span>
+  </div>
+  <div class="stat-group">
+    <span class="val green">C: 120</span>
+    <span class="val amber">R: 45</span>
+    <span class="val pink">F: 80</span>
+  </div>
+  <div class="top-spacer"></div>
+  <div class="top-divider"></div>
+  <div class="stat-group">
+    <span class="val amber">Industrial</span>
+  </div>
+  <div class="stat-group">
+    <span class="icon">&#9650;</span>
+    <span class="val cyan">Naves: 7</span>
+  </div>
+</div>
+
+<!-- ======== PLANET PANEL ======== -->
+<div class="panel">
+  <div class="panel-frame">
+    <div class="corner-bl"></div>
+    <div class="corner-br"></div>
+
+    <div class="panel-title">
+      <div class="diamond"></div>
+      <span>Seu Planeta — Rochoso</span>
+    </div>
+
+    <div class="info-field">
+      <div class="info-row"><span class="lbl">Dono</span><span class="val">Jogador</span></div>
+      <div class="info-row"><span class="lbl">Tipo</span><span class="val">Rochoso</span></div>
+      <div class="info-row"><span class="lbl">Ciclo</span><span class="val warn">12.4s</span></div>
+      <div class="info-row"><span class="lbl">Producao</span><span class="val good">+8C +3R +2F</span></div>
+      <div class="info-row"><span class="lbl">Fabrica</span><span class="val">2 / 5</span></div>
+      <div class="info-row"><span class="lbl">Infra</span><span class="val">1 / 5</span></div>
+    </div>
+
+    <div class="section-bar">Edificios</div>
+    <div class="btn-row">
+      <div class="btn action">Fabrica T3 <span class="sub">40C | 01:20</span></div>
+      <div class="btn action">Infra T2 <span class="sub">25C | 00:45</span></div>
+    </div>
+
+    <div class="section-bar">Naves</div>
+    <div class="prod-grid">
+      <div class="btn">Colonizadora <span class="sub">20C | 00:30</span></div>
+      <div class="btn">Cargueira T1 <span class="sub">20C | 00:30</span></div>
+      <div class="btn">Batedora T1 <span class="sub">20C | 00:30</span></div>
+      <div class="btn disabled">Torreta T1 <span class="sub">LOCKED</span></div>
+      <div class="btn">Cargueira T2 <span class="sub">20C | 00:30</span></div>
+      <div class="btn disabled">Batedora T2 <span class="sub">LOCKED</span></div>
+    </div>
+
+    <div class="section-bar">Pesquisa</div>
+    <div class="research-row">
+      <span class="research-label">Torreta</span>
+      <div class="btn-sm done">1</div>
+      <div class="btn-sm">2</div>
+      <div class="btn-sm disabled">3</div>
+      <div class="btn-sm disabled">4</div>
+      <div class="btn-sm disabled">5</div>
+    </div>
+    <div class="research-row">
+      <span class="research-label">Cargueira</span>
+      <div class="btn-sm">1</div>
+      <div class="btn-sm disabled">2</div>
+      <div class="btn-sm disabled">3</div>
+      <div class="btn-sm disabled">4</div>
+      <div class="btn-sm disabled">5</div>
+    </div>
+    <div class="research-row">
+      <span class="research-label">Batedora</span>
+      <div class="btn-sm">1</div>
+      <div class="btn-sm disabled">2</div>
+      <div class="btn-sm disabled">3</div>
+      <div class="btn-sm disabled">4</div>
+      <div class="btn-sm disabled">5</div>
+    </div>
+
+    <div class="panel-pad"></div>
+  </div>
+</div>
+
+<!-- ======== MINIMAP ======== -->
+<div class="minimap">
+  <div class="minimap-frame">
+    <div class="minimap-title">
+      <div class="diamond"></div>
+      <span>Setor</span>
+    </div>
+    <div class="minimap-content">
+      <div class="minimap-dot" style="width:5px;height:5px;background:#ffdd88;color:#ffdd88;top:30px;left:50px"></div>
+      <div class="minimap-dot" style="width:5px;height:5px;background:#ffdd88;color:#ffdd88;top:100px;left:140px"></div>
+      <div class="minimap-dot" style="width:4px;height:4px;background:#60ccff;color:#60ccff;top:40px;left:62px"></div>
+      <div class="minimap-dot" style="width:4px;height:4px;background:#60ccff;color:#60ccff;top:35px;left:44px"></div>
+      <div class="minimap-dot" style="width:3px;height:3px;background:#666;color:#666;top:108px;left:130px"></div>
+      <div class="minimap-dot" style="width:4px;height:4px;background:#60ff90;color:#60ff90;top:104px;left:148px"></div>
+      <div class="minimap-dot" style="width:2px;height:2px;background:#fff;color:#fff;top:50px;left:56px"></div>
+      <div class="minimap-viewport"></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

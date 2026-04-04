@@ -3,7 +3,7 @@ import { criarMundo, atualizarMundo, getEstadoJogo, construirNoPlaneta } from '.
 import { configurarCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador } from './core/player.js';
 import { criarMinimapa, atualizarMinimapa, onMinimapClick } from './ui/minimapa.js';
 import { criarPainel, atualizarPainel, definirAcaoPainel } from './ui/painel.js';
-import { criarTelaSelecao } from './ui/selecao.js';
+import { getTipos } from './ui/selecao.js';
 import { criarTutorial, atualizarTutorial } from './ui/tutorial.js';
 import { somVitoria, somDerrota } from './audio/som.js';
 
@@ -25,7 +25,7 @@ window.addEventListener('resize', () => {
   app.renderer.resize(window.innerWidth, window.innerHeight);
 });
 
-const tipoEscolhido = await criarTelaSelecao(app);
+const tipoEscolhido = getTipos()[0]; // Industrial by default
 setTipoJogador(tipoEscolhido);
 
 const mundo = await criarMundo(app, tipoEscolhido);
