@@ -1,4 +1,4 @@
-import { Assets, AnimatedSprite, Spritesheet, SCALE_MODES } from 'pixi.js';
+import { Assets, AnimatedSprite, Spritesheet } from 'pixi.js';
 
 export const TIPO_PLANETA = {
   COMUM: 'comum',
@@ -40,7 +40,7 @@ const LINHAS = 6;
 
 export async function criarPlaneta() {
   const texture = await Assets.load('/assets/planeta.png');
-  texture.source.scaleMode = SCALE_MODES.NEAREST;
+  texture.source.scaleMode = 'nearest';
 
   const frames = {};
   const animFrames = [];
