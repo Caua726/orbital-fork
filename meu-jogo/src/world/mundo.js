@@ -358,8 +358,6 @@ export async function criarMundo(app, tipoJogador) {
 
   container.addChild(frotasContainer);
   container.addChild(navesContainer);
-  container.addChild(visaoContainer);
-  container.addChild(memoriaPlanetasContainer);
 
   const totalSistemas = 18;
   let tentativasSistema = 0;
@@ -384,6 +382,10 @@ export async function criarMundo(app, tipoJogador) {
     sois.push(sistema.sol);
     planetas.push(...sistema.planetas);
   }
+
+  // Fog e memória acima dos planetas/sóis
+  container.addChild(visaoContainer);
+  container.addChild(memoriaPlanetasContainer);
 
   if (!planetas.some((p) => p.dados.tipoPlaneta === TIPO_PLANETA.COMUM) && planetas.length > 0) {
     const p = planetas[0];
