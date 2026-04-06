@@ -246,7 +246,7 @@ export function removerMemoriaPlaneta(mundo, planeta) {
 
 const ALPHA_NEBLINA = 0.75;
 const COR_NEBLINA = 0x020510;
-const FOG_THROTTLE_FRAMES = 3; // redesenha a cada N frames
+const FOG_THROTTLE_FRAMES = 2; // redesenha a cada N frames
 
 let _fogFrameCount = 0;
 
@@ -263,7 +263,7 @@ export function desenharNeblinaVisao(mundo, fontesVisao, camera, screenW, screen
   g.clear();
 
   const invZoom = 1 / (zoom || 1);
-  const margem = 600 * invZoom;
+  const margem = 1200 * invZoom;
   const rx = camera.x - margem;
   const ry = camera.y - margem;
   const rw = screenW * invZoom + margem * 2;
