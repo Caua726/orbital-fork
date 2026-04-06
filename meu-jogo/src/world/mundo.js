@@ -706,11 +706,35 @@ export function enviarNaveParaPosicao(mundo, nave, wx, wy) {
   return true;
 }
 
+/** Profiling — tempos médios por seção (ms) */
+export const profiling = {
+  logica: 0,
+  fundo: 0,
+  fog: 0,
+  planetas: 0,
+  render: 0,
+  total: 0,
+};
+
+const _profilingSoma = { logica: 0, fundo: 0, fog: 0, planetas: 0, render: 0, total: 0 };
+let _profilingFrames = 0;
+const PROFILING_JANELA = 30;
+
+function profileMark() {
+  return performance.now();
+}
+
+function profileAcumular(campo, inicio) {
+  _profilingSoma[campo] += performance.now() - inicio;
+}
+
 export function atualizarMundo(mundo, app, camera) {
+  const frameInicio = profileMark();
   const agora = performance.now();
   const deltaMs = agora - (mundo.ultimoTickMs || agora);
   mundo.ultimoTickMs = agora;
 
+  let t = profileMark();
   atualizarPesquisaGlobal(mundo, deltaMs);
 
   for (const planeta of mundo.planetas) {
@@ -719,12 +743,15 @@ export function atualizarMundo(mundo, app, camera) {
   }
 
   atualizarNaves(mundo, deltaMs);
+  profileAcumular('logica', t);
 
   const zoom = camera.zoom || 1;
   const camX = camera.x + app.screen.width / 2;
   const camY = camera.y + app.screen.height / 2;
 
+  t = profileMark();
   atualizarFundo(mundo.fundo, camX, camY, app.screen.width, app.screen.height);
+  profileAcumular('fundo', t);
 
   const margem = 600 / zoom;
   const esq = camera.x - margem;
@@ -732,8 +759,11 @@ export function atualizarMundo(mundo, app, camera) {
   const cima = camera.y - margem;
   const baixo = camera.y + app.screen.height / zoom + margem;
 
+  t = profileMark();
   atualizarCampoDeVisao(mundo, camera, app);
+  profileAcumular('fog', t);
 
+  t = profileMark();
   for (const planeta of mundo.planetas) {
     const visNaTela = planeta.x > esq && planeta.x < dir && planeta.y > cima && planeta.y < baixo;
     const vis = visNaTela && planeta._visivelAoJogador;
@@ -754,7 +784,9 @@ export function atualizarMundo(mundo, app, camera) {
     atualizarVisibilidadeMemoria(planeta, planeta._visivelAoJogador, esq, dir, cima, baixo);
     atualizarEscalaLabelMemoria(planeta, zoom);
   }
+  profileAcumular('planetas', t);
 
+  t = profileMark();
   for (const sol of mundo.sois) {
     const visNaTela = sol.x > esq && sol.x < dir && sol.y > cima && sol.y < baixo;
     sol.visible = visNaTela && sol._visivelAoJogador;
@@ -767,6 +799,18 @@ export function atualizarMundo(mundo, app, camera) {
       nave._selecaoAnterior = nave.selecionado;
       atualizarSelecaoNave(nave);
     }
+  }
+  profileAcumular('render', t);
+
+  profileAcumular('total', frameInicio);
+
+  _profilingFrames++;
+  if (_profilingFrames >= PROFILING_JANELA) {
+    for (const k of Object.keys(profiling)) {
+      profiling[k] = _profilingSoma[k] / PROFILING_JANELA;
+      _profilingSoma[k] = 0;
+    }
+    _profilingFrames = 0;
   }
 
   verificarEstadoJogo(mundo);
