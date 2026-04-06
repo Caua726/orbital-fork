@@ -244,39 +244,37 @@ export function removerMemoriaPlaneta(mundo, planeta) {
   memorias.delete(planeta);
 }
 
-import { Sprite, Texture } from 'pixi.js';
+import { Sprite, Texture, ImageSource } from 'pixi.js';
 
 const FOG_ALPHA = 0.75;
-const FOG_SCALE = 0.5; // renderizar em meia resolução para performance
+const FOG_SCALE = 0.5;
 
 let _fogCanvas = null;
 let _fogCtx = null;
 let _fogSprite = null;
+let _fogSource = null;
+let _fogTexture = null;
 
-/**
- * Fog de guerra via Canvas 2D offscreen → Sprite.
- * Sem .cut() — usa canvas globalCompositeOperation 'destination-out'.
- * Renderiza em meia resolução para máxima performance.
- */
 export function desenharNeblinaVisao(mundo, fontesVisao, camera, screenW, screenH, zoom) {
   const invZoom = 1 / (zoom || 1);
   const margem = 800 * invZoom;
 
-  // Área do mundo coberta pelo fog
   const worldX = camera.x - margem;
   const worldY = camera.y - margem;
   const worldW = screenW * invZoom + margem * 2;
   const worldH = screenH * invZoom + margem * 2;
 
-  // Canvas em meia resolução
   const canvasW = Math.ceil(worldW * FOG_SCALE);
   const canvasH = Math.ceil(worldH * FOG_SCALE);
 
+  // Recriar canvas se tamanho mudou
+  let canvasMudou = false;
   if (!_fogCanvas || _fogCanvas.width !== canvasW || _fogCanvas.height !== canvasH) {
     _fogCanvas = document.createElement('canvas');
     _fogCanvas.width = canvasW;
     _fogCanvas.height = canvasH;
     _fogCtx = _fogCanvas.getContext('2d');
+    canvasMudou = true;
   }
 
   const ctx = _fogCtx;
@@ -288,16 +286,14 @@ export function desenharNeblinaVisao(mundo, fontesVisao, camera, screenW, screen
 
   // Recortar círculos de visão
   ctx.globalCompositeOperation = 'destination-out';
-  ctx.fillStyle = 'white';
   for (const fonte of fontesVisao) {
     const cx = (fonte.x - worldX) * FOG_SCALE;
     const cy = (fonte.y - worldY) * FOG_SCALE;
     const cr = fonte.raio * FOG_SCALE;
 
-    // Gradiente radial para borda suave
-    const grad = ctx.createRadialGradient(cx, cy, cr * 0.7, cx, cy, cr);
+    const grad = ctx.createRadialGradient(cx, cy, cr * 0.6, cx, cy, cr);
     grad.addColorStop(0, 'rgba(255,255,255,1)');
-    grad.addColorStop(0.8, 'rgba(255,255,255,0.9)');
+    grad.addColorStop(0.75, 'rgba(255,255,255,0.95)');
     grad.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -305,19 +301,28 @@ export function desenharNeblinaVisao(mundo, fontesVisao, camera, screenW, screen
     ctx.fill();
   }
 
-  // Criar/atualizar sprite
   const visao = mundo.visaoContainer;
 
-  if (_fogSprite) {
-    visao.removeChild(_fogSprite);
-    _fogSprite.destroy();
+  // Recriar textura/sprite se canvas mudou de tamanho
+  if (canvasMudou || !_fogSprite) {
+    if (_fogSprite) {
+      visao.removeChild(_fogSprite);
+      _fogSprite.destroy();
+      _fogTexture.destroy(true);
+    }
+    _fogSource = new ImageSource({ resource: _fogCanvas });
+    _fogTexture = new Texture({ source: _fogSource });
+    _fogSprite = new Sprite(_fogTexture);
+    visao.addChild(_fogSprite);
   }
 
-  const texture = Texture.from(_fogCanvas);
-  _fogSprite = new Sprite(texture);
+  // Atualizar textura com o conteúdo novo do canvas
+  _fogSource.resource = _fogCanvas;
+  _fogSource.update();
+
+  // Posicionar sprite no mundo
   _fogSprite.x = worldX;
   _fogSprite.y = worldY;
   _fogSprite.width = worldW;
   _fogSprite.height = worldH;
-  visao.addChild(_fogSprite);
 }
