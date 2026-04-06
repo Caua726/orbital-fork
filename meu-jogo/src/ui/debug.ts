@@ -1,6 +1,7 @@
-import { getEstadoJogo, getPesquisaAtual, obterNaveSelecionada, profiling } from '../world/mundo.js';
-import { getMemoria, fogProfiling } from '../world/nevoa.js';
-import { getCamera } from '../core/player.js';
+// @ts-nocheck
+import { getEstadoJogo, getPesquisaAtual, obterNaveSelecionada, profiling } from '../world/mundo';
+import { getMemoria, fogProfiling } from '../world/nevoa';
+import { getCamera } from '../core/player';
 
 const THROTTLE_MS = 150;
 const FPS_HISTORY = 120; // ~20s a 6 updates/s

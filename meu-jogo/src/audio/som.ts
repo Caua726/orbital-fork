@@ -1,12 +1,12 @@
 // Sons gerados proceduralmente via Web Audio API
-let ctx = null;
+let ctx: AudioContext | null = null;
 
-function getCtx() {
+function getCtx(): AudioContext {
   if (!ctx) ctx = new AudioContext();
   return ctx;
 }
 
-function tocar(frequencia, duracao, tipo = 'sine', volume = 0.3, decay = true) {
+function tocar(frequencia: number, duracao: number, tipo: OscillatorType = 'sine', volume: number = 0.3, decay: boolean = true): void {
   const c = getCtx();
   const osc = c.createOscillator();
   const gain = c.createGain();
@@ -25,7 +25,7 @@ function tocar(frequencia, duracao, tipo = 'sine', volume = 0.3, decay = true) {
   osc.stop(c.currentTime + duracao);
 }
 
-function tocarRuido(duracao, volume = 0.2) {
+function tocarRuido(duracao: number, volume: number = 0.2): void {
   const c = getCtx();
   const bufferSize = c.sampleRate * duracao;
   const buffer = c.createBuffer(1, bufferSize, c.sampleRate);
@@ -44,39 +44,39 @@ function tocarRuido(duracao, volume = 0.2) {
   source.start();
 }
 
-export function somClique() {
+export function somClique(): void {
   tocar(800, 0.08, 'square', 0.15);
   setTimeout(() => tocar(1200, 0.06, 'square', 0.1), 30);
 }
 
-export function somEnvio() {
+export function somEnvio(): void {
   tocar(300, 0.3, 'sawtooth', 0.15);
   setTimeout(() => tocar(500, 0.2, 'sawtooth', 0.1), 50);
   setTimeout(() => tocar(700, 0.15, 'sawtooth', 0.08), 100);
 }
 
-export function somExplosao() {
+export function somExplosao(): void {
   tocarRuido(0.4, 0.3);
   tocar(100, 0.3, 'sine', 0.2);
   setTimeout(() => tocar(60, 0.2, 'sine', 0.15), 50);
 }
 
-export function somConquista() {
+export function somConquista(): void {
   tocar(400, 0.15, 'square', 0.15);
   setTimeout(() => tocar(500, 0.15, 'square', 0.15), 100);
   setTimeout(() => tocar(700, 0.2, 'square', 0.15), 200);
 }
 
-export function somVitoria() {
-  const notas = [523, 659, 784, 1047];
+export function somVitoria(): void {
+  const notas: number[] = [523, 659, 784, 1047];
   notas.forEach((n, i) => {
     setTimeout(() => tocar(n, 0.3, 'square', 0.15), i * 150);
   });
   setTimeout(() => tocar(1047, 0.8, 'sine', 0.2, true), 600);
 }
 
-export function somDerrota() {
-  const notas = [400, 350, 300, 200];
+export function somDerrota(): void {
+  const notas: number[] = [400, 350, 300, 200];
   notas.forEach((n, i) => {
     setTimeout(() => tocar(n, 0.4, 'sawtooth', 0.12), i * 200);
   });

@@ -1,9 +1,10 @@
+// @ts-nocheck
 import { Container, Graphics, Text } from 'pixi.js';
 import {
   aplicarAparenciaTipoPlaneta,
   criarPlanetaSprite,
   nomeTipoPlaneta,
-} from './planeta.js';
+} from './planeta';
 
 const ALPHA_FANTASMA = 0.32;
 const ALPHA_FANTASMA_ANEL = 0.3;
@@ -245,7 +246,7 @@ export function removerMemoriaPlaneta(mundo, planeta) {
 }
 
 import { Sprite, Texture, ImageSource } from 'pixi.js';
-import { config } from '../ui/debug.js';
+import { config } from '../ui/debug';
 
 const FOG_MAX_W = 960;
 const FOG_MAX_H = 540;

@@ -1,24 +1,24 @@
-import { Assets, AnimatedSprite, Spritesheet } from 'pixi.js';
+import { Assets, AnimatedSprite, Spritesheet, Texture } from 'pixi.js';
 
-export const TIPO_PLANETA = {
+export const TIPO_PLANETA: Record<string, string> = {
   COMUM: 'comum',
   MARTE: 'marte',
   ROXO: 'roxo',
   GASOSO: 'gasoso',
 };
 
-const TINT_POR_TIPO = {
+const TINT_POR_TIPO: Record<string, number> = {
   [TIPO_PLANETA.COMUM]: 0xffffff,
   [TIPO_PLANETA.MARTE]: 0xd4785a,
   [TIPO_PLANETA.ROXO]: 0x9b5cff,
   [TIPO_PLANETA.GASOSO]: 0xa8e0ff,
 };
 
-export function aplicarAparenciaTipoPlaneta(sprite, tipoPlaneta) {
+export function aplicarAparenciaTipoPlaneta(sprite: AnimatedSprite, tipoPlaneta: string): void {
   sprite.tint = TINT_POR_TIPO[tipoPlaneta] ?? 0xffffff;
 }
 
-export function nomeTipoPlaneta(tipo) {
+export function nomeTipoPlaneta(tipo: string): string {
   switch (tipo) {
     case TIPO_PLANETA.COMUM:
       return 'Comum';
@@ -38,12 +38,18 @@ const FRAME_H = 250;
 const COLUNAS = 5;
 const LINHAS = 6;
 
-export async function criarPlaneta() {
-  const texture = await Assets.load('/assets/planeta.png');
+interface FrameData {
+  frame: { x: number; y: number; w: number; h: number };
+  sourceSize: { w: number; h: number };
+  spriteSourceSize: { x: number; y: number; w: number; h: number };
+}
+
+export async function criarPlaneta(): Promise<Spritesheet> {
+  const texture: Texture = await Assets.load('/assets/planeta.png');
   texture.source.scaleMode = 'nearest';
 
-  const frames = {};
-  const animFrames = [];
+  const frames: Record<string, FrameData> = {};
+  const animFrames: string[] = [];
 
   for (let linha = 0; linha < LINHAS; linha++) {
     for (let col = 0; col < COLUNAS; col++) {
@@ -67,7 +73,7 @@ export async function criarPlaneta() {
   return sheet;
 }
 
-export function criarPlanetaSprite(sheet, x, y, tamanho, tipoPlaneta = TIPO_PLANETA.COMUM) {
+export function criarPlanetaSprite(sheet: Spritesheet, x: number, y: number, tamanho: number, tipoPlaneta: string = TIPO_PLANETA.COMUM): AnimatedSprite {
   const sprite = new AnimatedSprite(sheet.animations['rotacao']);
   sprite.animationSpeed = 0.02 + Math.random() * 0.08;
   sprite.gotoAndStop(Math.floor(Math.random() * 30));

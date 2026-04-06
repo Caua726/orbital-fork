@@ -1,4 +1,6 @@
 import { Graphics, Container } from 'pixi.js';
+import type { Application } from 'pixi.js';
+import type { Mundo, Camera } from '../types';
 
 const TAMANHO_MAPA = 210;
 const MARGEM = 16;
@@ -16,19 +18,27 @@ const SP = {
   fieldBorder: 0x1a2848,
 };
 
-const CORES_DONO = {
+const CORES_DONO: Record<string, number> = {
   neutro: 0x666666,
   jogador: 0x60ccff,
 };
 
-let _clickCallback = null;
+interface MinimapContainer extends Container {
+  _frame: Graphics;
+  _dots: Graphics;
+  _fleetLines: Graphics;
+  _viewport: Graphics;
+  _mundo: Mundo;
+}
 
-export function onMinimapClick(cb) {
+let _clickCallback: ((worldX: number, worldY: number) => void) | null = null;
+
+export function onMinimapClick(cb: (worldX: number, worldY: number) => void): void {
   _clickCallback = cb;
 }
 
-export function criarMinimapa(app, mundo) {
-  const container = new Container();
+export function criarMinimapa(app: Application, mundo: Mundo): MinimapContainer {
+  const container = new Container() as MinimapContainer;
 
   const frame = new Graphics();
   container.addChild(frame);
@@ -68,7 +78,7 @@ export function criarMinimapa(app, mundo) {
   return container;
 }
 
-export function atualizarMinimapa(minimapa, camera, app) {
+export function atualizarMinimapa(minimapa: MinimapContainer, camera: Camera, app: Application): void {
   const mundo = minimapa._mundo;
   const totalW = TAMANHO_MAPA;
   const totalH = TAMANHO_MAPA + 26;

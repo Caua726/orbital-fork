@@ -1,4 +1,13 @@
 import { Container, Graphics, Text } from 'pixi.js';
+import type { Application } from 'pixi.js';
+import type { Mundo } from '../types';
+
+interface TutorialContainer extends Container {
+  _fadeOut: boolean;
+  _alpha: number;
+  _targetY: number;
+  _slideIn: boolean;
+}
 
 const SP = {
   panelBg: 0x101830,
@@ -12,23 +21,20 @@ const SP = {
   fieldBg: 0x060c1a,
   fieldBorder: 0x1a2848,
   textValue: 0x90ccff,
-  sectionText: 0x4070a0,
 };
 
-export function criarTutorial(app) {
-  const tutorial = new Container();
+export function criarTutorial(app: Application): TutorialContainer {
+  const tutorial = new Container() as TutorialContainer;
 
   const largura = 520;
   const altura = 290;
 
   const bg = new Graphics();
 
-  // Panel background
   bg.rect(-largura / 2, -altura / 2, largura, altura / 2).fill({ color: SP.panelBg });
   bg.rect(-largura / 2, 0, largura, altura / 2).fill({ color: SP.panelBgDark });
   bg.roundRect(-largura / 2, -altura / 2, largura, altura, 4).stroke({ color: SP.panelBorder, width: 2 });
 
-  // Corner brackets
   const hW = largura / 2;
   const hH = altura / 2;
   const s = 10;
@@ -37,17 +43,14 @@ export function criarTutorial(app) {
   bg.moveTo(-hW, hH - s).lineTo(-hW, hH).lineTo(-hW + s, hH).stroke({ color: SP.cornerAccent, width: 2 });
   bg.moveTo(hW - s, hH).lineTo(hW, hH).lineTo(hW, hH - s).stroke({ color: SP.cornerAccent, width: 2 });
 
-  // Title bar
   bg.rect(-hW + 2, -hH + 2, largura - 4, 22).fill({ color: SP.titleBg });
   bg.rect(-hW + 2 + (largura - 4) / 3, -hH + 2, (largura - 4) * 2 / 3, 22).fill({ color: SP.titleBgLight, alpha: 0.5 });
   bg.moveTo(-hW + 2, -hH + 24).lineTo(hW - 2, -hH + 24).stroke({ color: SP.panelBorder, width: 1 });
 
-  // Diamond
   const dx = -hW + 12;
   const dy = -hH + 13;
   bg.moveTo(dx, dy - 3).lineTo(dx + 3, dy).lineTo(dx, dy + 3).lineTo(dx - 3, dy).lineTo(dx, dy - 3).fill({ color: SP.diamond });
 
-  // Sunken field for content
   const fx = -hW + 8;
   const fy = -hH + 28;
   const fw = largura - 16;
@@ -57,7 +60,6 @@ export function criarTutorial(app) {
 
   tutorial.addChild(bg);
 
-  // Title text
   const titleText = new Text({
     text: 'Tutorial',
     style: { fontSize: 15, fill: SP.titleText, fontFamily: 'monospace' },
@@ -91,7 +93,6 @@ export function criarTutorial(app) {
     tutorial.addChild(t);
   }
 
-  // Close button
   const closeBtn = new Container();
   closeBtn.eventMode = 'static';
   closeBtn.cursor = 'pointer';
@@ -120,7 +121,6 @@ export function criarTutorial(app) {
   tutorial._fadeOut = false;
   tutorial._alpha = 1;
 
-  // Slide-in animation
   tutorial._targetY = tutorial.y;
   tutorial.y = tutorial._targetY - 30;
   tutorial._slideIn = true;
@@ -128,7 +128,7 @@ export function criarTutorial(app) {
   return tutorial;
 }
 
-export function atualizarTutorial(tutorial, mundo) {
+export function atualizarTutorial(tutorial: TutorialContainer, mundo: Mundo): void {
   if (!tutorial.visible) return;
 
   if (tutorial._slideIn) {

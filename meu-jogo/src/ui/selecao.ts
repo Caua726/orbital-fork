@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Container, Graphics, Text, Assets, Texture, Rectangle, AnimatedSprite } from 'pixi.js';
 
 const W95 = {

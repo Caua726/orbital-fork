@@ -1,5 +1,7 @@
+// @ts-nocheck
 import { Container, Graphics } from 'pixi.js';
-import { cheats, config } from '../ui/debug.js';
+import type { Mundo, Planeta, Nave, Sol, AlvoPonto, Camera, Recursos, TipoJogador, Pesquisa, PesquisasState, FonteVisao, ProfilingData, AcaoNaveParsed, Application } from '../types';
+import { cheats, config } from '../ui/debug';
 import {
   criarCamadaMemoria,
   criarMemoriaVisualPlaneta,
@@ -7,21 +9,21 @@ import {
   registrarMemoriaPlaneta,
   atualizarVisibilidadeMemoria,
   atualizarEscalaLabelMemoria,
-} from './nevoa.js';
-import { criarFundo, atualizarFundo } from './fundo.js';
+} from './nevoa';
+import { criarFundo, atualizarFundo } from './fundo';
 import {
   aplicarAparenciaTipoPlaneta,
   criarPlaneta,
   criarPlanetaSprite,
   TIPO_PLANETA,
-} from './planeta.js';
+} from './planeta';
 
-const DONOS = {
+const DONOS: Record<string, number> = {
   neutro: 0x888888,
   jogador: 0x44aaff,
 };
 
-let estadoJogo = 'jogando';
+let estadoJogo: 'jogando' | 'vitoria' | 'derrota' = 'jogando';
 
 const CICLO_RECURSO_MS = 10 * 1000;
 const TIER_MAX = 5;
@@ -42,7 +44,7 @@ const VELOCIDADE_ORBITA_NAVE = 0.0018;
 
 const CATEGORIAS_PESQUISA = ['torreta', 'cargueira', 'batedora'];
 
-function criarEstadoPesquisas() {
+function criarEstadoPesquisas(): PesquisasState {
   return {
     torreta: [false, false, false, false, false],
     cargueira: [false, false, false, false, false],
@@ -131,7 +133,7 @@ export function textoProducaoCicloPlaneta(planeta) {
 }
 
 // nomeTipoPlaneta agora vive em planeta.js — re-exportado para manter compatibilidade
-export { nomeTipoPlaneta } from './planeta.js';
+export { nomeTipoPlaneta } from './planeta';
 
 function calcularRaioVisaoPlaneta(planeta) {
   return RAIO_VISAO_BASE() + planeta.dados.tamanho * 0.2;

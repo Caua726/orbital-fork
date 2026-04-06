@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Container, Graphics, Text } from 'pixi.js';
 import {
   calcularCustoTier,
@@ -12,7 +13,7 @@ import {
   parseAcaoNave,
   pesquisaTierLiberada,
   textoProducaoCicloPlaneta,
-} from '../world/mundo.js';
+} from '../world/mundo';
 
 const SP = {
   panelBg: 0x101830,
