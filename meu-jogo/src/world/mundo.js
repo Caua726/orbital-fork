@@ -353,7 +353,7 @@ export async function criarMundo(app, tipoJogador) {
   const frotas = [];
   const frotasContainer = new Container();
   const navesContainer = new Container();
-  const visaoContainer = new Graphics();
+  const visaoContainer = new Container();
   const memoriaPlanetasContainer = criarCamadaMemoria();
 
   container.addChild(frotasContainer);
@@ -573,7 +573,7 @@ function atualizarCampoDeVisao(mundo, camera, app) {
 
   mundo.fontesVisao = fontesVisao;
   if (cheats.visaoTotal) {
-    mundo.visaoContainer.clear();
+    mundo.visaoContainer.removeChildren();
   } else {
     desenharNeblinaVisao(mundo, fontesVisao, camera, app.screen.width, app.screen.height, camera.zoom);
   }

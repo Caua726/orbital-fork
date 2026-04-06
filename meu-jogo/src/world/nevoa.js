@@ -244,34 +244,80 @@ export function removerMemoriaPlaneta(mundo, planeta) {
   memorias.delete(planeta);
 }
 
-const ALPHA_NEBLINA = 0.75;
-const COR_NEBLINA = 0x020510;
-const FOG_THROTTLE_FRAMES = 2; // redesenha a cada N frames
+import { Sprite, Texture } from 'pixi.js';
 
-let _fogFrameCount = 0;
+const FOG_ALPHA = 0.75;
+const FOG_SCALE = 0.5; // renderizar em meia resolução para performance
+
+let _fogCanvas = null;
+let _fogCtx = null;
+let _fogSprite = null;
 
 /**
- * Fog de guerra viewport-based com throttle.
- * Rect cobrindo a viewport + margem, com círculos cortados.
- * Throttled para não redesenhar todo frame.
+ * Fog de guerra via Canvas 2D offscreen → Sprite.
+ * Sem .cut() — usa canvas globalCompositeOperation 'destination-out'.
+ * Renderiza em meia resolução para máxima performance.
  */
 export function desenharNeblinaVisao(mundo, fontesVisao, camera, screenW, screenH, zoom) {
-  _fogFrameCount++;
-  if (_fogFrameCount % FOG_THROTTLE_FRAMES !== 0) return;
-
-  const g = mundo.visaoContainer;
-  g.clear();
-
   const invZoom = 1 / (zoom || 1);
-  const margem = 1200 * invZoom;
-  const rx = camera.x - margem;
-  const ry = camera.y - margem;
-  const rw = screenW * invZoom + margem * 2;
-  const rh = screenH * invZoom + margem * 2;
+  const margem = 800 * invZoom;
 
-  g.rect(rx, ry, rw, rh).fill({ color: COR_NEBLINA, alpha: ALPHA_NEBLINA });
+  // Área do mundo coberta pelo fog
+  const worldX = camera.x - margem;
+  const worldY = camera.y - margem;
+  const worldW = screenW * invZoom + margem * 2;
+  const worldH = screenH * invZoom + margem * 2;
 
-  for (const fonte of fontesVisao) {
-    g.circle(fonte.x, fonte.y, fonte.raio).cut();
+  // Canvas em meia resolução
+  const canvasW = Math.ceil(worldW * FOG_SCALE);
+  const canvasH = Math.ceil(worldH * FOG_SCALE);
+
+  if (!_fogCanvas || _fogCanvas.width !== canvasW || _fogCanvas.height !== canvasH) {
+    _fogCanvas = document.createElement('canvas');
+    _fogCanvas.width = canvasW;
+    _fogCanvas.height = canvasH;
+    _fogCtx = _fogCanvas.getContext('2d');
   }
+
+  const ctx = _fogCtx;
+
+  // Preencher com escuridão
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = `rgba(2, 5, 16, ${FOG_ALPHA})`;
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // Recortar círculos de visão
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = 'white';
+  for (const fonte of fontesVisao) {
+    const cx = (fonte.x - worldX) * FOG_SCALE;
+    const cy = (fonte.y - worldY) * FOG_SCALE;
+    const cr = fonte.raio * FOG_SCALE;
+
+    // Gradiente radial para borda suave
+    const grad = ctx.createRadialGradient(cx, cy, cr * 0.7, cx, cy, cr);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.8, 'rgba(255,255,255,0.9)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Criar/atualizar sprite
+  const visao = mundo.visaoContainer;
+
+  if (_fogSprite) {
+    visao.removeChild(_fogSprite);
+    _fogSprite.destroy();
+  }
+
+  const texture = Texture.from(_fogCanvas);
+  _fogSprite = new Sprite(texture);
+  _fogSprite.x = worldX;
+  _fogSprite.y = worldY;
+  _fogSprite.width = worldW;
+  _fogSprite.height = worldH;
+  visao.addChild(_fogSprite);
 }
