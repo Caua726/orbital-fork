@@ -299,24 +299,37 @@ export function marcarNeblinaSuja() {
   _neblinaSuja = true;
 }
 
+// Camadas de neblina — da borda da visão para fora
+// Cada anel: [offset do raio (mult), largura do stroke, alpha, cor]
+const CAMADAS_NEBLINA = [
+  // Névoa densa exterior — escura e larga
+  [1.30, 200, 0.30, 0x020510],
+  [1.18, 140, 0.25, 0x030818],
+  [1.10, 100, 0.20, 0x050c20],
+  // Transição média
+  [1.05, 70,  0.16, 0x081028],
+  [1.02, 50,  0.12, 0x0a1430],
+  // Borda suave — mais clara e fina
+  [1.00, 30,  0.08, 0x102040],
+  [0.97, 15,  0.05, 0x1a3060],
+  // Glow interno sutil
+  [0.93, 6,   0.03, 0x2a50aa],
+];
+
 export function desenharNeblinaVisao(mundo, fontesVisao) {
   if (!_neblinaSuja && !fontesVisaoMudaram(fontesVisao)) return;
 
-  mundo.visaoContainer.clear();
+  const g = mundo.visaoContainer;
+  g.clear();
 
   for (const fonte of fontesVisao) {
-    // Anel externo difuso — borda da visão
-    mundo.visaoContainer.circle(fonte.x, fonte.y, fonte.raio).stroke({
-      color: 0x2244aa,
-      width: 2.5,
-      alpha: 0.35,
-    });
-    // Anel interno sutil — área de visão
-    mundo.visaoContainer.circle(fonte.x, fonte.y, fonte.raio * 0.95).stroke({
-      color: 0x4488cc,
-      width: 1,
-      alpha: 0.15,
-    });
+    for (const [mult, largura, alpha, cor] of CAMADAS_NEBLINA) {
+      g.circle(fonte.x, fonte.y, fonte.raio * mult).stroke({
+        color: cor,
+        width: largura,
+        alpha,
+      });
+    }
   }
 
   _fontesAnteriores = fontesVisao.map(f => ({ x: f.x, y: f.y, raio: f.raio }));
