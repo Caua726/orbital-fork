@@ -34,8 +34,8 @@ function criarSol(x: number, y: number, raio: number, cor: number, frames: Textu
   sol.anchor.set(0.5);
   sol.width = raio * 2.9;
   sol.height = raio * 2.9;
-  sol.tint = cor;
-  sol.animationSpeed = 0.045;
+  sol.tint = 0xffffff;
+  sol.animationSpeed = 0.10;
   sol.gotoAndPlay(Math.floor(Math.random() * frames.length));
   return sol;
 }

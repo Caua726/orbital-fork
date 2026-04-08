@@ -35,7 +35,7 @@ export function nomeTipoPlaneta(tipo: string): string {
 
 const FRAME_W = 64;
 const FRAME_H = 64;
-const TOTAL_FRAMES = 12;
+const TOTAL_FRAMES = 128;
 
 export type TexturasPlaneta = Record<string, Texture[]>;
 
@@ -66,7 +66,7 @@ export async function criarPlaneta(): Promise<TexturasPlaneta> {
 export function criarPlanetaSprite(texturas: TexturasPlaneta, x: number, y: number, tamanho: number, tipoPlaneta: string = TIPO_PLANETA.COMUM): AnimatedSprite {
   const frames = texturas[tipoPlaneta] ?? texturas[TIPO_PLANETA.COMUM];
   const sprite = new AnimatedSprite(frames);
-  sprite.animationSpeed = 0.06 + Math.random() * 0.025;
+  sprite.animationSpeed = 0.08 + Math.random() * 0.025;
   sprite.gotoAndPlay(Math.floor(Math.random() * frames.length));
   sprite.anchor.set(0.5);
   sprite.width = tamanho;
