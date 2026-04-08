@@ -1,8 +1,8 @@
-import { Container, Graphics } from 'pixi.js';
-import type { Spritesheet } from 'pixi.js';
+import { Assets, AnimatedSprite, Container, Graphics, Texture } from 'pixi.js';
 import type { Sol, Planeta, Sistema } from '../types';
 import { DIST_MIN_SISTEMA } from './constantes';
-import { criarPlanetaSprite, TIPO_PLANETA } from './planeta';
+import { criarFramesSpriteStrip, criarPlanetaSprite, TIPO_PLANETA } from './planeta';
+import type { TexturasPlaneta } from './planeta';
 import { criarEstadoPesquisas } from './pesquisa';
 
 function sortearTipoPlaneta(): string {
@@ -10,8 +10,20 @@ function sortearTipoPlaneta(): string {
   return tipos[Math.floor(Math.random() * tipos.length)];
 }
 
-function criarSol(x: number, y: number, raio: number, cor: number): Sol {
-  const sol = new Graphics() as unknown as Sol;
+let texturaSolPromise: Promise<Texture[]> | null = null;
+
+async function carregarTexturaSol(): Promise<Texture[]> {
+  if (!texturaSolPromise) {
+    texturaSolPromise = Assets.load('/assets/estrela.png').then((texture: Texture) => {
+      texture.source.scaleMode = 'nearest';
+      return criarFramesSpriteStrip(texture, 128, 128);
+    });
+  }
+  return texturaSolPromise;
+}
+
+function criarSol(x: number, y: number, raio: number, cor: number, frames: Texture[]): Sol {
+  const sol = new AnimatedSprite(frames) as Sol;
   sol.x = x;
   sol.y = y;
   sol._raio = raio;
@@ -19,16 +31,20 @@ function criarSol(x: number, y: number, raio: number, cor: number): Sol {
   sol._tipoAlvo = 'sol';
   sol._visivelAoJogador = false;
   sol._descobertoAoJogador = false;
-  sol.circle(0, 0, raio * 1.45).fill({ color: cor, alpha: 0.08 });
-  sol.circle(0, 0, raio).fill({ color: cor, alpha: 0.95 });
-  sol.circle(0, 0, raio * 0.55).fill({ color: 0xfff7dd, alpha: 0.9 });
+  sol.anchor.set(0.5);
+  sol.width = raio * 2.9;
+  sol.height = raio * 2.9;
+  sol.tint = cor;
+  sol.animationSpeed = 0.045;
+  sol.gotoAndPlay(Math.floor(Math.random() * frames.length));
   return sol;
 }
 
-export function criarSistemaSolar(container: Container, orbitasContainer: Container, planetaSheet: Spritesheet, centroX: number, centroY: number, indiceSistema: number): Sistema {
+export async function criarSistemaSolar(container: Container, orbitasContainer: Container, planetaSheet: TexturasPlaneta, centroX: number, centroY: number, indiceSistema: number): Promise<Sistema> {
   const corSol = [0xffd166, 0xffb703, 0xfff1a8, 0xf4a261][indiceSistema % 4];
   const raioSol = 90 + Math.random() * 70;
-  const sol = criarSol(centroX, centroY, raioSol, corSol);
+  const texturaSol = await carregarTexturaSol();
+  const sol = criarSol(centroX, centroY, raioSol, corSol, texturaSol);
   sol.visible = false;
   container.addChild(sol);
 

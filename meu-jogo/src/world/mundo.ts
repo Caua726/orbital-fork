@@ -111,7 +111,7 @@ export async function criarMundo(app: Application, tipoJogador: TipoJogador): Pr
     }
     if (muitoPerto) continue;
 
-    const sistema = criarSistemaSolar(container, orbitasContainer, planetaSheet, x, y, sistemas.length);
+    const sistema = await criarSistemaSolar(container, orbitasContainer, planetaSheet, x, y, sistemas.length);
     sistemas.push(sistema);
     sois.push(sistema.sol);
     planetas.push(...sistema.planetas);
@@ -235,6 +235,8 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     const visNaTela = sol.x > esq && sol.x < dir && sol.y > cima && sol.y < baixo;
     sol.visible = visNaTela && (sol._visivelAoJogador || sol._descobertoAoJogador);
     sol.alpha = sol._visivelAoJogador ? 1 : 0.28;
+    if (sol.visible && !sol.playing) sol.play();
+    if (!sol.visible && sol.playing) sol.stop();
   }
 
   for (const nave of mundo.naves) {

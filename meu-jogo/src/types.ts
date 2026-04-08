@@ -1,4 +1,5 @@
-import type { Container, Graphics, AnimatedSprite, Spritesheet, Application } from 'pixi.js';
+import type { Container, Graphics, AnimatedSprite, Application, Texture } from 'pixi.js';
+import type { TexturasPlaneta } from './world/planeta';
 
 // === Recursos ===
 export interface Recursos {
@@ -78,7 +79,7 @@ export interface Planeta extends AnimatedSprite {
 }
 
 // === Sol ===
-export interface Sol extends Graphics {
+export interface Sol extends AnimatedSprite {
   _raio: number;
   _cor: number;
   _tipoAlvo: 'sol';
@@ -158,7 +159,7 @@ export interface Mundo {
   frotas: unknown[];
   frotasContainer: Container;
   navesContainer: Container;
-  planetaSheet: Spritesheet;
+  planetaSheet: TexturasPlaneta;
   tipoJogador: TipoJogador;
   ultimoTickMs: number;
   visaoContainer: Container;
@@ -214,4 +215,4 @@ export interface CheatsState {
 }
 
 // === Re-export pixi types for convenience ===
-export type { Container, Graphics, AnimatedSprite, Spritesheet, Application };
+export type { Container, Graphics, AnimatedSprite, Application, Texture };

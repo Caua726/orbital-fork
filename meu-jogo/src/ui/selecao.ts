@@ -1,5 +1,6 @@
-import { Container, Graphics, Text, Assets, Texture, Rectangle, AnimatedSprite } from 'pixi.js';
+import { Container, Graphics, Text, Assets, Texture, AnimatedSprite } from 'pixi.js';
 import type { Application, TipoJogador } from '../types';
+import { criarFramesSpriteStrip, SPRITE_PLANETA_POR_TIPO, TIPO_PLANETA } from '../world/planeta';
 
 interface AnimatedCard extends Container {
   _baseY: number;
@@ -49,23 +50,9 @@ export function getTipos(): TipoJogador[] {
 }
 
 async function carregarFramesPlaneta(): Promise<Texture[]> {
-  const texture: Texture = await Assets.load('/assets/planeta.png');
-  const frames: Texture[] = [];
-  const fw = 250;
-  const fh = 250;
-  const cols = 5;
-  const rows = 6;
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      frames.push(
-        new Texture({
-          source: texture.source,
-          frame: new Rectangle(col * fw, row * fh, fw, fh),
-        })
-      );
-    }
-  }
-  return frames;
+  const texture: Texture = await Assets.load(SPRITE_PLANETA_POR_TIPO[TIPO_PLANETA.COMUM]);
+  texture.source.scaleMode = 'nearest';
+  return criarFramesSpriteStrip(texture);
 }
 
 export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
@@ -170,7 +157,7 @@ export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
       planeta.y = 65;
       planeta.width = 70;
       planeta.height = 70;
-      planeta.animationSpeed = 0.08 + i * 0.02;
+      planeta.animationSpeed = 0.05 + i * 0.012;
       planeta.gotoAndPlay(i * 10);
       planeta.tint = tipo.cor;
       card.addChild(planeta);
