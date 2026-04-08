@@ -38,12 +38,8 @@ interface MemoriaPlaneta {
 
 const ALPHA_FANTASMA = 0.32;
 const ALPHA_FANTASMA_ANEL = 0.3;
-const COR_ANEL_FANTASMA_FALLBACK = 0x556680;
+const COR_ANEL_FANTASMA = 0x8aa4bd;
 const DISTANCIA_LABEL_MEMORIA = 18;
-const DONOS_FANTASMA: Record<string, number> = {
-  neutro: 0x556680,
-  jogador: 0x2a6699,
-};
 
 function nomeDonoCurto(dono: string): string {
   if (dono === 'jogador') return 'Seu';
@@ -175,11 +171,12 @@ function redesenharVisualMemoria(memoria: MemoriaPlaneta): void {
   memoria.fantasma.alpha = ALPHA_FANTASMA;
   aplicarAparenciaTipoPlaneta(memoria.fantasma, dados.dados.tipoPlaneta);
 
-  const corAnel = DONOS_FANTASMA[dados.dados.dono] || COR_ANEL_FANTASMA_FALLBACK;
   memoria.anel.clear();
-  memoria.anel.circle(0, 0, tamanho / 2 + 5).stroke({
-    color: corAnel,
-    width: 1.5,
+  const larguraAnel = 1.1;
+  const raioAnel = Math.max(10, tamanho * 0.42 - larguraAnel * 0.5);
+  memoria.anel.circle(0, 0, raioAnel).stroke({
+    color: COR_ANEL_FANTASMA,
+    width: larguraAnel,
     alpha: ALPHA_FANTASMA_ANEL,
   });
 

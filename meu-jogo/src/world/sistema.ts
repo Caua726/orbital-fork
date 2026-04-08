@@ -42,20 +42,22 @@ function criarSol(x: number, y: number, raio: number, cor: number, frames: Textu
 
 export async function criarSistemaSolar(container: Container, orbitasContainer: Container, planetaSheet: TexturasPlaneta, centroX: number, centroY: number, indiceSistema: number): Promise<Sistema> {
   const corSol = [0xffd166, 0xffb703, 0xfff1a8, 0xf4a261][indiceSistema % 4];
-  const raioSol = 90 + Math.random() * 70;
+  const quantidadePlanetas = 1 + Math.floor(Math.random() * 5);
+  const tamanhosPlaneta = Array.from({ length: quantidadePlanetas }, () => 140 + Math.random() * 170);
+  const maiorPlaneta = Math.max(...tamanhosPlaneta);
+  const raioSol = Math.max(110 + Math.random() * 60, maiorPlaneta * 0.7);
   const texturaSol = await carregarTexturaSol();
   const sol = criarSol(centroX, centroY, raioSol, corSol, texturaSol);
   sol.visible = false;
   container.addChild(sol);
 
-  const quantidadePlanetas = 1 + Math.floor(Math.random() * 5);
   const planetas: Planeta[] = [];
   let ultimoRaioOrbita = raioSol;
   let ultimoRaioPlaneta = 0;
   const margemEntreOrbital = 90;
 
   for (let i = 0; i < quantidadePlanetas; i++) {
-    const tamanho = 140 + Math.random() * 170;
+    const tamanho = tamanhosPlaneta[i];
     const raioPlaneta = tamanho / 2;
     const distanciaMinDoSol = raioSol + raioPlaneta + 220;
     const distanciaMinDoAnterior = ultimoRaioOrbita + ultimoRaioPlaneta + raioPlaneta + margemEntreOrbital;

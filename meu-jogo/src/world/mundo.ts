@@ -1,7 +1,6 @@
 import { Container } from 'pixi.js';
 import type { Application } from 'pixi.js';
 import type { Mundo, Planeta, Sol, Nave, Camera, TipoJogador } from '../types';
-import { DONOS } from './constantes';
 import { criarFundo, atualizarFundo } from './fundo';
 import { aplicarAparenciaTipoPlaneta, criarPlaneta, TIPO_PLANETA } from './planeta';
 import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria } from './nevoa';
@@ -19,6 +18,8 @@ export { calcularCustoTier, calcularTempoConstrucaoMs, calcularTempoColonizadora
 export { encontrarNaveNoPonto, obterNaveSelecionada, selecionarNave, enviarNaveParaAlvo, enviarNaveParaPosicao, parseAcaoNave, capacidadeCargaCargueira, ajustarConfiguracaoCarga, definirPlanetaRotaCargueira, alternarLoopCargueira } from './naves';
 export { iniciarPesquisa, pesquisaTierLiberada, pesquisaTierDisponivel, getPesquisaAtual } from './pesquisa';
 export { nomeTipoPlaneta } from './planeta';
+
+const COR_ANEL_PLANETA = 0xd9ecff;
 
 // === Estado do jogo ===
 let estadoJogo: 'jogando' | 'vitoria' | 'derrota' = 'jogando';
@@ -218,10 +219,10 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     if (vis) {
       const anel = planeta._anel;
       anel.clear();
-      const cor = DONOS[planeta.dados.dono] || 0x888888;
-      const raio = planeta.dados.tamanho / 2 + 5;
-      const largura = planeta.dados.selecionado ? 4 : 2;
-      anel.circle(0, 0, raio).stroke({ color: cor, width: largura, alpha: 0.8 });
+      const largura = planeta.dados.selecionado ? 2.5 : 1.25;
+      const raioBase = planeta.dados.tamanho * 0.42;
+      const raio = Math.max(10, raioBase - largura * 0.5);
+      anel.circle(0, 0, raio).stroke({ color: COR_ANEL_PLANETA, width: largura, alpha: 0.72 });
       desenharConstrucoesPlaneta(planeta);
     }
 
