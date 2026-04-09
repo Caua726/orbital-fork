@@ -1,6 +1,6 @@
 import { getEstadoJogo, getPesquisaAtual, obterNaveSelecionada, profiling } from '../world/mundo';
 import { getMemoria, fogProfiling } from '../world/nevoa';
-import { getCamera } from '../core/player';
+import { getCamera, setCameraPos } from '../core/player';
 import type { CheatsState, DebugConfig, Mundo, Application } from '../types';
 
 type LinhaEntry = { label: HTMLElement; value: HTMLElement; row: HTMLElement };
@@ -523,6 +523,16 @@ function criarPopupHTML(): DebugPopup {
   criarCheat(cheatBox, 'cheat-velocidade', 'Nave 10x velocidade', 'velocidadeNave', '5');
   cRight.appendChild(cheatBox);
 
+  cRight.appendChild(el('div', { height: '12px' }));
+  cRight.appendChild(secTitle('CENTRALIZAR NO SOL'));
+  const solListBox = el('div', {
+    background: 'rgba(10,20,40,0.5)', borderRadius: '6px',
+    border: '1px solid rgba(40,70,120,0.3)', padding: '4px 0',
+    maxHeight: '200px', overflowY: 'auto',
+  });
+  solListBox.id = 'dbg-sol-list';
+  cRight.appendChild(solListBox);
+
   // Block game events
   for (const evt of ['mousedown', 'mouseup', 'click', 'wheel']) {
     overlay.addEventListener(evt, ev => ev.stopPropagation());
@@ -732,6 +742,26 @@ export function atualizarDebug(debug: DebugPopup, mundo: Mundo, app: Application
   // Renderer atual
   const rendAtualEl = _popup.querySelector('#dbg-renderer-atual');
   if (rendAtualEl) rendAtualEl.textContent = `Atual: ${rendererType}`;
+
+  // Sol list
+  const solListBox = _popup.querySelector('#dbg-sol-list') as HTMLElement | null;
+  if (solListBox && !solListBox.dataset.populated) {
+    solListBox.dataset.populated = '1';
+    for (let i = 0; i < mundo.sistemas.length; i++) {
+      const sistema = mundo.sistemas[i];
+      const btn = el('div', {
+        padding: '5px 8px', cursor: 'pointer', color: '#a0d8b0',
+        fontSize: '11px', transition: 'background 0.15s',
+      });
+      btn.textContent = `Sistema ${i} — (${Math.round(sistema.x)}, ${Math.round(sistema.y)})`;
+      btn.addEventListener('mouseenter', () => { btn.style.background = 'rgba(40,70,120,0.3)'; });
+      btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
+      btn.addEventListener('click', () => {
+        setCameraPos(sistema.sol.x, sistema.sol.y);
+      });
+      solListBox.appendChild(btn);
+    }
+  }
 
   // Cheats recursos
   if (cheats.recursosInfinitos) {
