@@ -103,7 +103,7 @@ function gerarPaletaAleatoria(tipo: string): PaletaPlaneta {
         timeSpeed: 0.1,
         ditherSize: jitter(3.5, 1.0),
         tiles: 1.0,
-        cloudAlpha: 0.35 + Math.random() * 0.3, // 0.35-0.65: lower=more clouds, higher=fewer
+        cloudAlpha: 0.45 + Math.random() * 0.2, // 0.45=nuvens moderadas, 0.65=poucas nuvens
       };
     }
     case TIPO_PLANETA.MARTE: {

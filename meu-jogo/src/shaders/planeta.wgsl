@@ -1,39 +1,21 @@
-// Vertex
+// Group 0: Global uniforms (auto-assigned by PixiJS)
 struct GlobalUniforms {
     uProjectionMatrix: mat3x3<f32>,
     uWorldTransformMatrix: mat3x3<f32>,
     uWorldColorAlpha: vec4<f32>,
     uResolution: vec2<f32>,
 };
+@group(0) @binding(0) var<uniform> globalUniforms : GlobalUniforms;
 
+// Group 1: Local uniforms (auto-assigned by PixiJS)
 struct LocalUniforms {
     uTransformMatrix: mat3x3<f32>,
     uColor: vec4<f32>,
     uRound: f32,
 };
-
-@group(0) @binding(0) var<uniform> globalUniforms : GlobalUniforms;
 @group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
 
-struct VSOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) vUV: vec2<f32>,
-};
-
-@vertex
-fn mainVertex(
-    @location(0) aPosition: vec2<f32>,
-    @location(1) aUV: vec2<f32>,
-) -> VSOutput {
-    var output: VSOutput;
-    output.vUV = aUV;
-    let mvp = globalUniforms.uProjectionMatrix * localUniforms.uTransformMatrix;
-    let pos = mvp * vec3<f32>(aPosition, 1.0);
-    output.position = vec4<f32>(pos.xy, 0.0, 1.0);
-    return output;
-}
-
-// Fragment
+// Group 2: Planet uniforms (our custom data)
 struct PlanetUniforms {
     uPixels: f32,
     uTime: f32,
@@ -61,18 +43,37 @@ struct PlanetUniforms {
     uTiles: f32,
     uCloudAlpha: f32,
 };
+@group(2) @binding(0) var<uniform> planetUniforms : PlanetUniforms;
 
-@group(2) @binding(0) var<uniform> pu : PlanetUniforms;
+// === Vertex ===
+struct VSOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) vUV: vec2<f32>,
+};
 
+@vertex
+fn mainVertex(
+    @location(0) aPosition: vec2<f32>,
+    @location(1) aUV: vec2<f32>,
+) -> VSOutput {
+    var output: VSOutput;
+    output.vUV = aUV;
+    let mvp = globalUniforms.uProjectionMatrix * localUniforms.uTransformMatrix;
+    let pos = mvp * vec3<f32>(aPosition, 1.0);
+    output.position = vec4<f32>(pos.xy, 0.0, 1.0);
+    return output;
+}
+
+// === Fragment helpers ===
 fn rand(coord_in: vec2<f32>) -> f32 {
     var m: vec2<f32>;
-    if (pu.uPlanetType == 0 || pu.uPlanetType == 1) {
-        m = vec2<f32>(2.0, 1.0) * floor(pu.uSize + 0.5);
+    if (planetUniforms.uPlanetType == 0 || planetUniforms.uPlanetType == 1) {
+        m = vec2<f32>(2.0, 1.0) * floor(planetUniforms.uSize + 0.5);
     } else {
-        m = vec2<f32>(1.0, 1.0) * floor(pu.uSize + 0.5);
+        m = vec2<f32>(1.0, 1.0) * floor(planetUniforms.uSize + 0.5);
     }
-    let c = coord_in % m;
-    return fract(sin(dot(c, vec2<f32>(12.9898, 78.233))) * 15.5453 * pu.uSeed);
+    let c = ((coord_in % m) + m) % m;
+    return fract(sin(dot(c, vec2<f32>(12.9898, 78.233))) * 15.5453 * planetUniforms.uSeed);
 }
 
 fn noise(coord: vec2<f32>) -> f32 {
@@ -91,7 +92,7 @@ fn fbm(coord_in: vec2<f32>) -> f32 {
     var scale = 0.5;
     var coord = coord_in;
     for (var i = 0; i < 6; i++) {
-        if (i >= pu.uOctaves) { break; }
+        if (i >= planetUniforms.uOctaves) { break; }
         value += noise(coord) * scale;
         coord *= 2.0;
         scale *= 0.5;
@@ -101,7 +102,7 @@ fn fbm(coord_in: vec2<f32>) -> f32 {
 
 fn spherify(uv: vec2<f32>) -> vec2<f32> {
     let centered = uv * 2.0 - 1.0;
-    let z = sqrt(1.0 - dot(centered, centered));
+    let z = sqrt(max(0.0, 1.0 - dot(centered, centered)));
     let sphere = centered / (z + 1.0);
     return sphere * 0.5 + 0.5;
 }
@@ -115,66 +116,150 @@ fn rotate2d(coord_in: vec2<f32>, angle: f32) -> vec2<f32> {
 }
 
 fn dither(uv1: vec2<f32>, uv2: vec2<f32>) -> bool {
-    return (uv1.x + uv2.y) % (2.0 / pu.uPixels) <= 1.0 / pu.uPixels;
+    return ((uv1.x + uv2.y) % (2.0 / planetUniforms.uPixels)) <= 1.0 / planetUniforms.uPixels;
 }
 
-fn circleNoise(uv_in: vec2<f32>) -> f32 {
-    var uv = uv_in;
-    let uv_y = floor(uv.y);
-    uv.x += uv_y * 0.31;
-    let f = fract(uv);
-    let h = rand(vec2<f32>(floor(uv.x), floor(uv_y)));
-    let m = length(f - 0.25 - (h * 0.5));
-    let r = h * 0.25;
-    return smoothstep(0.0, r, m * 0.75);
-}
+// === Terran planet ===
+fn terranPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
+    let dith = dither(uv_in, uvRaw);
+    let a = step(length(uv_in - vec2<f32>(0.5)), 0.49999);
+    var uv = spherify(uv_in);
+    let d_light = distance(uv, planetUniforms.uLightOrigin);
+    uv = rotate2d(uv, planetUniforms.uRotation);
 
-fn cloudAlpha(uv: vec2<f32>) -> f32 {
-    var c_noise = 0.0;
-    for (var i = 0; i < 9; i++) {
-        c_noise += circleNoise((uv * pu.uSize * 0.3) + (f32(i + 1) + 10.0) + vec2<f32>(pu.uTime * pu.uTimeSpeed, 0.0));
+    let base_uv = uv * planetUniforms.uSize + vec2<f32>(planetUniforms.uTime * planetUniforms.uTimeSpeed, 0.0);
+    let fbm1 = fbm(base_uv);
+    var fbm2 = fbm(base_uv - planetUniforms.uLightOrigin * fbm1);
+    var fbm3 = fbm(base_uv - planetUniforms.uLightOrigin * 1.5 * fbm1);
+    var fbm4 = fbm(base_uv - planetUniforms.uLightOrigin * 2.0 * fbm1);
+
+    let dither_border = (1.0 / planetUniforms.uPixels) * planetUniforms.uDitherSize;
+    if (d_light < planetUniforms.uLightBorder1) { fbm4 *= 0.9; }
+    if (d_light > planetUniforms.uLightBorder1) { fbm2 *= 1.05; fbm3 *= 1.05; fbm4 *= 1.05; }
+    if (d_light > planetUniforms.uLightBorder2) {
+        fbm2 *= 1.3; fbm3 *= 1.4; fbm4 *= 1.8;
+        if (d_light < planetUniforms.uLightBorder2 + dither_border && dith) { fbm4 *= 0.5; }
     }
-    return fbm(uv * pu.uSize + c_noise + vec2<f32>(pu.uTime * pu.uTimeSpeed, 0.0));
+
+    var dl = pow(d_light, 2.0) * 0.4;
+    var col = planetUniforms.uColors3;
+    if (fbm4 + dl < fbm1 * 1.5) { col = planetUniforms.uColors2; }
+    if (fbm3 + dl < fbm1 * 1.0) { col = planetUniforms.uColors1; }
+    if (fbm2 + dl < fbm1) { col = planetUniforms.uColors0; }
+
+    let river_fbm = step(planetUniforms.uRiverCutoff, fbm(base_uv + fbm1 * 6.0));
+    if (river_fbm < fbm1 * 0.5) {
+        col = planetUniforms.uColors5;
+        if (fbm4 + dl < fbm1 * 1.5) { col = planetUniforms.uColors4; }
+    }
+
+    return vec4<f32>(col.rgb, a * col.a);
 }
 
-// Simplified: only terran planet for WGSL (most common case)
-// Other types fall back to a solid color circle
+// === Dry planet ===
+fn dryPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
+    let d_circle = distance(uv_in, vec2<f32>(0.5));
+    var d_light = distance(uv_in, planetUniforms.uLightOrigin);
+    let a = step(d_circle, 0.49999);
+    let dith = dither(uv_in, uvRaw);
+    let uv = rotate2d(uv_in, planetUniforms.uRotation);
+
+    let fbm1 = fbm(uv);
+    d_light += fbm(uv * planetUniforms.uSize + fbm1 + vec2<f32>(planetUniforms.uTime * planetUniforms.uTimeSpeed, 0.0)) * 0.3;
+
+    let dither_border = (1.0 / planetUniforms.uPixels) * planetUniforms.uDitherSize;
+    var col = planetUniforms.uColors0;
+    if (d_light > planetUniforms.uLightBorder1) {
+        col = planetUniforms.uColors1;
+        if (d_light < planetUniforms.uLightBorder1 + dither_border && dith) { col = planetUniforms.uColors0; }
+    }
+    if (d_light > planetUniforms.uLightBorder2) {
+        col = planetUniforms.uColors2;
+        if (d_light < planetUniforms.uLightBorder2 + dither_border && dith) { col = planetUniforms.uColors1; }
+    }
+
+    return vec4<f32>(col.rgb, a * col.a);
+}
+
+// === Gas Giant (simplified) ===
+fn gasPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
+    let d_light = distance(uv_in, planetUniforms.uLightOrigin);
+    let d_circle = distance(uv_in, vec2<f32>(0.5));
+    let a = step(d_circle, 0.49999);
+
+    var uv = rotate2d(uv_in, planetUniforms.uRotation);
+    uv = spherify(uv);
+
+    var col = planetUniforms.uColors3;
+    let n = fbm(uv * planetUniforms.uSize + vec2<f32>(planetUniforms.uTime * planetUniforms.uTimeSpeed, 0.0));
+    if (n > 0.4) { col = planetUniforms.uColors2; }
+    if (n > 0.5) { col = planetUniforms.uColors1; }
+    if (n > 0.6) { col = planetUniforms.uColors0; }
+    if (d_light > planetUniforms.uLightBorder1) { col = mix(col, planetUniforms.uColors2, 0.3); }
+    if (d_light > planetUniforms.uLightBorder2) { col = mix(col, planetUniforms.uColors3, 0.5); }
+
+    return vec4<f32>(col.rgb, a * col.a);
+}
+
+// === Star (body only for WGSL) ===
+fn Hash2(p: vec2<f32>) -> vec2<f32> {
+    let r = 523.0 * sin(dot(p, vec2<f32>(53.3158, 43.6143))) * planetUniforms.uSeed;
+    return vec2<f32>(fract(15.32354 * r), fract(17.25865 * r));
+}
+
+fn Cells(p_in: vec2<f32>, numCells: f32) -> f32 {
+    var p = p_in * numCells;
+    var d = 1.0e10;
+    for (var xo = -1; xo <= 1; xo++) {
+        for (var yo = -1; yo <= 1; yo++) {
+            var tp = floor(p) + vec2<f32>(f32(xo), f32(yo));
+            tp = p - tp - Hash2(((tp % (numCells / planetUniforms.uTiles)) + (numCells / planetUniforms.uTiles)) % (numCells / planetUniforms.uTiles));
+            d = min(d, dot(tp, tp));
+        }
+    }
+    return sqrt(d);
+}
+
+fn starPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
+    let d = distance(uv_in, vec2<f32>(0.5));
+    let a = step(d, 0.49999);
+    let dith = dither(uvRaw, uv_in);
+
+    let ruv = rotate2d(uv_in, planetUniforms.uRotation);
+    let suv = spherify(ruv);
+
+    let bodyTime = planetUniforms.uTime * 0.5;
+    var n = Cells(suv - vec2<f32>(bodyTime * planetUniforms.uTimeSpeed * 2.0, 0.0), 10.0);
+    n *= Cells(suv - vec2<f32>(bodyTime * planetUniforms.uTimeSpeed, 0.0), 20.0);
+    n = clamp(n * 2.0, 0.0, 1.0);
+    if (dith) { n *= 1.3; }
+
+    let idx = i32(floor(n * 3.0));
+    var col = planetUniforms.uColors0;
+    if (idx == 1) { col = planetUniforms.uColors1; }
+    if (idx == 2) { col = planetUniforms.uColors2; }
+    if (idx >= 3) { col = planetUniforms.uColors3; }
+
+    return vec4<f32>(col.rgb, a * col.a);
+}
+
+// === Main fragment ===
 @fragment
 fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
     let uv = input.vUV;
-    let uvPix = floor(uv * pu.uPixels) / pu.uPixels;
+    let uvPix = floor(uv * planetUniforms.uPixels) / planetUniforms.uPixels;
 
-    let d_circle = distance(uvPix, vec2<f32>(0.5));
-    let a = step(d_circle, 0.49999);
-    if (a < 0.5) {
-        return vec4<f32>(0.0);
-    }
-
-    let dith = dither(uv, uvPix);
-    let suv = spherify(uvPix);
-    let d_light = distance(suv, pu.uLightOrigin);
-    let ruv = rotate2d(suv, pu.uRotation);
-
-    let base_uv = ruv * pu.uSize + vec2<f32>(pu.uTime * pu.uTimeSpeed, 0.0);
-    let fbm1 = fbm(base_uv);
-    let fbm2v = fbm(base_uv - pu.uLightOrigin * fbm1);
-    let fbm3v = fbm(base_uv - pu.uLightOrigin * 1.5 * fbm1);
-    var fbm4v = fbm(base_uv - pu.uLightOrigin * 2.0 * fbm1);
-
-    var dl = d_light;
-    if (dl > pu.uLightBorder2) {
-        fbm4v *= 1.8;
-    } else if (dl > pu.uLightBorder1) {
-        fbm4v *= 1.05;
+    var col: vec4<f32>;
+    if (planetUniforms.uPlanetType == 0) {
+        col = terranPlanet(uvPix, uv);
+    } else if (planetUniforms.uPlanetType == 1) {
+        col = dryPlanet(uvPix, uv);
+    } else if (planetUniforms.uPlanetType == 3) {
+        col = gasPlanet(uvPix, uv);
     } else {
-        fbm4v *= 0.9;
+        col = starPlanet(uvPix, uv);
     }
 
-    dl = pow(dl, 2.0) * 0.4;
-    var col = pu.uColors3;
-    if (fbm4v + dl < fbm1 * 1.5) { col = pu.uColors2; }
-    if (fbm3v + dl < fbm1) { col = pu.uColors1; }
-    if (fbm2v + dl < fbm1) { col = pu.uColors0; }
-
-    return vec4<f32>(col.rgb * a, a);
+    // Premultiplied alpha
+    return vec4<f32>(col.rgb * col.a, col.a);
 }
