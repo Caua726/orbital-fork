@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orbital HUD Mockup</title>
+  <style>
+    :root {
+      --bg: #000000;
+      --panel: rgba(0, 0, 0, 0.88);
+      --panel-soft: rgba(255, 255, 255, 0.04);
+      --border: rgba(255, 255, 255, 0.92);
+      --text: #f5f5f5;
+      --muted: rgba(255, 255, 255, 0.72);
+      --dim: rgba(255, 255, 255, 0.38);
+      --line: rgba(255, 255, 255, 0.18);
+      --shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 0 24px rgba(255,255,255,0.04);
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0.02em;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(255,255,255,0.03), transparent 38%),
+        radial-gradient(circle at 20% 30%, rgba(255,255,255,0.035) 0 1px, transparent 1.5px),
+        radial-gradient(circle at 70% 65%, rgba(255,255,255,0.03) 0 1px, transparent 1.6px),
+        radial-gradient(circle at 80% 20%, rgba(255,255,255,0.025) 0 1px, transparent 1.5px),
+        radial-gradient(circle at 30% 80%, rgba(255,255,255,0.025) 0 1px, transparent 1.4px),
+        #000;
+      background-size: cover, 180px 180px, 240px 240px, 210px 210px, 260px 260px, cover;
+      pointer-events: none;
+    }
+
+    .app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      padding: 18px;
+      display: grid;
+      grid-template-columns: 110px 1fr 260px;
+      grid-template-rows: 78px 1fr 190px;
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(3px);
+    }
+
+    /* ═══ SIDEBAR (col 1, spans all rows) ═══ */
+    .sidebar {
+      grid-row: 1 / 4;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .faction-card {
+      padding: 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 110px;
+    }
+
+    .crest {
+      width: 44px;
+      height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 15px;
+    }
+
+    .faction-name {
+      font-size: 14px;
+      font-weight: 800;
+      text-transform: uppercase;
+      line-height: 1.15;
+    }
+
+    .faction-level {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .nav {
+      flex: 1;
+      padding: 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .nav-btn {
+      border: 1px solid rgba(255,255,255,0.14);
+      background: transparent;
+      color: var(--text);
+      border-radius: 12px;
+      padding: 12px 10px;
+      text-align: left;
+      cursor: pointer;
+      transition: 120ms ease;
+      font: inherit;
+    }
+
+    .nav-btn:hover,
+    .nav-btn.active {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.65);
+    }
+
+    .nav-btn .small {
+      display: block;
+      font-size: 10px;
+      color: var(--dim);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    /* ═══ TOP BAR ═══ */
+    .topbar {
+      grid-column: 2 / 4;
+      display: grid;
+      grid-template-columns: 1.8fr 1fr;
+      gap: 18px;
+    }
+
+    .resources,
+    .top-meta {
+      display: flex;
+      align-items: center;
+      height: 100%;
+      padding: 14px 18px;
+    }
+
+    .resources {
+      gap: 10px;
+      justify-content: space-between;
+    }
+
+    .resource {
+      min-width: 120px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: var(--panel-soft);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .resource .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 5px;
+    }
+
+    .resource .value {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .resource .delta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .top-meta {
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .meta-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .meta-label {
+      font-size: 11px;
+      color: var(--dim);
+      text-transform: uppercase;
+    }
+
+    .meta-value {
+      font-size: 22px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    /* ═══ MAIN GAME VIEW ═══ */
+    .main {
+      position: relative;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .map {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+    }
+
+    .orbit {
+      position: absolute;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 50%;
+    }
+
+    .orbit.one { width: 48vmin; height: 48vmin; }
+    .orbit.two { width: 66vmin; height: 66vmin; }
+
+    .star {
+      position: absolute;
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 35% 30%, #fff 0 12%, #f2f2f2 13% 34%, #cdcdcd 35% 58%, #8c8c8c 59% 72%, #3f3f3f 73% 100%);
+      filter: drop-shadow(0 0 24px rgba(255,255,255,0.18));
+    }
+
+    .planet {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.15);
+      box-shadow: 0 0 18px rgba(255,255,255,0.04);
+    }
+
+    .planet.p1 {
+      width: 54px;
+      height: 54px;
+      top: 24%;
+      right: 18%;
+      background: radial-gradient(circle at 35% 30%, #d8d8d8, #8e8e8e 60%, #454545 100%);
+    }
+
+    .planet.p2 {
+      width: 72px;
+      height: 72px;
+      bottom: 14%;
+      right: 30%;
+      background: radial-gradient(circle at 30% 28%, #fafafa, #a6a6a6 45%, #5f5f5f 75%, #242424 100%);
+    }
+
+    .selection {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      padding: 16px 18px;
+      min-width: 280px;
+      max-width: 380px;
+      background: rgba(0,0,0,0.78);
+      border: 1px solid rgba(255,255,255,0.85);
+      border-radius: 14px;
+    }
+
+    .selection .eyebrow {
+      font-size: 11px;
+      color: var(--dim);
+      text-transform: uppercase;
+      margin-bottom: 7px;
+    }
+
+    .selection h2 {
+      margin: 0 0 6px;
+      font-size: 22px;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .selection p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    /* ═══ RIGHT BAR ═══ */
+    .rightbar {
+      grid-row: 2 / 4;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      min-height: 0;
+    }
+
+    .card {
+      padding: 16px;
+    }
+
+    .card-title {
+      font-size: 12px;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 12px;
+    }
+
+    .fleet-list,
+    .info-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    .row:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .minimap {
+      flex: 1;
+      min-height: 160px;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 12% 24%, rgba(255,255,255,0.6) 0 1px, transparent 1.6px),
+        radial-gradient(circle at 70% 16%, rgba(255,255,255,0.45) 0 1px, transparent 1.6px),
+        radial-gradient(circle at 48% 60%, rgba(255,255,255,0.55) 0 1px, transparent 1.6px),
+        linear-gradient(to bottom, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      background-color: #020202;
+    }
+
+    .minimap::before,
+    .minimap::after {
+      content: "";
+      position: absolute;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 50%;
+    }
+
+    .minimap::before {
+      width: 60%;
+      height: 60%;
+      left: 20%;
+      top: 20%;
+    }
+
+    .minimap::after {
+      width: 20px;
+      height: 20px;
+      left: 48%;
+      top: 46%;
+      background: #fff;
+      box-shadow: 0 0 12px rgba(255,255,255,0.12);
+    }
+
+    /* ═══ BOTTOM BAR ═══ */
+    .bottom {
+      grid-column: 2 / 3;
+      display: grid;
+      grid-template-columns: 1.15fr 2fr;
+      gap: 18px;
+      min-height: 0;
+    }
+
+    .chat {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .tab {
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      background: rgba(255,255,255,0.03);
+      cursor: pointer;
+      transition: 120ms ease;
+    }
+
+    .tab.active {
+      color: var(--text);
+      border-color: rgba(255,255,255,0.8);
+      background: rgba(255,255,255,0.08);
+    }
+
+    .tab:hover:not(.active) {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.3);
+    }
+
+    .messages {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-right: 4px;
+    }
+
+    .msg {
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--muted);
+      border-left: 2px solid rgba(255,255,255,0.2);
+      padding-left: 10px;
+    }
+
+    .msg strong {
+      color: var(--text);
+    }
+
+    .input {
+      margin-top: 12px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 12px 14px;
+      outline: none;
+      font: inherit;
+    }
+
+    .build {
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .build-header {
+      display: flex;
+      gap: 8px;
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .build-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 0;
+      height: 100%;
+    }
+
+    .unit {
+      border-right: 1px solid var(--line);
+      padding: 16px 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+      background: rgba(255,255,255,0.01);
+      transition: 120ms ease;
+      cursor: pointer;
+    }
+
+    .unit:last-child { border-right: 0; }
+    .unit:hover { background: rgba(255,255,255,0.05); }
+
+    .unit-icon {
+      width: 52px;
+      height: 28px;
+      border: 1px solid rgba(255,255,255,0.6);
+      border-radius: 999px 999px 10px 10px;
+      position: relative;
+      opacity: 0.9;
+    }
+
+    .unit-icon::after {
+      content: "";
+      position: absolute;
+      width: 18px;
+      height: 6px;
+      border: 1px solid rgba(255,255,255,0.55);
+      border-top: 0;
+      left: 16px;
+      top: 28px;
+      border-radius: 0 0 6px 6px;
+    }
+
+    .unit-name {
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .unit-cost {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ═══ Scrollbar ═══ */
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+
+    @media (max-width: 1280px) {
+      .app {
+        grid-template-columns: 96px 1fr 230px;
+        grid-template-rows: 70px 1fr 220px;
+        gap: 14px;
+        padding: 14px;
+      }
+      .resource { min-width: 100px; }
+      .build-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .bottom { grid-template-columns: 1fr 1.5fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- ═══ SIDEBAR ═══ -->
+    <aside class="sidebar">
+      <section class="panel faction-card">
+        <div class="crest">VE</div>
+        <div>
+          <div class="faction-name">Valorian Empire</div>
+          <div class="faction-level">Level 24 Command</div>
+        </div>
+      </section>
+
+      <nav class="panel nav">
+        <button class="nav-btn active"><span class="small">Map</span>Overview</button>
+        <button class="nav-btn"><span class="small">Territory</span>Planets</button>
+        <button class="nav-btn"><span class="small">Combat</span>Fleets</button>
+        <button class="nav-btn"><span class="small">Tech</span>Research</button>
+        <button class="nav-btn"><span class="small">Industry</span>Construct</button>
+        <button class="nav-btn"><span class="small">Social</span>Alliance</button>
+        <button class="nav-btn"><span class="small">Comms</span>Inbox</button>
+      </nav>
+    </aside>
+
+    <!-- ═══ TOP BAR ═══ -->
+    <header class="topbar">
+      <section class="panel resources">
+        <div class="resource">
+          <div class="label">Ore</div>
+          <div class="value">12.4K</div>
+          <div class="delta">+320/s</div>
+        </div>
+        <div class="resource">
+          <div class="label">Alloy</div>
+          <div class="value">8.7K</div>
+          <div class="delta">+210/s</div>
+        </div>
+        <div class="resource">
+          <div class="label">Fuel</div>
+          <div class="value">5.3K</div>
+          <div class="delta">+115/s</div>
+        </div>
+        <div class="resource">
+          <div class="label">Energy</div>
+          <div class="value">2.1K</div>
+          <div class="delta">+95/s</div>
+        </div>
+        <div class="resource">
+          <div class="label">Population</div>
+          <div class="value">1.2K</div>
+          <div class="delta">+18/m</div>
+        </div>
+      </section>
+
+      <section class="panel top-meta">
+        <div class="meta-block">
+          <div class="meta-label">Credits</div>
+          <div class="meta-value">43,892</div>
+        </div>
+        <div class="meta-block">
+          <div class="meta-label">Server Time</div>
+          <div class="meta-value" id="clock">UTC 12:45:36</div>
+        </div>
+      </section>
+    </header>
+
+    <!-- ═══ GAME VIEW ═══ -->
+    <main class="panel main">
+      <div class="map">
+        <div class="orbit one"></div>
+        <div class="orbit two"></div>
+        <div class="star"></div>
+        <div class="planet p1"></div>
+        <div class="planet p2"></div>
+      </div>
+
+      <section class="selection">
+        <div class="eyebrow">Selected System</div>
+        <h2>Solaris</h2>
+        <p>2 colonized planets, 142 asteroid fields, 4 fleets in orbit. Strategic mid-sector logistics node.</p>
+      </section>
+    </main>
+
+    <!-- ═══ RIGHT BAR ═══ -->
+    <aside class="rightbar">
+      <section class="panel card">
+        <div class="card-title">Fleets</div>
+        <div class="fleet-list">
+          <div class="row"><span>1st Fleet</span><strong>120 / 150</strong></div>
+          <div class="row"><span>2nd Fleet</span><strong>80 / 100</strong></div>
+          <div class="row"><span>3rd Fleet</span><strong>60 / 80</strong></div>
+          <div class="row"><span>4th Fleet</span><strong>40 / 60</strong></div>
+        </div>
+      </section>
+
+      <section class="panel card">
+        <div class="card-title">System Info</div>
+        <div class="info-list">
+          <div class="row"><span>Star</span><strong>Solaris</strong></div>
+          <div class="row"><span>Planets</span><strong>2</strong></div>
+          <div class="row"><span>Asteroids</span><strong>142</strong></div>
+          <div class="row"><span>Controlled By</span><strong>Valorian Empire</strong></div>
+        </div>
+      </section>
+
+      <section class="panel card minimap">
+        <div class="card-title" style="position:absolute;left:16px;top:16px;margin:0;z-index:2;">Sector Map</div>
+      </section>
+    </aside>
+
+    <!-- ═══ BOTTOM BAR ═══ -->
+    <section class="bottom">
+      <section class="panel chat">
+        <div class="tabs">
+          <div class="tab active">Alliance</div>
+          <div class="tab">Sector</div>
+          <div class="tab">Private</div>
+        </div>
+        <div class="messages">
+          <div class="msg">[12:45] <strong>Commander</strong>: Rally at sector 7B. Enemy fleet spotted.</div>
+          <div class="msg">[12:45] <strong>System</strong>: Research completed: Plasma Weapons.</div>
+          <div class="msg">[12:46] <strong>Trade Hub</strong>: Incoming ore shipment from Helios Gate.</div>
+        </div>
+        <input class="input" placeholder="Type message..." />
+      </section>
+
+      <section class="panel build">
+        <div class="build-header">
+          <div class="tab active">Units</div>
+          <div class="tab">Buildings</div>
+          <div class="tab">Upgrades</div>
+        </div>
+        <div class="build-grid">
+          <article class="unit">
+            <div class="unit-icon"></div>
+            <div>
+              <div class="unit-name">Scout</div>
+              <div class="unit-cost">50 ore</div>
+            </div>
+          </article>
+          <article class="unit">
+            <div class="unit-icon"></div>
+            <div>
+              <div class="unit-name">Frigate</div>
+              <div class="unit-cost">120 ore</div>
+            </div>
+          </article>
+          <article class="unit">
+            <div class="unit-icon"></div>
+            <div>
+              <div class="unit-name">Destroyer</div>
+              <div class="unit-cost">300 ore</div>
+            </div>
+          </article>
+          <article class="unit">
+            <div class="unit-icon"></div>
+            <div>
+              <div class="unit-name">Cruiser</div>
+              <div class="unit-cost">600 ore</div>
+            </div>
+          </article>
+          <article class="unit">
+            <div class="unit-icon"></div>
+            <div>
+              <div class="unit-name">Battleship</div>
+              <div class="unit-cost">1200 ore</div>
+            </div>
+          </article>
+          <article class="unit">
+            <div class="unit-icon"></div>
+            <div>
+              <div class="unit-name">Constructor</div>
+              <div class="unit-cost">150 ore</div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </section>
+
+  </div>
+
+  <script>
+    // Live clock
+    function tick() {
+      const n = new Date();
+      document.getElementById('clock').textContent =
+        `UTC ${String(n.getUTCHours()).padStart(2,'0')}:${String(n.getUTCMinutes()).padStart(2,'0')}:${String(n.getUTCSeconds()).padStart(2,'0')}`;
+    }
+    setInterval(tick, 1000);
+    tick();
+  </script>
+</body>
+</html>

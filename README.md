@@ -30,7 +30,7 @@ npm run dev
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for the full development plan.
+See [roadmap.md](roadmap.md) for the current development plan.
 
 ## License
 

@@ -54,6 +54,18 @@ export function getZoom(): number {
   return camera.zoom;
 }
 
+export function zoomIn(factor: number = 1.15): void {
+  camera.zoom = Math.min(2.0, camera.zoom * factor);
+}
+
+export function zoomOut(factor: number = 1.15): void {
+  camera.zoom = Math.max(0.3, camera.zoom / factor);
+}
+
+export function setZoom(zoom: number): void {
+  camera.zoom = Math.max(0.3, Math.min(2.0, zoom));
+}
+
 export function setCameraPos(x: number, y: number): void {
   camera.x = x;
   camera.y = y;
