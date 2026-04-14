@@ -18,8 +18,8 @@ function injectStyles(): void {
   const style = document.createElement('style');
   style.textContent = `
     /* Full-screen blackout while the world is being created. Hides the
-       menu world completely so there's no visual noise during the
-       transition between the menu system and the real game world. */
+       menu world completely. Inner layers add a starfield + slow
+       horizontal scanline so the screen isn't dead black. */
     .loading-screen {
       position: fixed;
       inset: 0;
@@ -31,7 +31,61 @@ function injectStyles(): void {
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
+      overflow: hidden;
       transition: opacity 260ms ease-out, visibility 0s linear 260ms;
+    }
+
+    /* Twinkling starfield layer (populated by JS at load time) */
+    .loading-stars {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .loading-star {
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      background: #fff;
+      border-radius: 50%;
+      opacity: 0;
+      animation: loading-twinkle linear infinite;
+    }
+
+    @keyframes loading-twinkle {
+      0%, 100% { opacity: 0; transform: scale(0.6); }
+      50%      { opacity: var(--star-alpha, 0.8); transform: scale(1); }
+    }
+
+    /* CRT-style horizontal scanline that sweeps top→bottom slowly */
+    .loading-scan {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.4) 30%,
+        rgba(255, 255, 255, 0.7) 50%,
+        rgba(255, 255, 255, 0.4) 70%,
+        transparent 100%
+      );
+      box-shadow: 0 0 calc(var(--hud-unit) * 0.6) rgba(255, 255, 255, 0.15);
+      animation: loading-scan-sweep 6s linear infinite;
+      pointer-events: none;
+    }
+
+    @keyframes loading-scan-sweep {
+      0%   { top: -2%; opacity: 0; }
+      10%  { opacity: 0.8; }
+      90%  { opacity: 0.8; }
+      100% { top: 102%; opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .loading-star { animation: none; opacity: 0.3; }
+      .loading-scan { display: none; }
     }
 
     .loading-screen.visible {
@@ -106,12 +160,41 @@ function injectStyles(): void {
   document.head.appendChild(style);
 }
 
+function createStars(host: HTMLDivElement, count: number): void {
+  for (let i = 0; i < count; i++) {
+    const star = document.createElement('div');
+    star.className = 'loading-star';
+    const size = Math.random() < 0.85 ? 1 : Math.random() < 0.97 ? 2 : 3;
+    const alpha = 0.25 + Math.random() * 0.65;
+    const duration = 2.5 + Math.random() * 5;
+    const delay = Math.random() * 6;
+    star.style.left = `${Math.random() * 100}%`;
+    star.style.top = `${Math.random() * 100}%`;
+    star.style.width = `${size}px`;
+    star.style.height = `${size}px`;
+    star.style.setProperty('--star-alpha', alpha.toFixed(2));
+    star.style.animationDuration = `${duration.toFixed(1)}s`;
+    star.style.animationDelay = `${delay.toFixed(1)}s`;
+    host.appendChild(star);
+  }
+}
+
 export function criarLoadingScreen(): HTMLDivElement {
   if (_container) return _container;
   injectStyles();
 
   const container = document.createElement('div');
   container.className = 'loading-screen';
+
+  // Background animation layers
+  const stars = document.createElement('div');
+  stars.className = 'loading-stars';
+  createStars(stars, 140);
+  container.appendChild(stars);
+
+  const scan = document.createElement('div');
+  scan.className = 'loading-scan';
+  container.appendChild(scan);
 
   const card = document.createElement('div');
   card.className = 'loading-card';
