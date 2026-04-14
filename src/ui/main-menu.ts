@@ -26,8 +26,9 @@ function injectStyles(): void {
   const style = document.createElement('style');
   style.textContent = `
     /* Menu is a transparent overlay — the Pixi world renders behind it
-       (cinematic camera pan around the starting system). Background is
-       just a darkening vignette so the title/buttons stay readable. */
+       (cinematic camera pan around the starting system). Overlay
+       applies a backdrop blur so the world is still visible but
+       softened, with a subtle darkening pass on top for text contrast. */
     .main-menu {
       position: fixed;
       inset: 0;
@@ -40,6 +41,9 @@ function injectStyles(): void {
       align-items: center;
       justify-content: center;
       opacity: 1;
+      background: rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       transition: opacity 400ms ease-out, visibility 0s linear 0s;
     }
 
@@ -47,7 +51,7 @@ function injectStyles(): void {
       content: '';
       position: absolute;
       inset: 0;
-      background: radial-gradient(ellipse at 50% 40%, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.7) 70%, rgba(0,0,0,0.9) 100%);
+      background: radial-gradient(ellipse at 50% 40%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.2) 70%, rgba(0,0,0,0.4) 100%);
       pointer-events: none;
     }
 
