@@ -163,12 +163,18 @@ function obterRaioAlvo(alvo: Planeta | Sol | AlvoPonto | null): number {
 }
 
 export function entrarEmOrbita(nave: Nave, alvo: Planeta | Sol | AlvoPonto): void {
-  const raio = obterRaioAlvo(alvo) + 18 + Math.random() * 28;
+  // Use the current approach angle so the ship doesn't teleport to a random
+  // point on the orbit circle. Fixed radius (no random jitter) so repeated
+  // orbit entries don't visually bounce the ship in and out.
+  const raio = obterRaioAlvo(alvo) + 20;
+  const dx = nave.x - alvo.x;
+  const dy = nave.y - alvo.y;
+  const angulo = (dx === 0 && dy === 0) ? 0 : Math.atan2(dy, dx);
   nave.estado = 'orbitando';
   nave.alvo = alvo;
   nave.orbita = {
     raio,
-    angulo: Math.random() * Math.PI * 2,
+    angulo,
     velocidade: VELOCIDADE_ORBITA_NAVE,
   };
 }
@@ -207,8 +213,14 @@ export function removerNave(mundo: Mundo, nave: Nave): void {
   }
   const idx = mundo.naves.indexOf(nave);
   if (idx >= 0) mundo.naves.splice(idx, 1);
-  if (nave.rotaGfx) mundo.rotasContainer.removeChild(nave.rotaGfx);
-  if (nave.gfx) mundo.navesContainer.removeChild(nave.gfx);
+  if (nave.rotaGfx) {
+    mundo.rotasContainer.removeChild(nave.rotaGfx);
+    nave.rotaGfx.destroy();
+  }
+  if (nave.gfx) {
+    mundo.navesContainer.removeChild(nave.gfx);
+    nave.gfx.destroy();
+  }
 }
 
 export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
