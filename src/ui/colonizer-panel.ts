@@ -94,16 +94,6 @@ function stageLabel(stage: Stage): string {
   }
 }
 
-function stageColor(stage: Stage): string {
-  switch (stage) {
-    case 'idle': return 'var(--hud-text-dim)';
-    case 'outpost': return '#60ccff';
-    case 'traveling': return '#ffcc66';
-    case 'surveying': return '#8ce0ff';
-    case 'deciding': return '#ffd97a';
-  }
-}
-
 function targetName(nave: Nave): string {
   const a = nave.alvo;
   if (!a) return '—';
@@ -154,11 +144,6 @@ function injectStyles(): void {
   const style = document.createElement('style');
   style.textContent = `
     .colonizer-panel {
-      --cp-accent: #8ce0ff;
-      --cp-accent-dim: rgba(140, 224, 255, 0.15);
-      --cp-bg: rgba(6, 14, 22, 0.95);
-      --cp-bg-deep: rgba(3, 8, 14, 0.98);
-
       position: fixed;
       z-index: 100;
       bottom: var(--hud-margin);
@@ -178,9 +163,6 @@ function injectStyles(): void {
         opacity 180ms ease-out,
         transform 240ms cubic-bezier(0.2, 0.7, 0.2, 1),
         visibility 0s linear 240ms;
-
-      /* Subtle outer glow so the panel reads as special vs the generic ship-panel */
-      filter: drop-shadow(0 0 calc(var(--hud-unit) * 0.6) rgba(140, 224, 255, 0.12));
     }
 
     .colonizer-panel.visible {
@@ -207,192 +189,100 @@ function injectStyles(): void {
       gap: calc(var(--hud-unit) * 0.5);
     }
 
-    /* Tactical-styled panel section: corner brackets instead of a full border,
-       darker background, inset highlight on top edge. */
+    /* Sections use the same HUD tokens as every other panel (ship-panel,
+       planet-panel, build-panel) — no tactical accents, no gradients. */
     .cp-section {
-      position: relative;
-      background: linear-gradient(180deg, var(--cp-bg) 0%, var(--cp-bg-deep) 100%);
-      border: 1px solid rgba(140, 224, 255, 0.22);
-      border-radius: calc(var(--hud-unit) * 0.2);
-      box-shadow:
-        0 0 0 1px rgba(140, 224, 255, 0.06),
-        0 calc(var(--hud-unit) * 0.6) calc(var(--hud-unit) * 1.2) rgba(0, 0, 0, 0.55),
-        inset 0 1px 0 rgba(255, 255, 255, 0.06);
-      backdrop-filter: blur(4px);
-      padding: calc(var(--hud-unit) * 0.85) calc(var(--hud-unit) * 1);
+      background: var(--hud-bg);
+      border: 1px solid var(--hud-border);
+      border-radius: var(--hud-radius);
+      box-shadow: var(--hud-shadow);
+      backdrop-filter: blur(3px);
+      padding: calc(var(--hud-unit) * 0.7) calc(var(--hud-unit) * 0.9);
       display: flex;
       align-items: center;
       gap: calc(var(--hud-unit) * 0.8);
     }
 
-    /* Corner brackets: four tiny L-shapes at each corner of every section */
-    .cp-section::before,
-    .cp-section::after {
-      content: '';
-      position: absolute;
-      width: calc(var(--hud-unit) * 0.55);
-      height: calc(var(--hud-unit) * 0.55);
-      border: 1px solid var(--cp-accent);
-      pointer-events: none;
-    }
-    .cp-section::before {
-      top: -1px;
-      left: -1px;
-      border-right: none;
-      border-bottom: none;
-    }
-    .cp-section::after {
-      bottom: -1px;
-      right: -1px;
-      border-left: none;
-      border-top: none;
-    }
-
     /* ── Left: portrait + stage badge ── */
 
     .cp-left {
-      min-width: calc(var(--hud-unit) * 13);
-    }
-
-    .cp-portrait-wrap {
-      width: calc(var(--hud-unit) * 4.8);
-      height: calc(var(--hud-unit) * 4.8);
-      flex: 0 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      background:
-        radial-gradient(circle at 50% 50%, rgba(140, 224, 255, 0.18) 0%, rgba(140, 224, 255, 0.02) 60%, transparent 100%),
-        rgba(6, 14, 22, 0.8);
-      border: 1px solid rgba(140, 224, 255, 0.5);
-      border-radius: calc(var(--hud-unit) * 0.2);
-      box-shadow:
-        inset 0 0 calc(var(--hud-unit) * 1) rgba(140, 224, 255, 0.12),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-    }
-
-    /* Scanning line overlay on portrait — a single horizontal cyan line
-       that sweeps top→bottom */
-    .cp-portrait-wrap::after {
-      content: '';
-      position: absolute;
-      left: 6%;
-      right: 6%;
-      top: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent 0%, var(--cp-accent) 50%, transparent 100%);
-      opacity: 0.6;
-      animation: cp-scan 2.5s linear infinite;
-      pointer-events: none;
-    }
-
-    @keyframes cp-scan {
-      0% { transform: translateY(0); opacity: 0; }
-      8% { opacity: 0.8; }
-      92% { opacity: 0.8; }
-      100% { transform: translateY(calc(var(--hud-unit) * 4.8)); opacity: 0; }
+      min-width: calc(var(--hud-unit) * 12);
     }
 
     .cp-portrait {
-      width: 82%;
-      height: 82%;
+      width: calc(var(--hud-unit) * 3.4);
+      height: calc(var(--hud-unit) * 3.4);
+      display: block;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
+      flex: 0 0 auto;
     }
 
     .cp-left-text {
       display: flex;
       flex-direction: column;
-      gap: calc(var(--hud-unit) * 0.35);
+      gap: calc(var(--hud-unit) * 0.25);
       min-width: 0;
     }
 
     .cp-name {
       font-family: var(--hud-font-display);
       font-size: var(--hud-text-md);
-      letter-spacing: 0.1em;
+      line-height: 1.1;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
       color: var(--hud-text);
-      line-height: 1;
       white-space: nowrap;
-      text-shadow: 0 0 calc(var(--hud-unit) * 0.3) rgba(140, 224, 255, 0.35);
     }
 
     .cp-stage-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: calc(var(--hud-unit) * 0.35);
       font-family: var(--hud-font);
       font-size: var(--hud-text-sm);
-      letter-spacing: 0.16em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      padding: calc(var(--hud-unit) * 0.3) calc(var(--hud-unit) * 0.55);
-      border: 1px solid currentColor;
-      background: rgba(140, 224, 255, 0.05);
+      color: var(--hud-text-dim);
       line-height: 1;
       white-space: nowrap;
-      align-self: flex-start;
-    }
-
-    /* LED dot inside the stage badge — pulses when ship is active */
-    .cp-stage-badge::before {
-      content: '';
-      display: inline-block;
-      width: calc(var(--hud-unit) * 0.4);
-      height: calc(var(--hud-unit) * 0.4);
-      border-radius: 50%;
-      background: currentColor;
-      box-shadow: 0 0 calc(var(--hud-unit) * 0.35) currentColor;
-      animation: cp-pulse 1.6s ease-in-out infinite;
-    }
-
-    @keyframes cp-pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.45; transform: scale(0.85); }
     }
 
     /* ── Middle: info + progress ── */
 
     .cp-middle {
-      min-width: calc(var(--hud-unit) * 14);
+      min-width: calc(var(--hud-unit) * 12);
       flex: 1 1 auto;
     }
 
     .cp-info {
       display: flex;
       flex-direction: column;
-      gap: calc(var(--hud-unit) * 0.35);
+      gap: calc(var(--hud-unit) * 0.25);
       width: 100%;
     }
 
     .cp-info-title {
       font-family: var(--hud-font);
       font-size: var(--hud-text-sm);
-      letter-spacing: 0.14em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--cp-accent);
+      color: var(--hud-text-dim);
       line-height: 1;
-      opacity: 0.75;
     }
 
     .cp-info-value {
       font-family: var(--hud-font-body);
-      font-size: calc(var(--hud-text-md) * 1.15);
+      font-size: var(--hud-text-md);
       color: var(--hud-text);
-      line-height: 1.1;
+      line-height: 1.2;
       white-space: nowrap;
-      text-shadow: 0 0 calc(var(--hud-unit) * 0.25) rgba(140, 224, 255, 0.25);
     }
 
     .cp-progress {
       width: 100%;
-      height: calc(var(--hud-unit) * 0.5);
-      border: 1px solid rgba(140, 224, 255, 0.35);
-      background: rgba(6, 14, 22, 0.8);
+      height: calc(var(--hud-unit) * 0.35);
+      border: 1px solid var(--hud-line);
+      background: rgba(255,255,255,0.05);
       position: relative;
-      margin-top: calc(var(--hud-unit) * 0.25);
-      overflow: hidden;
+      margin-top: calc(var(--hud-unit) * 0.35);
     }
 
     .cp-progress-fill {
@@ -400,9 +290,8 @@ function injectStyles(): void {
       top: 0;
       left: 0;
       bottom: 0;
-      background: linear-gradient(90deg, rgba(140, 224, 255, 0.55) 0%, var(--cp-accent) 100%);
-      transition: width 140ms linear;
-      box-shadow: 0 0 calc(var(--hud-unit) * 0.5) var(--cp-accent);
+      background: rgba(255,255,255,0.85);
+      transition: width 200ms ease-out;
     }
 
     .cp-progress-label {
@@ -410,7 +299,7 @@ function injectStyles(): void {
       font-size: var(--hud-text-sm);
       color: var(--hud-text-dim);
       letter-spacing: 0.05em;
-      margin-top: calc(var(--hud-unit) * 0.25);
+      margin-top: calc(var(--hud-unit) * 0.2);
       font-variant-numeric: tabular-nums;
     }
 
@@ -419,74 +308,45 @@ function injectStyles(): void {
     .cp-actions {
       display: grid;
       grid-template-columns: repeat(2, auto);
-      gap: calc(var(--hud-unit) * 0.35);
+      gap: calc(var(--hud-unit) * 0.3);
       align-items: center;
     }
 
     .cp-btn {
-      min-width: calc(var(--hud-unit) * 3.4);
-      height: calc(var(--hud-unit) * 2.4);
+      min-width: calc(var(--hud-unit) * 3.2);
+      height: calc(var(--hud-unit) * 2.2);
       padding: 0 calc(var(--hud-unit) * 0.5);
-      border: 1px solid rgba(140, 224, 255, 0.4);
-      background: linear-gradient(180deg, rgba(20, 34, 48, 0.75) 0%, rgba(6, 14, 22, 0.85) 100%);
+      border: 1px solid var(--hud-border);
+      background: transparent;
       color: var(--hud-text);
       cursor: pointer;
       font-family: var(--hud-font);
       font-size: var(--hud-text-sm);
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: calc(var(--hud-unit) * 0.2);
-      transition:
-        background 120ms ease,
-        border-color 120ms ease,
-        transform 120ms ease,
-        box-shadow 140ms ease;
+      transition: background 120ms ease, border-color 120ms ease;
       appearance: none;
       white-space: nowrap;
-      position: relative;
-    }
-
-    /* Corner cut accent on buttons — creates the "tactical" bevel look */
-    .cp-btn::before {
-      content: '';
-      position: absolute;
-      top: -1px;
-      right: -1px;
-      width: calc(var(--hud-unit) * 0.4);
-      height: calc(var(--hud-unit) * 0.4);
-      border-right: 1px solid var(--cp-accent);
-      border-top: 1px solid var(--cp-accent);
-      opacity: 0.7;
     }
 
     .cp-btn:hover:not(.disabled) {
-      border-color: var(--cp-accent);
-      background: linear-gradient(180deg, rgba(30, 54, 78, 0.8) 0%, rgba(10, 20, 30, 0.9) 100%);
-      transform: translateY(-1px);
-      box-shadow: 0 0 calc(var(--hud-unit) * 0.5) rgba(140, 224, 255, 0.25);
+      background: rgba(255,255,255,0.06);
     }
 
     .cp-btn.primary {
-      background: linear-gradient(180deg, rgba(140, 224, 255, 0.18) 0%, rgba(140, 224, 255, 0.06) 100%);
-      border-color: var(--cp-accent);
-      color: var(--cp-accent);
-      text-shadow: 0 0 calc(var(--hud-unit) * 0.4) rgba(140, 224, 255, 0.5);
+      background: rgba(255,255,255,0.08);
     }
 
     .cp-btn.primary:hover:not(.disabled) {
-      background: linear-gradient(180deg, rgba(140, 224, 255, 0.28) 0%, rgba(140, 224, 255, 0.12) 100%);
+      background: rgba(255,255,255,0.14);
     }
 
     .cp-btn.active {
-      background: linear-gradient(180deg, rgba(140, 224, 255, 0.3) 0%, rgba(140, 224, 255, 0.14) 100%);
-      border-color: var(--cp-accent);
-      color: var(--cp-accent);
-      box-shadow:
-        0 0 calc(var(--hud-unit) * 0.6) rgba(140, 224, 255, 0.4),
-        inset 0 0 calc(var(--hud-unit) * 0.4) rgba(140, 224, 255, 0.25);
+      background: rgba(255,255,255,0.18);
+      color: #fff;
     }
 
     .cp-btn.disabled {
@@ -499,7 +359,7 @@ function injectStyles(): void {
       display: flex;
       flex-direction: column;
       gap: calc(var(--hud-unit) * 0.3);
-      min-width: calc(var(--hud-unit) * 13);
+      min-width: calc(var(--hud-unit) * 12);
     }
 
     .cp-name-input {
@@ -513,11 +373,10 @@ function injectStyles(): void {
       letter-spacing: 0.04em;
       outline: none;
       box-sizing: border-box;
-      border-radius: calc(var(--hud-unit) * 0.18);
     }
 
     .cp-name-input:focus {
-      border-color: #8ce0ff;
+      border-color: var(--hud-border);
       background: rgba(255,255,255,0.08);
     }
 
@@ -528,28 +387,24 @@ function injectStyles(): void {
       text-transform: uppercase;
       color: var(--hud-text-dim);
       line-height: 1.3;
-      margin-top: calc(var(--hud-unit) * 0.25);
+      margin-top: calc(var(--hud-unit) * 0.2);
     }
 
     /* ── Cockpit movement console ──
-       Floats above the main panel, styled like a ship console: metallic
-       gradient background, rivet corners, recessed joystick cavity, D-pad. */
+       Same HUD tokens as all other panels — no tactical accents, just a
+       consistent minimal surface with a joystick and D-pad inside it. */
 
     .cp-cockpit {
       position: fixed;
       z-index: 101;
-      bottom: calc(var(--hud-margin) + var(--hud-unit) * 8);
+      bottom: calc(var(--hud-margin) + var(--hud-unit) * 7);
       left: 50%;
-
-      padding: calc(var(--hud-unit) * 0.9) calc(var(--hud-unit) * 1.1);
-      background:
-        linear-gradient(180deg, rgba(38, 50, 62, 0.95) 0%, rgba(12, 20, 28, 0.98) 100%);
-      border: 1px solid rgba(140, 224, 255, 0.4);
-      box-shadow:
-        0 0 0 1px rgba(0, 0, 0, 0.5),
-        0 calc(var(--hud-unit) * 0.6) calc(var(--hud-unit) * 1.6) rgba(0, 0, 0, 0.7),
-        inset 0 1px 0 rgba(255, 255, 255, 0.12),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+      padding: calc(var(--hud-unit) * 0.8) calc(var(--hud-unit) * 1);
+      background: var(--hud-bg);
+      border: 1px solid var(--hud-border);
+      border-radius: var(--hud-radius);
+      box-shadow: var(--hud-shadow);
+      backdrop-filter: blur(3px);
 
       transform: translateX(-50%) translateY(calc(var(--hud-unit) * 0.6));
       opacity: 0;
@@ -572,29 +427,14 @@ function injectStyles(): void {
         visibility 0s linear 0s;
     }
 
-    /* Rivets at the 4 corners of the cockpit panel */
-    .cp-cockpit::before,
-    .cp-cockpit::after {
-      content: '';
-      position: absolute;
-      width: calc(var(--hud-unit) * 0.3);
-      height: calc(var(--hud-unit) * 0.3);
-      background: radial-gradient(circle at 40% 40%, #888 0%, #333 50%, #111 100%);
-      border-radius: 50%;
-      box-shadow: 0 0 0 1px #000, inset 0 0 0 1px rgba(255,255,255,0.15);
-    }
-    .cp-cockpit::before { top: calc(var(--hud-unit) * 0.3); left: calc(var(--hud-unit) * 0.3); }
-    .cp-cockpit::after { top: calc(var(--hud-unit) * 0.3); right: calc(var(--hud-unit) * 0.3); }
-
     .cp-cockpit-title {
       font-family: var(--hud-font);
       font-size: var(--hud-text-sm);
-      letter-spacing: 0.2em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: var(--cp-accent);
+      color: var(--hud-text-dim);
       text-align: center;
       margin-bottom: calc(var(--hud-unit) * 0.5);
-      opacity: 0.85;
     }
 
     .cp-cockpit-row {
@@ -608,17 +448,11 @@ function injectStyles(): void {
 
     .cp-joystick {
       position: relative;
-      width: calc(var(--hud-unit) * 5);
-      height: calc(var(--hud-unit) * 5);
+      width: calc(var(--hud-unit) * 4.4);
+      height: calc(var(--hud-unit) * 4.4);
       border-radius: 50%;
-      background:
-        radial-gradient(circle at 50% 45%, rgba(12, 20, 28, 0.9) 0%, rgba(2, 6, 10, 1) 70%),
-        #000;
-      border: 2px solid rgba(140, 224, 255, 0.35);
-      box-shadow:
-        inset 0 0 calc(var(--hud-unit) * 1.2) rgba(0, 0, 0, 0.9),
-        inset 0 2px 0 rgba(255, 255, 255, 0.08),
-        0 0 0 1px rgba(0, 0, 0, 0.6);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--hud-line);
       cursor: grab;
       touch-action: none;
     }
@@ -627,24 +461,24 @@ function injectStyles(): void {
       cursor: grabbing;
     }
 
-    /* Crosshair guides inside the joystick cavity */
+    /* Crosshair guides inside the joystick */
     .cp-joystick::before,
     .cp-joystick::after {
       content: '';
       position: absolute;
-      background: rgba(140, 224, 255, 0.18);
+      background: rgba(255,255,255,0.12);
       pointer-events: none;
     }
     .cp-joystick::before {
       top: 50%;
-      left: 10%;
-      right: 10%;
+      left: 12%;
+      right: 12%;
       height: 1px;
     }
     .cp-joystick::after {
       left: 50%;
-      top: 10%;
-      bottom: 10%;
+      top: 12%;
+      bottom: 12%;
       width: 1px;
     }
 
@@ -652,89 +486,62 @@ function injectStyles(): void {
       position: absolute;
       top: 50%;
       left: 50%;
-      width: calc(var(--hud-unit) * 1.8);
-      height: calc(var(--hud-unit) * 1.8);
+      width: calc(var(--hud-unit) * 1.6);
+      height: calc(var(--hud-unit) * 1.6);
       border-radius: 50%;
-      background:
-        radial-gradient(circle at 40% 35%, #a8d8f0 0%, #4a7a95 40%, #1e3a4f 80%, #0a1b28 100%);
-      border: 1px solid rgba(140, 224, 255, 0.6);
+      background: rgba(255,255,255,0.85);
+      border: 1px solid var(--hud-border);
       transform: translate(-50%, -50%);
-      box-shadow:
-        0 calc(var(--hud-unit) * 0.2) calc(var(--hud-unit) * 0.4) rgba(0, 0, 0, 0.6),
-        inset 0 1px 1px rgba(255, 255, 255, 0.3);
       pointer-events: none;
-      transition: background 120ms ease;
-    }
-
-    .cp-joystick.active .cp-joystick-nub {
-      background:
-        radial-gradient(circle at 40% 35%, #ccf0ff 0%, #6aa8c8 40%, #2e5a75 80%, #0a1b28 100%);
     }
 
     /* ── D-pad ── */
 
     .cp-dpad {
       display: grid;
-      grid-template-columns: repeat(3, calc(var(--hud-unit) * 1.8));
-      grid-template-rows: repeat(3, calc(var(--hud-unit) * 1.8));
+      grid-template-columns: repeat(3, calc(var(--hud-unit) * 1.6));
+      grid-template-rows: repeat(3, calc(var(--hud-unit) * 1.6));
       gap: calc(var(--hud-unit) * 0.12);
     }
 
     .cp-dpad-btn {
       appearance: none;
-      border: 1px solid rgba(140, 224, 255, 0.35);
-      background: linear-gradient(180deg, #2a3a4a 0%, #0c1420 100%);
-      color: var(--cp-accent);
+      border: 1px solid var(--hud-border);
+      background: transparent;
+      color: var(--hud-text);
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: calc(var(--hud-unit) * 0.9);
-      font-family: monospace;
-      box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.15),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.5),
-        0 1px 2px rgba(0, 0, 0, 0.5);
-      transition: all 80ms ease;
+      font-family: var(--hud-font);
+      transition: background 80ms ease;
       user-select: none;
     }
 
     .cp-dpad-btn:hover {
-      border-color: var(--cp-accent);
-      background: linear-gradient(180deg, #3a4a5a 0%, #14202c 100%);
+      background: rgba(255,255,255,0.08);
     }
 
     .cp-dpad-btn:active {
-      background: linear-gradient(180deg, #0c1420 0%, #2a3a4a 100%);
-      box-shadow:
-        inset 0 2px 4px rgba(0, 0, 0, 0.7),
-        0 0 calc(var(--hud-unit) * 0.5) rgba(140, 224, 255, 0.3);
-      transform: translateY(1px);
+      background: rgba(255,255,255,0.16);
     }
 
     .cp-dpad-btn.empty {
       background: transparent;
       border: none;
-      box-shadow: none;
       pointer-events: none;
     }
 
     .cp-dpad-btn.stop {
-      color: #ff8888;
-      border-color: rgba(255, 136, 136, 0.45);
+      color: var(--hud-text-dim);
       font-size: calc(var(--hud-unit) * 0.7);
     }
-
-    .cp-dpad-btn.stop:hover {
-      border-color: #ff8888;
-    }
-
-    /* ── Click-to-go mode button (below the joystick+dpad) ── */
 
     .cp-cockpit-footer {
       display: flex;
       gap: calc(var(--hud-unit) * 0.4);
-      margin-top: calc(var(--hud-unit) * 0.65);
+      margin-top: calc(var(--hud-unit) * 0.6);
       justify-content: center;
     }
   `;
@@ -762,7 +569,6 @@ function computeRenderKey(nave: Nave): string {
 function renderPanel(nave: Nave): void {
   if (!_container || !_middleEl) return;
   const stage = stageForNave(nave);
-  const color = stageColor(stage);
 
   // ── Left section ──
   if (_infoTitleEl) _infoTitleEl.textContent = nave.origem?.dados.nome
@@ -770,8 +576,6 @@ function renderPanel(nave: Nave): void {
     : '';
   if (_stageBadgeEl) {
     _stageBadgeEl.textContent = stageLabel(stage);
-    _stageBadgeEl.style.color = color;
-    _stageBadgeEl.style.borderColor = color;
   }
 
   // ── Middle section ──
@@ -1222,12 +1026,9 @@ export function criarColonizerPanel(): HTMLDivElement {
   const left = document.createElement('div');
   left.className = 'cp-section cp-left';
 
-  const portraitWrap = document.createElement('div');
-  portraitWrap.className = 'cp-portrait-wrap';
   const portrait = document.createElement('canvas');
   portrait.className = 'cp-portrait';
   _portraitCanvas = portrait;
-  portraitWrap.appendChild(portrait);
 
   const leftText = document.createElement('div');
   leftText.className = 'cp-left-text';
@@ -1246,7 +1047,7 @@ export function criarColonizerPanel(): HTMLDivElement {
   _infoTitleEl = originTitle;
 
   leftText.append(name, stageBadge, originTitle);
-  left.append(portraitWrap, leftText);
+  left.append(portrait, leftText);
 
   // Middle section — content is built dynamically in renderMiddleInfo /
   // renderMiddleDecision depending on the current stage.

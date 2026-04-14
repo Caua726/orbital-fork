@@ -241,21 +241,13 @@ function desenharRotaNave(nave: Nave): void {
   const g = nave.rotaGfx;
   g.clear();
 
-  // Route points accumulated for the polyline. Planets/stars contribute
-  // their world position so the player sees exactly where the ship is
-  // heading — previously only AlvoPonto waypoints drew, so a ship flying
-  // toward a planet had zero visual confirmation of destination.
-  const pontos: Array<{ x: number; y: number; radius: number; color: number }> = [];
-  if (nave.alvo) {
-    if (nave.alvo._tipoAlvo === 'ponto') {
-      pontos.push({ x: nave.alvo.x, y: nave.alvo.y, radius: 3.5, color: COR_PONTO_ROTA_NAVE });
-    } else if (nave.alvo._tipoAlvo === 'planeta' || nave.alvo._tipoAlvo === 'sol') {
-      pontos.push({ x: nave.alvo.x, y: nave.alvo.y, radius: 6, color: 0x8ce0ff });
-    }
-  }
-  for (const p of nave.rotaManual) {
-    pontos.push({ x: p.x, y: p.y, radius: 3.5, color: COR_PONTO_ROTA_NAVE });
-  }
+  // Only manual waypoint routes get a visible polyline. A planet/sol target
+  // is communicated through the ship's own orbit — no line or marker is
+  // drawn on top (matches the game's existing minimal aesthetic where
+  // ships simply enter orbit and are visible at the orbit radius).
+  const pontos: AlvoPonto[] = [];
+  if (nave.alvo?._tipoAlvo === 'ponto') pontos.push(nave.alvo);
+  if (nave.rotaManual.length > 0) pontos.push(...nave.rotaManual);
   if (pontos.length <= 0) return;
 
   g.moveTo(nave.x, nave.y);
@@ -265,8 +257,8 @@ function desenharRotaNave(nave: Nave): void {
   g.stroke({ color: COR_ROTA_NAVE, width: 1.2, alpha: ALPHA_ROTA_NAVE });
 
   for (const ponto of pontos) {
-    g.circle(ponto.x, ponto.y, ponto.radius).fill({ color: 0x08111a, alpha: 0.96 });
-    g.circle(ponto.x, ponto.y, ponto.radius).stroke({ color: ponto.color, width: 1.2, alpha: 0.95 });
+    g.circle(ponto.x, ponto.y, 3.5).fill({ color: 0x08111a, alpha: 0.96 });
+    g.circle(ponto.x, ponto.y, 3.5).stroke({ color: COR_PONTO_ROTA_NAVE, width: 1.1, alpha: 0.92 });
   }
 }
 
