@@ -16,6 +16,7 @@ import { criarBuildPanel, atualizarBuildPanel } from './ui/build-panel';
 import { criarShipPanel, atualizarShipPanel } from './ui/ship-panel';
 import { criarColonizerPanel, atualizarColonizerPanel } from './ui/colonizer-panel';
 import { criarColonyModal, atualizarColonyModal } from './ui/colony-modal';
+import { criarConfirmDialog } from './ui/confirm-dialog';
 import { somVitoria, somDerrota } from './audio/som';
 
 async function bootstrap(): Promise<void> {
@@ -60,6 +61,7 @@ async function bootstrap(): Promise<void> {
   criarShipPanel();
   criarColonizerPanel();
   criarColonyModal();
+  criarConfirmDialog();
   onMinimapClick((worldX, worldY) => {
     setCameraPos(worldX, worldY);
   });

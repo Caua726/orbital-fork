@@ -14,6 +14,7 @@ import {
 import { TEMPO_SURVEY_MS } from '../world/constantes';
 import { carregarSpritesheet, getSpritesheetImage } from '../world/spritesheets';
 import { iniciarComandoNave, cancelarComandoNave, getComandoNaveTipo } from '../core/player';
+import { confirmar } from './confirm-dialog';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -805,9 +806,20 @@ const ACTIONS: ActionSpec[] = [
     visible: (_n, stage) => stage === 'idle' || stage === 'outpost' || stage === 'piloting',
     enabled: () => true,
     onClick: (n) => {
-      if (_mundoRef && confirm('Sucatear esta colonizadora? Essa ação é permanente.')) {
-        sucatearNave(_mundoRef, n);
-      }
+      if (!_mundoRef) return;
+      confirmar({
+        title: 'Sucatear colonizadora?',
+        message: 'A nave será destruída permanentemente. Essa ação não pode ser desfeita.',
+        confirmLabel: 'Sucatear',
+        cancelLabel: 'Cancelar',
+        danger: true,
+      }).then((ok) => {
+        // Sanity check: mundo and selected ship may have changed while the
+        // dialog was open.
+        if (ok && _mundoRef && mundoHasNave(_mundoRef, n)) {
+          sucatearNave(_mundoRef, n);
+        }
+      });
     },
   },
 ];
@@ -872,6 +884,10 @@ function ensurePiloting(nave: Nave): void {
   if (nave.estado !== 'pilotando') {
     iniciarPilotagem(nave);
   }
+}
+
+function mundoHasNave(mundo: Mundo, nave: Nave): boolean {
+  return mundo.naves.includes(nave);
 }
 
 function applyThrust(nave: Nave, tx: number, ty: number): void {
