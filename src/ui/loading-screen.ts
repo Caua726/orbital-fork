@@ -21,13 +21,12 @@ function injectStyles(): void {
       position: fixed;
       inset: 0;
       z-index: 600;
-      background: rgba(0, 0, 0, 0.4);
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
       color: var(--hud-text);
       font-family: var(--hud-font);
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
       opacity: 0;
@@ -44,62 +43,43 @@ function injectStyles(): void {
     }
 
     .loading-label {
-      font-family: var(--hud-font-display);
-      font-size: calc(var(--hud-unit) * 1.4);
-      letter-spacing: 0.18em;
+      font-family: var(--hud-font);
+      font-size: calc(var(--hud-unit) * 1);
+      letter-spacing: 0.22em;
       text-transform: uppercase;
       color: var(--hud-text);
-      margin-bottom: calc(var(--hud-unit) * 1.1);
       line-height: 1;
+      display: inline-flex;
+      align-items: baseline;
     }
 
-    .loading-bar {
-      width: calc(var(--hud-unit) * 14);
-      height: calc(var(--hud-unit) * 0.35);
-      border: 1px solid var(--hud-border);
-      background: var(--hud-bg);
-      overflow: hidden;
-      position: relative;
+    /* Three dots that fill in sequentially, hold, then reset. */
+    .loading-dots {
+      display: inline-block;
+      margin-left: calc(var(--hud-unit) * 0.3);
+      width: calc(var(--hud-unit) * 1.2);
+      text-align: left;
+      font-family: inherit;
+      color: var(--hud-text);
     }
 
-    .loading-bar::before {
+    .loading-dots::after {
       content: '';
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: -40%;
-      width: 40%;
-      background: linear-gradient(
-        90deg,
-        transparent 0%,
-        rgba(255, 255, 255, 0.15) 20%,
-        rgba(255, 255, 255, 0.85) 50%,
-        rgba(255, 255, 255, 0.15) 80%,
-        transparent 100%
-      );
-      animation: loading-sweep 1.3s linear infinite;
+      animation: loading-dots 1.4s steps(4, end) infinite;
     }
 
-    @keyframes loading-sweep {
-      0%   { left: -40%; }
-      100% { left: 100%; }
-    }
-
-    .loading-sub {
-      margin-top: calc(var(--hud-unit) * 0.8);
-      font-family: var(--hud-font);
-      font-size: var(--hud-text-sm);
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--hud-text-dim);
+    @keyframes loading-dots {
+      0%   { content: ''; }
+      25%  { content: '.'; }
+      50%  { content: '..'; }
+      75%  { content: '...'; }
+      100% { content: ''; }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .loading-bar::before {
+      .loading-dots::after {
         animation: none;
-        left: 0;
-        width: 100%;
-        opacity: 0.3;
+        content: '...';
       }
     }
   `;
@@ -115,18 +95,17 @@ export function criarLoadingScreen(): HTMLDivElement {
 
   const label = document.createElement('div');
   label.className = 'loading-label';
-  label.textContent = 'Criando mundo';
-  _labelEl = label;
+
+  const labelText = document.createElement('span');
+  labelText.textContent = 'Criando mundo';
+  _labelEl = labelText;
+  label.appendChild(labelText);
+
+  const dots = document.createElement('span');
+  dots.className = 'loading-dots';
+  label.appendChild(dots);
+
   container.appendChild(label);
-
-  const bar = document.createElement('div');
-  bar.className = 'loading-bar';
-  container.appendChild(bar);
-
-  const sub = document.createElement('div');
-  sub.className = 'loading-sub';
-  sub.textContent = 'Gerando sistemas solares';
-  container.appendChild(sub);
 
   document.body.appendChild(container);
   _container = container;
