@@ -112,6 +112,14 @@ function startTicker(): void {
       camera.x = menu.sistema.sol.x + Math.cos(angle) * radius;
       camera.y = menu.sistema.sol.y + Math.sin(angle) * radius * 0.6;
 
+      // Apply the same camera transform the real game loop does so the
+      // world actually shows at the camera position. atualizarCamera
+      // expects a full Mundo but we only need the container transform;
+      // inline it here against the menu container.
+      menu.container.scale.set(camera.zoom);
+      menu.container.x = -camera.x * camera.zoom + app.screen.width / 2;
+      menu.container.y = -camera.y * camera.zoom + app.screen.height / 2;
+
       atualizarMundoMenu(menu, app, camera.x, camera.y, app.ticker.deltaMS);
       return;
     }

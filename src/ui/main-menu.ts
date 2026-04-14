@@ -76,65 +76,79 @@ function injectStyles(): void {
 
     .menu-title {
       font-family: var(--hud-font-display);
-      font-size: calc(var(--hud-unit) * 2);
-      letter-spacing: 0.12em;
+      font-size: calc(var(--hud-unit) * 3.6);
+      letter-spacing: 0.14em;
       text-transform: uppercase;
       color: var(--hud-text);
       text-align: center;
-      margin: 0 0 calc(var(--hud-unit) * 0.35);
+      margin: 0 0 calc(var(--hud-unit) * 0.55);
       line-height: 1;
     }
 
     .menu-subtitle {
       font-family: var(--hud-font);
-      font-size: var(--hud-text-sm);
-      letter-spacing: 0.2em;
+      font-size: calc(var(--hud-unit) * 0.85);
+      letter-spacing: 0.32em;
       text-transform: uppercase;
       color: var(--hud-text-dim);
       text-align: center;
-      margin: 0 0 calc(var(--hud-unit) * 1.4);
+      margin: 0 0 calc(var(--hud-unit) * 2.2);
       line-height: 1;
     }
 
     .menu-buttons {
       display: flex;
       flex-direction: column;
-      gap: calc(var(--hud-unit) * 0.3);
-      width: calc(var(--hud-unit) * 12);
+      gap: calc(var(--hud-unit) * 0.5);
+      width: calc(var(--hud-unit) * 16);
     }
 
-    /* Buttons match the ship-panel / colonizer-panel action buttons:
-       minimal flat box, border, hover brightens. No colored fills. */
+    /* Bigger, more presence than the in-game HUD buttons. Still pure
+       black/white — no colored fills — but with a hairline top-inset
+       highlight and a subtle bottom shadow for depth. Hover widens the
+       letter-spacing slightly for tactile feedback. */
     .menu-btn {
       appearance: none;
       width: 100%;
-      height: calc(var(--hud-unit) * 2.2);
-      padding: 0 calc(var(--hud-unit) * 0.6);
+      height: calc(var(--hud-unit) * 3);
+      padding: 0 calc(var(--hud-unit) * 1);
       background: var(--hud-bg);
       border: 1px solid var(--hud-border);
       border-radius: var(--hud-radius);
-      box-shadow: var(--hud-shadow);
-      backdrop-filter: blur(3px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 calc(var(--hud-unit) * 0.2) calc(var(--hud-unit) * 0.6) rgba(0, 0, 0, 0.5);
       color: var(--hud-text);
       cursor: pointer;
       font-family: var(--hud-font);
-      font-size: var(--hud-text-sm);
-      letter-spacing: 0.1em;
+      font-size: calc(var(--hud-unit) * 0.95);
+      letter-spacing: 0.14em;
       text-transform: uppercase;
       text-align: center;
-      transition: background 120ms ease;
+      transition:
+        background 140ms ease,
+        border-color 140ms ease,
+        letter-spacing 220ms ease,
+        transform 140ms ease;
     }
 
     .menu-btn:hover {
       background: rgba(255, 255, 255, 0.08);
+      border-color: #fff;
+      letter-spacing: 0.18em;
+    }
+
+    .menu-btn:active {
+      transform: translateY(1px);
     }
 
     .menu-btn.primary {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.12);
+      border-color: #fff;
     }
 
     .menu-btn.primary:hover {
-      background: rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.22);
     }
 
     /* ── Back button + section titles for sub-screens ── */
@@ -164,12 +178,12 @@ function injectStyles(): void {
 
     .menu-section-title {
       font-family: var(--hud-font-display);
-      font-size: var(--hud-text-md);
-      letter-spacing: 0.1em;
+      font-size: calc(var(--hud-unit) * 1.8);
+      letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--hud-text);
       text-align: center;
-      margin: 0 0 calc(var(--hud-unit) * 0.8);
+      margin: 0 0 calc(var(--hud-unit) * 1.4);
       line-height: 1;
     }
 
@@ -177,51 +191,53 @@ function injectStyles(): void {
     .menu-saves-list {
       display: flex;
       flex-direction: column;
-      gap: calc(var(--hud-unit) * 0.3);
-      width: calc(var(--hud-unit) * 16);
+      gap: calc(var(--hud-unit) * 0.4);
+      width: calc(var(--hud-unit) * 20);
     }
 
     .menu-saves-empty {
       text-align: center;
       font-family: var(--hud-font);
-      font-size: var(--hud-text-sm);
-      letter-spacing: 0.08em;
+      font-size: calc(var(--hud-unit) * 0.85);
+      letter-spacing: 0.1em;
       color: var(--hud-text-dim);
-      padding: calc(var(--hud-unit) * 1.2) 0;
+      padding: calc(var(--hud-unit) * 1.6) 0;
       border: 1px dashed var(--hud-line);
       background: var(--hud-bg);
-      backdrop-filter: blur(3px);
     }
 
     .menu-save-card {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: calc(var(--hud-unit) * 0.55) calc(var(--hud-unit) * 0.75);
+      padding: calc(var(--hud-unit) * 0.9) calc(var(--hud-unit) * 1);
       background: var(--hud-bg);
       border: 1px solid var(--hud-border);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 calc(var(--hud-unit) * 0.15) calc(var(--hud-unit) * 0.4) rgba(0, 0, 0, 0.4);
       cursor: pointer;
-      backdrop-filter: blur(3px);
-      transition: background 120ms ease;
+      transition: background 120ms ease, border-color 120ms ease;
     }
 
     .menu-save-card:hover {
       background: rgba(255, 255, 255, 0.08);
+      border-color: #fff;
     }
 
     .menu-save-name {
       font-family: var(--hud-font);
-      font-size: var(--hud-text-sm);
+      font-size: calc(var(--hud-unit) * 0.9);
       color: var(--hud-text);
-      letter-spacing: 0.06em;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
     }
 
     .menu-save-meta {
       font-family: var(--hud-font);
-      font-size: var(--hud-text-sm);
+      font-size: calc(var(--hud-unit) * 0.75);
       color: var(--hud-text-dim);
-      letter-spacing: 0.04em;
+      letter-spacing: 0.06em;
     }
 
     /* ── Footer ── */
