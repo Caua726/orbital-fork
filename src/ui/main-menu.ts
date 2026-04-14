@@ -41,9 +41,9 @@ function injectStyles(): void {
       align-items: center;
       justify-content: center;
       opacity: 1;
-      background: rgba(0, 0, 0, 0.35);
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
+      background: rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
       transition: opacity 400ms ease-out, visibility 0s linear 0s;
     }
 

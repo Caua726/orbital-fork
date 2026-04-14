@@ -19,6 +19,7 @@ import { criarColonizerPanel, atualizarColonizerPanel } from './ui/colonizer-pan
 import { criarColonyModal, atualizarColonyModal } from './ui/colony-modal';
 import { criarConfirmDialog } from './ui/confirm-dialog';
 import { criarMainMenu, esconderMainMenu } from './ui/main-menu';
+import { criarLoadingScreen, mostrarCarregando, esconderCarregando } from './ui/loading-screen';
 import { somVitoria, somDerrota } from './audio/som';
 
 // Top-level state shared across bootstrap and iniciarJogo.
@@ -28,8 +29,9 @@ let _mundoMenu: MundoMenu | null = null;
 let _gameStarted = false;
 let _hudInstalled = false;
 
-// Cinematic camera state during the main menu.
-let _cinematicPhase = 0;
+// Cinematic camera state during the main menu. Accumulated seconds,
+// fed into layered sines for a non-circular, more organic drift.
+let _cinematicTime = 0;
 
 async function bootstrap(): Promise<void> {
   installRootVariables();
@@ -79,6 +81,9 @@ async function bootstrap(): Promise<void> {
   // the full game loop.
   startTicker();
 
+  // Pre-install the loading screen so iniciarJogo can flip it on instantly.
+  criarLoadingScreen();
+
   criarMainMenu({
     onNewGame: () => {
       void iniciarJogo();
@@ -104,18 +109,23 @@ function startTicker(): void {
       if (!_mundoMenu) return;
       const menu = _mundoMenu;
 
-      // Cinematic camera pan around the menu system's sun.
-      _cinematicPhase += app.ticker.deltaMS / 40000;
-      const angle = _cinematicPhase * Math.PI * 2;
-      const radius = 900;
+      // Procedural camera drift: two overlapping sine pairs at
+      // intentionally non-commensurate frequencies so the trajectory
+      // never exactly repeats. Primary wave defines the broad drift,
+      // secondary wave adds shorter-period jitter so the motion feels
+      // organic rather than a clean ellipse.
+      _cinematicTime += app.ticker.deltaMS / 1000;
+      const t = _cinematicTime;
       const camera = getCamera();
-      camera.x = menu.sistema.sol.x + Math.cos(angle) * radius;
-      camera.y = menu.sistema.sol.y + Math.sin(angle) * radius * 0.6;
+      camera.x = menu.sistema.sol.x
+        + Math.sin(t * 0.09) * 720
+        + Math.sin(t * 0.23 + 1.7) * 180;
+      camera.y = menu.sistema.sol.y
+        + Math.cos(t * 0.07) * 480
+        + Math.cos(t * 0.19 + 0.9) * 140;
 
       // Apply the same camera transform the real game loop does so the
-      // world actually shows at the camera position. atualizarCamera
-      // expects a full Mundo but we only need the container transform;
-      // inline it here against the menu container.
+      // world actually shows at the camera position.
       menu.container.scale.set(camera.zoom);
       menu.container.x = -camera.x * camera.zoom + app.screen.width / 2;
       menu.container.y = -camera.y * camera.zoom + app.screen.height / 2;
@@ -166,6 +176,11 @@ async function iniciarJogo(): Promise<void> {
   const app = _app;
 
   esconderMainMenu();
+  mostrarCarregando('Criando mundo');
+
+  // Let the browser paint the loader before we start hogging the main
+  // thread with world generation.
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
   // Tear down the menu background world so it doesn't keep running in
   // parallel with the real one.
@@ -214,6 +229,10 @@ async function iniciarJogo(): Promise<void> {
   // Flip the flag LAST so the ticker doesn't try to read _mundo before
   // all the HUD panels are ready.
   _gameStarted = true;
+
+  // Hold the loader for a minimum duration so the transition isn't a
+  // single-frame flash even on fast machines, then fade it out.
+  await esconderCarregando();
 }
 
 void bootstrap();
