@@ -1,6 +1,7 @@
 import { Application } from 'pixi.js';
 import type { Mundo } from './types';
 import { criarMundo, atualizarMundo, getEstadoJogo } from './world/mundo';
+import { criarMundoMenu, atualizarMundoMenu, destruirMundoMenu, type MundoMenu } from './world/mundo-menu';
 import { configurarCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador, zoomIn, zoomOut, setZoom } from './core/player';
 import { getTipos } from './ui/selecao';
 import { criarSidebar } from './ui/sidebar';
@@ -23,6 +24,7 @@ import { somVitoria, somDerrota } from './audio/som';
 // Top-level state shared across bootstrap and iniciarJogo.
 let _app: Application | null = null;
 let _mundo: Mundo | null = null;
+let _mundoMenu: MundoMenu | null = null;
 let _gameStarted = false;
 let _hudInstalled = false;
 
@@ -52,31 +54,17 @@ async function bootstrap(): Promise<void> {
 
   _app = app;
 
-  // Build the procedural world up front so the menu can render it as a
-  // live background. The same world is reused when the player clicks
-  // Novo Jogo — no destroy/recreate, just a transition from cinematic
-  // camera to player control.
-  const tipoEscolhido = getTipos()[0];
-  setTipoJogador();
-  const mundo = await criarMundo(app, tipoEscolhido) as unknown as Mundo;
-  app.stage.addChild(mundo.container);
-  _mundo = mundo;
+  // Build the menu background: a lightweight single-system world, not
+  // the full 18-system game world. When the player clicks Novo Jogo we
+  // destroy this and create the real one.
+  const mundoMenu = await criarMundoMenu(app);
+  app.stage.addChild(mundoMenu.container);
+  _mundoMenu = mundoMenu;
 
-  // Start the camera parked near the player's home system so the menu
-  // orbits a familiar-looking target.
-  const planetaJogador = mundo.planetas.find((p) => p.dados.dono === 'jogador');
-  if (planetaJogador) {
-    const sistema = mundo.sistemas[planetaJogador.dados.sistemaId];
-    if (sistema?.sol) {
-      setCameraPos(sistema.sol.x, sistema.sol.y);
-    } else {
-      setCameraPos(planetaJogador.x, planetaJogador.y);
-    }
-  }
-  // Zoom out a bit so the whole system fits nicely in the background.
+  // Park the camera at the center of the menu system and zoom out so
+  // the whole thing fits nicely in view.
+  setCameraPos(mundoMenu.sistema.sol.x, mundoMenu.sistema.sol.y);
   setZoom(0.55);
-
-  configurarCamera(app, mundo);
 
   // Keyboard zoom — installed once, active during both menu and game.
   window.addEventListener('keydown', (e) => {
@@ -86,62 +74,59 @@ async function bootstrap(): Promise<void> {
     else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); }
   });
 
-  // Start the ticker: runs every frame from now on. While the menu is up
-  // it only updates the world physics and pans the camera cinematically.
-  // Once iniciarJogo flips _gameStarted it also updates HUD panels and
-  // reads win/loss state.
+  // Start the ticker. During the menu it only updates the menu world +
+  // cinematic camera; once iniciarJogo flips _gameStarted it switches to
+  // the full game loop.
   startTicker();
 
-  // Finally, show the main menu on top.
   criarMainMenu({
     onNewGame: () => {
       void iniciarJogo();
     },
     onLoadGame: (_saveId: string) => {
-      // Phase 2: save/load not implemented yet. For now just starts fresh.
+      // Phase 2: save/load not implemented yet.
       void iniciarJogo();
     },
   });
 }
 
 function startTicker(): void {
-  if (!_app || !_mundo) return;
+  if (!_app) return;
   const app = _app;
-  const mundo = _mundo;
 
   let fimTocado = false;
 
   app.ticker.add(() => {
     app.ticker.speed = getDebugState().gameSpeed;
 
-    // Free Resources cheat (gameplay only — while menu is up, the player
-    // has no control anyway, so skip it).
-    if (_gameStarted) {
-      const c = getCheats();
-      if (c.recursosInfinitos) {
-        for (const p of mundo.planetas) {
-          if (p.dados.dono !== 'jogador') continue;
-          p.dados.recursos.comum = Math.max(p.dados.recursos.comum, 999999);
-          p.dados.recursos.raro = Math.max(p.dados.recursos.raro, 999999);
-          p.dados.recursos.combustivel = Math.max(p.dados.recursos.combustivel, 999999);
-        }
-      }
+    // ── Menu phase: cheap per-frame updates on the menu world only ──
+    if (!_gameStarted) {
+      if (!_mundoMenu) return;
+      const menu = _mundoMenu;
+
+      // Cinematic camera pan around the menu system's sun.
+      _cinematicPhase += app.ticker.deltaMS / 40000;
+      const angle = _cinematicPhase * Math.PI * 2;
+      const radius = 900;
+      const camera = getCamera();
+      camera.x = menu.sistema.sol.x + Math.cos(angle) * radius;
+      camera.y = menu.sistema.sol.y + Math.sin(angle) * radius * 0.6;
+
+      atualizarMundoMenu(menu, app, camera.x, camera.y, app.ticker.deltaMS);
+      return;
     }
 
-    // Cinematic camera pan during the menu: slow orbit around the
-    // player's home system's sun. 40-second period, radius tuned so the
-    // whole system stays on screen at the menu's default zoom.
-    if (!_gameStarted) {
-      _cinematicPhase += app.ticker.deltaMS / 40000;
-      const planetaJogador = mundo.planetas.find((p) => p.dados.dono === 'jogador');
-      const sistema = planetaJogador ? mundo.sistemas[planetaJogador.dados.sistemaId] : null;
-      const center = sistema?.sol ?? planetaJogador;
-      if (center) {
-        const angle = _cinematicPhase * Math.PI * 2;
-        const radius = 900;
-        const camera = getCamera();
-        camera.x = center.x + Math.cos(angle) * radius;
-        camera.y = center.y + Math.sin(angle) * radius * 0.6;
+    // ── Game phase: full update of the real world + HUD ──
+    if (!_mundo) return;
+    const mundo = _mundo;
+
+    const c = getCheats();
+    if (c.recursosInfinitos) {
+      for (const p of mundo.planetas) {
+        if (p.dados.dono !== 'jogador') continue;
+        p.dados.recursos.comum = Math.max(p.dados.recursos.comum, 999999);
+        p.dados.recursos.raro = Math.max(p.dados.recursos.raro, 999999);
+        p.dados.recursos.combustivel = Math.max(p.dados.recursos.combustivel, 999999);
       }
     }
 
@@ -149,40 +134,50 @@ function startTicker(): void {
     atualizarCamera(mundo, app);
     atualizarMundo(mundo, app, camera);
 
-    if (_gameStarted) {
-      atualizarMinimap(camera);
-      atualizarPlanetPanel(mundo, app);
-      atualizarBuildPanel(mundo);
-      atualizarShipPanel(mundo);
-      atualizarColonizerPanel(mundo);
-      atualizarColonyModal(mundo);
-      atualizarDebugMenu();
+    atualizarMinimap(camera);
+    atualizarPlanetPanel(mundo, app);
+    atualizarBuildPanel(mundo);
+    atualizarShipPanel(mundo);
+    atualizarColonizerPanel(mundo);
+    atualizarColonyModal(mundo);
+    atualizarDebugMenu();
 
-      const estado = getEstadoJogo();
-      if (estado === 'vitoria' && !fimTocado) {
-        somVitoria();
-        fimTocado = true;
-      } else if (estado === 'derrota' && !fimTocado) {
-        somDerrota();
-        fimTocado = true;
-      }
+    const estado = getEstadoJogo();
+    if (estado === 'vitoria' && !fimTocado) {
+      somVitoria();
+      fimTocado = true;
+    } else if (estado === 'derrota' && !fimTocado) {
+      somDerrota();
+      fimTocado = true;
     }
   });
 }
 
 async function iniciarJogo(): Promise<void> {
-  if (!_app || !_mundo || _gameStarted) return;
-  _gameStarted = true;
-
+  if (!_app || _gameStarted) return;
   const app = _app;
-  const mundo = _mundo;
 
   esconderMainMenu();
 
-  // Snap the camera to the player's planet at a comfortable zoom.
+  // Tear down the menu background world so it doesn't keep running in
+  // parallel with the real one.
+  if (_mundoMenu) {
+    destruirMundoMenu(_mundoMenu, app);
+    _mundoMenu = null;
+  }
+
+  // Build the real game world.
+  const tipoEscolhido = getTipos()[0];
+  setTipoJogador();
+  const mundo = await criarMundo(app, tipoEscolhido) as unknown as Mundo;
+  app.stage.addChild(mundo.container);
+  _mundo = mundo;
+
   const planetaJogador = mundo.planetas.find((p) => p.dados.dono === 'jogador');
   if (planetaJogador) setCameraPos(planetaJogador.x, planetaJogador.y);
   setZoom(1.0);
+
+  configurarCamera(app, mundo);
 
   if (!_hudInstalled) {
     _hudInstalled = true;
@@ -207,6 +202,10 @@ async function iniciarJogo(): Promise<void> {
 
     criarDebugMenu(app, mundo);
   }
+
+  // Flip the flag LAST so the ticker doesn't try to read _mundo before
+  // all the HUD panels are ready.
+  _gameStarted = true;
 }
 
 void bootstrap();
