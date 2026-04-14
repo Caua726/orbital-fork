@@ -25,11 +25,13 @@ function injectStyles(): void {
 
   const style = document.createElement('style');
   style.textContent = `
+    /* Menu is a transparent overlay — the Pixi world renders behind it
+       (cinematic camera pan around the starting system). Background is
+       just a darkening vignette so the title/buttons stay readable. */
     .main-menu {
       position: fixed;
       inset: 0;
       z-index: 500;
-      background: radial-gradient(ellipse at 50% 35%, #0b1830 0%, #040810 60%, #000000 100%);
       color: var(--hud-text);
       font-family: var(--hud-font);
       overflow: hidden;
@@ -41,62 +43,19 @@ function injectStyles(): void {
       transition: opacity 400ms ease-out, visibility 0s linear 0s;
     }
 
+    .main-menu::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 40%, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.7) 70%, rgba(0,0,0,0.9) 100%);
+      pointer-events: none;
+    }
+
     .main-menu.hidden {
       opacity: 0;
       pointer-events: none;
       visibility: hidden;
       transition: opacity 400ms ease-out, visibility 0s linear 400ms;
-    }
-
-    /* ── Animated starfield ── */
-    .menu-stars {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-    }
-
-    .menu-star {
-      position: absolute;
-      width: 2px;
-      height: 2px;
-      background: #fff;
-      border-radius: 50%;
-      opacity: 0;
-      animation: menu-twinkle linear infinite;
-    }
-
-    @keyframes menu-twinkle {
-      0%, 100% { opacity: 0; transform: scale(0.6); }
-      50% { opacity: var(--star-alpha, 0.8); transform: scale(1); }
-    }
-
-    /* A single slow-drifting nebula glow behind the title */
-    .menu-nebula {
-      position: absolute;
-      top: 20%;
-      left: 50%;
-      width: clamp(400px, 50vmin, 700px);
-      height: clamp(400px, 50vmin, 700px);
-      transform: translate(-50%, -50%);
-      background:
-        radial-gradient(circle at 40% 40%, rgba(140, 180, 255, 0.15) 0%, rgba(140, 180, 255, 0.04) 30%, transparent 60%),
-        radial-gradient(circle at 60% 60%, rgba(180, 100, 200, 0.1) 0%, rgba(180, 100, 200, 0.03) 40%, transparent 70%);
-      filter: blur(40px);
-      pointer-events: none;
-      animation: menu-nebula-drift 24s ease-in-out infinite;
-    }
-
-    @keyframes menu-nebula-drift {
-      0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
-      50% { transform: translate(-48%, -52%) rotate(3deg); }
-    }
-
-    /* Vignette at the edges for extra depth */
-    .menu-vignette {
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.8) 100%);
-      pointer-events: none;
     }
 
     /* ── Title + menu container ── */
@@ -107,8 +66,6 @@ function injectStyles(): void {
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      width: 100%;
-      max-width: clamp(320px, 40vw, 520px);
       padding: 0 var(--hud-margin);
       box-sizing: border-box;
     }
@@ -119,80 +76,65 @@ function injectStyles(): void {
 
     .menu-title {
       font-family: var(--hud-font-display);
-      font-size: clamp(36px, 7vmin, 68px);
-      letter-spacing: 0.18em;
+      font-size: calc(var(--hud-unit) * 2);
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: #fff;
+      color: var(--hud-text);
       text-align: center;
-      margin: 0 0 calc(var(--hud-unit) * 0.5);
-      text-shadow:
-        0 0 calc(var(--hud-unit) * 0.8) rgba(140, 200, 255, 0.4),
-        0 0 calc(var(--hud-unit) * 2) rgba(140, 200, 255, 0.15);
+      margin: 0 0 calc(var(--hud-unit) * 0.35);
+      line-height: 1;
     }
 
     .menu-subtitle {
       font-family: var(--hud-font);
       font-size: var(--hud-text-sm);
-      letter-spacing: 0.4em;
+      letter-spacing: 0.2em;
       text-transform: uppercase;
       color: var(--hud-text-dim);
       text-align: center;
-      margin: 0 0 calc(var(--hud-unit) * 2.5);
+      margin: 0 0 calc(var(--hud-unit) * 1.4);
+      line-height: 1;
     }
 
     .menu-buttons {
       display: flex;
       flex-direction: column;
-      gap: calc(var(--hud-unit) * 0.55);
-      width: 100%;
-      min-width: calc(var(--hud-unit) * 14);
+      gap: calc(var(--hud-unit) * 0.3);
+      width: calc(var(--hud-unit) * 12);
     }
 
+    /* Buttons match the ship-panel / colonizer-panel action buttons:
+       minimal flat box, border, hover brightens. No colored fills. */
     .menu-btn {
       appearance: none;
       width: 100%;
-      padding: calc(var(--hud-unit) * 0.85) calc(var(--hud-unit) * 1.2);
-      background: rgba(10, 20, 36, 0.7);
+      height: calc(var(--hud-unit) * 2.2);
+      padding: 0 calc(var(--hud-unit) * 0.6);
+      background: var(--hud-bg);
       border: 1px solid var(--hud-border);
+      border-radius: var(--hud-radius);
+      box-shadow: var(--hud-shadow);
+      backdrop-filter: blur(3px);
       color: var(--hud-text);
       cursor: pointer;
       font-family: var(--hud-font);
-      font-size: var(--hud-text-md);
-      letter-spacing: 0.14em;
+      font-size: var(--hud-text-sm);
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       text-align: center;
-      backdrop-filter: blur(3px);
-      transition:
-        background 140ms ease,
-        border-color 140ms ease,
-        transform 140ms ease,
-        letter-spacing 220ms ease;
+      transition: background 120ms ease;
     }
 
     .menu-btn:hover {
-      background: rgba(30, 50, 80, 0.8);
-      border-color: #fff;
-      letter-spacing: 0.18em;
-    }
-
-    .menu-btn:active {
-      transform: translateY(1px);
+      background: rgba(255, 255, 255, 0.08);
     }
 
     .menu-btn.primary {
-      background: rgba(60, 100, 160, 0.25);
-      border-color: #9cc8ff;
-      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
     }
 
     .menu-btn.primary:hover {
-      background: rgba(80, 130, 200, 0.4);
-    }
-
-    .menu-btn.ghost {
-      background: transparent;
-      border-color: var(--hud-line);
-      color: var(--hud-text-dim);
+      background: rgba(255, 255, 255, 0.18);
     }
 
     /* ── Back button + section titles for sub-screens ── */
@@ -202,38 +144,41 @@ function injectStyles(): void {
       left: var(--hud-margin);
       font-family: var(--hud-font);
       font-size: var(--hud-text-sm);
-      letter-spacing: 0.12em;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       color: var(--hud-text-dim);
-      background: transparent;
-      border: 1px solid transparent;
-      padding: calc(var(--hud-unit) * 0.4) calc(var(--hud-unit) * 0.8);
+      background: var(--hud-bg);
+      border: 1px solid var(--hud-border);
+      border-radius: var(--hud-radius);
+      padding: calc(var(--hud-unit) * 0.35) calc(var(--hud-unit) * 0.7);
       cursor: pointer;
-      transition: color 120ms ease, border-color 120ms ease;
+      backdrop-filter: blur(3px);
+      transition: color 120ms ease, background 120ms ease;
+      z-index: 3;
     }
 
     .menu-back:hover {
       color: var(--hud-text);
-      border-color: var(--hud-border);
+      background: rgba(255, 255, 255, 0.08);
     }
 
     .menu-section-title {
       font-family: var(--hud-font-display);
-      font-size: var(--hud-text-lg);
-      letter-spacing: 0.12em;
+      font-size: var(--hud-text-md);
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       color: var(--hud-text);
       text-align: center;
-      margin: 0 0 calc(var(--hud-unit) * 1.5);
+      margin: 0 0 calc(var(--hud-unit) * 0.8);
+      line-height: 1;
     }
 
     /* ── Saved worlds list ── */
     .menu-saves-list {
       display: flex;
       flex-direction: column;
-      gap: calc(var(--hud-unit) * 0.5);
-      width: 100%;
-      max-width: calc(var(--hud-unit) * 22);
+      gap: calc(var(--hud-unit) * 0.3);
+      width: calc(var(--hud-unit) * 16);
     }
 
     .menu-saves-empty {
@@ -242,31 +187,34 @@ function injectStyles(): void {
       font-size: var(--hud-text-sm);
       letter-spacing: 0.08em;
       color: var(--hud-text-dim);
-      padding: calc(var(--hud-unit) * 2) 0;
+      padding: calc(var(--hud-unit) * 1.2) 0;
       border: 1px dashed var(--hud-line);
-      border-radius: calc(var(--hud-unit) * 0.2);
+      background: var(--hud-bg);
+      backdrop-filter: blur(3px);
     }
 
     .menu-save-card {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: calc(var(--hud-unit) * 0.7) calc(var(--hud-unit) * 0.9);
-      background: rgba(10, 20, 36, 0.7);
+      padding: calc(var(--hud-unit) * 0.55) calc(var(--hud-unit) * 0.75);
+      background: var(--hud-bg);
       border: 1px solid var(--hud-border);
       cursor: pointer;
+      backdrop-filter: blur(3px);
       transition: background 120ms ease;
     }
 
     .menu-save-card:hover {
-      background: rgba(30, 50, 80, 0.8);
+      background: rgba(255, 255, 255, 0.08);
     }
 
     .menu-save-name {
       font-family: var(--hud-font);
-      font-size: var(--hud-text-md);
+      font-size: var(--hud-text-sm);
       color: var(--hud-text);
       letter-spacing: 0.06em;
+      text-transform: uppercase;
     }
 
     .menu-save-meta {
@@ -288,32 +236,10 @@ function injectStyles(): void {
       letter-spacing: 0.1em;
       color: var(--hud-text-faint);
       pointer-events: none;
+      z-index: 3;
     }
   `;
   document.head.appendChild(style);
-}
-
-function createStars(container: HTMLDivElement, count: number): void {
-  // Procedurally place N twinkling stars with random positions, sizes,
-  // alphas and animation delays.
-  for (let i = 0; i < count; i++) {
-    const star = document.createElement('div');
-    star.className = 'menu-star';
-    const x = Math.random() * 100;
-    const y = Math.random() * 100;
-    const size = Math.random() < 0.85 ? 1 : Math.random() < 0.97 ? 2 : 3;
-    const alpha = 0.3 + Math.random() * 0.7;
-    const duration = 2 + Math.random() * 6;
-    const delay = Math.random() * 6;
-    star.style.left = `${x}%`;
-    star.style.top = `${y}%`;
-    star.style.width = `${size}px`;
-    star.style.height = `${size}px`;
-    star.style.setProperty('--star-alpha', alpha.toFixed(2));
-    star.style.animationDuration = `${duration.toFixed(1)}s`;
-    star.style.animationDelay = `${delay.toFixed(1)}s`;
-    container.appendChild(star);
-  }
 }
 
 function buildMainScreen(): HTMLDivElement {
@@ -479,20 +405,6 @@ export function criarMainMenu(options: MainMenuOptions): HTMLDivElement {
 
   const container = document.createElement('div');
   container.className = 'main-menu';
-
-  // Background layers
-  const nebula = document.createElement('div');
-  nebula.className = 'menu-nebula';
-  container.appendChild(nebula);
-
-  const stars = document.createElement('div');
-  stars.className = 'menu-stars';
-  createStars(stars, 160);
-  container.appendChild(stars);
-
-  const vignette = document.createElement('div');
-  vignette.className = 'menu-vignette';
-  container.appendChild(vignette);
 
   // Back button (hidden on main screen)
   const back = document.createElement('button');
