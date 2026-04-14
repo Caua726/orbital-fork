@@ -17,12 +17,14 @@ function injectStyles(): void {
 
   const style = document.createElement('style');
   style.textContent = `
-    /* Full-screen centering container. Transparent so the world behind
-       the menu stays visible. The actual visual is the card inside. */
+    /* Full-screen blackout while the world is being created. Hides the
+       menu world completely so there's no visual noise during the
+       transition between the menu system and the real game world. */
     .loading-screen {
       position: fixed;
       inset: 0;
       z-index: 600;
+      background: #000;
       display: flex;
       align-items: center;
       justify-content: center;
