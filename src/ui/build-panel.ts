@@ -11,10 +11,17 @@ import { CUSTO_NAVE_COMUM } from '../world/constantes';
 
 type AbaId = 'edificios' | 'naves' | 'pesquisa';
 
+interface SpriteCell {
+  sheet: 'ships' | 'buildings';
+  row: number;
+  col: number;
+}
+
 interface CardSpec {
   acao: string;
   nome: string;
-  icon: () => SVGSVGElement;
+  // Given the resolved state, return which cell of which spritesheet to draw.
+  sprite: (state: CardState) => SpriteCell;
   // Returns enabled state, current/destination tier, and cost (in comum) for this card.
   resolve: (planeta: Planeta) => CardState;
 }
@@ -29,76 +36,73 @@ interface CardState {
 
 const SLOTS_POR_ABA = 8;
 const FILA_MAX = 5;
+const SPRITE_CELL = 96;
 
 let _container: HTMLDivElement | null = null;
 let _styleInjected = false;
 let _tabsEl: HTMLDivElement | null = null;
 let _gridEl: HTMLDivElement | null = null;
+let _gridWrapEl: HTMLDivElement | null = null;
 let _activeTab: AbaId = 'edificios';
 let _selectedPlanet: Planeta | null = null;
 let _mundoRef: Mundo | null = null;
 let _renderKey = '';
 
-// ─── Icons (simple monochrome silhouettes matching HUD aesthetic) ───────────
+// ─── Spritesheet loader (shared across all cards) ──────────────────────────
 
-function svgPath(...d: string[]): SVGSVGElement {
+const SHEETS: Record<'ships' | 'buildings', { src: string; img: HTMLImageElement | null }> = {
+  ships: { src: 'assets/ships.png', img: null },
+  buildings: { src: 'assets/buildings.png', img: null },
+};
+
+const _cardSprites: { canvas: HTMLCanvasElement; cell: SpriteCell }[] = [];
+
+function loadSheet(name: 'ships' | 'buildings'): void {
+  if (SHEETS[name].img) return;
+  const img = new Image();
+  img.onload = () => {
+    SHEETS[name].img = img;
+    for (const { canvas, cell } of _cardSprites) {
+      if (cell.sheet === name) drawSprite(canvas, cell);
+    }
+  };
+  img.src = SHEETS[name].src;
+}
+
+function drawSprite(canvas: HTMLCanvasElement, cell: SpriteCell): void {
+  const img = SHEETS[cell.sheet].img;
+  if (!img) return;
+  const cssSize = canvas.clientWidth || parseInt(getComputedStyle(canvas).width, 10) || 40;
+  if (cssSize === 0) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(cssSize * dpr);
+  canvas.height = Math.round(cssSize * dpr);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(
+    img,
+    cell.col * SPRITE_CELL, cell.row * SPRITE_CELL, SPRITE_CELL, SPRITE_CELL,
+    0, 0, canvas.width, canvas.height,
+  );
+}
+
+function spriteColForTier(tier: number | null): number {
+  const t = tier ?? 1;
+  return Math.max(0, Math.min(4, t - 1));
+}
+
+// ─── SVG helper for the cost icon only (ship/building icons come from sprite) ───
+
+function iconCredit(): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('fill', 'currentColor');
-  for (const path of d) {
-    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    p.setAttribute('d', path);
-    svg.appendChild(p);
-  }
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', 'M12 2l5 5-5 5-5-5 5-5z M12 12l5 5-5 5-5-5 5-5z');
+  svg.appendChild(p);
   return svg;
-}
-
-function iconFabrica(): SVGSVGElement {
-  return svgPath(
-    'M3 21V11l5 3V11l5 3V8l8 5v8H3z',
-    'M6 17h2v2H6zM10 17h2v2h-2zM14 17h2v2h-2zM18 17h2v2h-2z',
-  );
-}
-
-function iconInfra(): SVGSVGElement {
-  return svgPath(
-    'M11 2h2v20h-2z',
-    'M7 5l1.4 1.4A6 6 0 0012 14a6 6 0 003.6-7.6L17 5a8 8 0 11-10 0z',
-  );
-}
-
-function iconColonizadora(): SVGSVGElement {
-  return svgPath(
-    'M12 2l4 6h-2v8h-4V8H8l4-6z',
-    'M6 18h12l-2 4H8l-2-4z',
-  );
-}
-
-function iconCargueira(): SVGSVGElement {
-  return svgPath(
-    'M3 8h14v8H3z',
-    'M17 10h3l1 3v3h-4z',
-    'M5 17a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM18 17a1.5 1.5 0 100 3 1.5 1.5 0 000-3z',
-  );
-}
-
-function iconBatedora(): SVGSVGElement {
-  return svgPath(
-    'M12 2l3 6 6 1-4 4 1 6-6-3-6 3 1-6-4-4 6-1 3-6z',
-  );
-}
-
-function iconTorreta(): SVGSVGElement {
-  return svgPath(
-    'M9 4h6v4h-6z',
-    'M11 8h2v8h-2z',
-    'M5 18h14v3H5z',
-    'M13 12h8v2h-8z',
-  );
-}
-
-function iconCredit(): SVGSVGElement {
-  return svgPath('M12 2l5 5-5 5-5-5 5-5z M12 12l5 5-5 5-5-5 5-5z');
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -140,7 +144,7 @@ const CARDS_EDIFICIOS: CardSpec[] = [
   {
     acao: 'fabrica',
     nome: 'Fábrica',
-    icon: iconFabrica,
+    sprite: (state) => ({ sheet: 'buildings', row: 0, col: spriteColForTier(state.tier) }),
     resolve: (p) => {
       const tierAtual = p.dados.fabricas;
       const max = tierAtual >= getTierMax();
@@ -162,7 +166,7 @@ const CARDS_EDIFICIOS: CardSpec[] = [
   {
     acao: 'infraestrutura',
     nome: 'Infra',
-    icon: iconInfra,
+    sprite: (state) => ({ sheet: 'buildings', row: 1, col: spriteColForTier(state.tier) }),
     resolve: (p) => {
       const tierAtual = p.dados.infraestrutura;
       const max = tierAtual >= getTierMax();
@@ -186,13 +190,17 @@ const CARDS_EDIFICIOS: CardSpec[] = [
 function naveCard(
   acao: string,
   nome: string,
-  icon: () => SVGSVGElement,
+  spriteRow: number,
   categoria: string | null,
 ): CardSpec {
   return {
     acao,
     nome,
-    icon,
+    sprite: (state) => ({
+      sheet: 'ships',
+      row: spriteRow,
+      col: categoria == null ? 0 : spriteColForTier(state.tier),
+    }),
     resolve: (p) => {
       // Colonizadora has no research and is always tier 1; just needs ≥1 factory.
       if (categoria == null) {
@@ -229,10 +237,10 @@ function naveCard(
 }
 
 const CARDS_NAVES: CardSpec[] = [
-  naveCard('nave_colonizadora', 'Colonizadora', iconColonizadora, null),
-  naveCard('nave_cargueira', 'Cargueira', iconCargueira, 'cargueira'),
-  naveCard('nave_batedora', 'Batedora', iconBatedora, 'batedora'),
-  naveCard('nave_torreta', 'Torreta', iconTorreta, 'torreta'),
+  naveCard('nave_colonizadora', 'Colonizadora', 0, null),
+  naveCard('nave_cargueira', 'Cargueira', 1, 'cargueira'),
+  naveCard('nave_batedora', 'Batedora', 2, 'batedora'),
+  naveCard('nave_torreta', 'Torreta', 3, 'torreta'),
 ];
 
 const CARDS_PESQUISA: CardSpec[] = [];
@@ -349,6 +357,22 @@ function injectStyles(): void {
       box-shadow: var(--hud-shadow);
     }
 
+    @keyframes build-tab-enter {
+      0%   { opacity: 0; transform: translateY(calc(var(--hud-unit) * 0.5)); }
+      60%  { opacity: 1; }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    .build-grid-wrap.is-switching {
+      animation: build-tab-enter 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .build-grid-wrap.is-switching {
+        animation: none;
+      }
+    }
+
     .build-grid {
       display: grid;
       grid-template-columns: repeat(${SLOTS_POR_ABA}, var(--bp-card));
@@ -420,6 +444,14 @@ function injectStyles(): void {
       display: block;
     }
 
+    .build-card-sprite {
+      width: calc(var(--hud-unit) * 2.6);
+      height: calc(var(--hud-unit) * 2.6);
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
     .build-card-cost {
       display: flex;
       align-items: center;
@@ -463,6 +495,7 @@ function createTab(label: string, id: AbaId): HTMLButtonElement {
       _renderKey = '';
       renderActiveTab();
       updateTabStyles();
+      playSwitchAnimation();
     }
   });
   return btn;
@@ -474,6 +507,14 @@ function updateTabStyles(): void {
     const btn = child as HTMLButtonElement;
     btn.classList.toggle('active', btn.dataset.tab === _activeTab);
   }
+}
+
+function playSwitchAnimation(): void {
+  if (!_gridWrapEl) return;
+  _gridWrapEl.classList.remove('is-switching');
+  // Force a reflow so removing + re-adding the class restarts the animation.
+  void _gridWrapEl.offsetWidth;
+  _gridWrapEl.classList.add('is-switching');
 }
 
 function createCard(spec: CardSpec, state: CardState): HTMLButtonElement {
@@ -489,8 +530,15 @@ function createCard(spec: CardSpec, state: CardState): HTMLButtonElement {
 
   const iconWrap = document.createElement('div');
   iconWrap.className = 'build-card-icon';
-  iconWrap.appendChild(spec.icon());
+  const canvas = document.createElement('canvas');
+  canvas.className = 'build-card-sprite';
+  const cell = spec.sprite(state);
+  _cardSprites.push({ canvas, cell });
+  iconWrap.appendChild(canvas);
   card.appendChild(iconWrap);
+
+  // Defer initial draw until the element is in the DOM so clientWidth resolves.
+  requestAnimationFrame(() => drawSprite(canvas, cell));
 
   const cost = document.createElement('div');
   cost.className = 'build-card-cost';
@@ -527,6 +575,7 @@ function createEmptyCard(): HTMLDivElement {
 function renderActiveTab(): void {
   if (!_gridEl || !_selectedPlanet) return;
   _gridEl.replaceChildren();
+  _cardSprites.length = 0;
   const specs = cardsForTab(_activeTab);
   for (const spec of specs) {
     const state = spec.resolve(_selectedPlanet);
@@ -560,6 +609,8 @@ function getRenderKey(planeta: Planeta): string {
 export function criarBuildPanel(): HTMLDivElement {
   if (_container) return _container;
   injectStyles();
+  loadSheet('ships');
+  loadSheet('buildings');
 
   const panel = document.createElement('div');
   panel.className = 'build-panel';
@@ -576,6 +627,7 @@ export function criarBuildPanel(): HTMLDivElement {
 
   const gridWrap = document.createElement('div');
   gridWrap.className = 'build-grid-wrap';
+  _gridWrapEl = gridWrap;
 
   const grid = document.createElement('div');
   grid.className = 'build-grid';
@@ -623,6 +675,7 @@ export function destruirBuildPanel(): void {
   }
   _tabsEl = null;
   _gridEl = null;
+  _gridWrapEl = null;
   _selectedPlanet = null;
   _mundoRef = null;
   _renderKey = '';
