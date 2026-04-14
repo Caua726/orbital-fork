@@ -170,9 +170,11 @@ export async function criarMundo(app: Application, tipoJogador: TipoJogador): Pr
 // === Game loop ===
 export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): void {
   const frameInicio = profileMark();
-  const agora = performance.now();
-  const deltaMs = agora - (mundo.ultimoTickMs || agora);
-  mundo.ultimoTickMs = agora;
+  // Use Pixi's ticker delta so the debug game-speed slider actually
+  // scales simulation time. Previously a hand-rolled performance.now()
+  // delta ignored `app.ticker.speed` entirely, making the slider inert.
+  const deltaMs = app.ticker.deltaMS;
+  mundo.ultimoTickMs = performance.now();
 
   let t = profileMark();
 
