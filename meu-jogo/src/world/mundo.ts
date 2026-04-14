@@ -15,7 +15,7 @@ import { profileMark, profileAcumular, profileFlush } from './profiling';
 // === Re-exports para manter compatibilidade de imports externos ===
 export { profiling } from './profiling';
 export { construirNoPlaneta } from './construcao';
-export { calcularCustoTier, calcularTempoConstrucaoMs, calcularTempoColonizadoraMs, calcularTempoCicloPlaneta, calcularTempoRestantePlaneta, getTierMax, textoProducaoCicloPlaneta } from './recursos';
+export { calcularCustoTier, calcularTempoConstrucaoMs, calcularTempoColonizadoraMs, calcularTempoCicloPlaneta, calcularTempoRestantePlaneta, getTierMax, textoProducaoCicloPlaneta, obterProducaoNaturalCiclo } from './recursos';
 export { encontrarNaveNoPonto, obterNaveSelecionada, selecionarNave, enviarNaveParaAlvo, enviarNaveParaPosicao, definirRotaManualNave, cancelarMovimentoNave, parseAcaoNave, capacidadeCargaCargueira, ajustarConfiguracaoCarga, definirPlanetaRotaCargueira, alternarLoopCargueira } from './naves';
 export { iniciarPesquisa, pesquisaTierLiberada, pesquisaTierDisponivel, getPesquisaAtual } from './pesquisa';
 export { nomeTipoPlaneta } from './planeta';
