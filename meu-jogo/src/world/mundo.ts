@@ -6,6 +6,7 @@ import { TIPO_PLANETA } from './planeta';
 import { atualizarTempoPlanetas, atualizarLuzPlaneta } from './planeta-procedural';
 import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria } from './nevoa';
 import { criarSistemaSolar } from './sistema';
+import { resetarNomesPlanetas } from './nomes';
 import { atualizarNaves, atualizarSelecaoNave } from './naves';
 import { atualizarPesquisaPlaneta } from './pesquisa';
 import { atualizarCampoDeVisao } from './visao';
@@ -74,6 +75,7 @@ function atualizarOrbitaPlaneta(planeta: Planeta, deltaMs: number): void {
 
 // === Criação do mundo ===
 export async function criarMundo(app: Application, tipoJogador: TipoJogador): Promise<Mundo> {
+  resetarNomesPlanetas();
   const tamanho = Math.max(window.innerWidth, window.innerHeight) * 30;
   const container = new Container();
 

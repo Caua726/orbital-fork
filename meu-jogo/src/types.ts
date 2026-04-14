@@ -40,6 +40,7 @@ export type PesquisasState = Record<string, boolean[]>;
 export interface DadosPlaneta {
   dono: string;
   tipoPlaneta: string;
+  nome: string;
   producao: number;
   recursos: Recursos;
   tamanho: number;
