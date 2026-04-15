@@ -74,25 +74,74 @@ function atualizarOrbitaPlaneta(planeta: Planeta, deltaMs: number): void {
 }
 
 // === Criação do mundo ===
-export async function criarMundo(app: Application, tipoJogador: TipoJogador): Promise<Mundo> {
-  resetarNomesPlanetas();
-  void carregarSpritesheetNaves();
-  const tamanho = Math.max(window.innerWidth, window.innerHeight) * 30;
+export interface MundoVazio {
+  container: Container;
+  fundo: Container;
+  frotasContainer: Container;
+  navesContainer: Container;
+  rotasContainer: Container;
+  visaoContainer: Container;
+  orbitasContainer: Container;
+  memoriaPlanetasContainer: Container;
+  tamanho: number;
+}
+
+export function criarMundoVazio(tamanho: number): MundoVazio {
   const container = new Container();
 
   const fundo = criarFundo(tamanho);
   container.addChild(fundo);
 
-  const planetas: Planeta[] = [];
-  const sistemas: import('../types').Sistema[] = [];
-  const sois: Sol[] = [];
-  const frotas: unknown[] = [];
   const frotasContainer = new Container();
   const navesContainer = new Container();
   const rotasContainer = new Container();
   const visaoContainer = new Container();
   const orbitasContainer = new Container();
   const memoriaPlanetasContainer = criarCamadaMemoria();
+
+  return {
+    container,
+    fundo,
+    frotasContainer,
+    navesContainer,
+    rotasContainer,
+    visaoContainer,
+    orbitasContainer,
+    memoriaPlanetasContainer,
+    tamanho,
+  };
+}
+
+export function aplicarZOrderMundo(mv: MundoVazio): void {
+  mv.container.addChild(mv.orbitasContainer);
+  mv.container.addChild(mv.frotasContainer);
+  mv.container.addChild(mv.navesContainer);
+  mv.container.addChild(mv.rotasContainer);
+  mv.container.addChild(mv.visaoContainer);
+  mv.container.addChild(mv.memoriaPlanetasContainer);
+}
+
+export async function criarMundo(app: Application, tipoJogador: TipoJogador): Promise<Mundo> {
+  resetarNomesPlanetas();
+  void carregarSpritesheetNaves();
+  const tamanho = Math.max(window.innerWidth, window.innerHeight) * 30;
+
+  const mv = criarMundoVazio(tamanho);
+  const {
+    container,
+    fundo,
+    frotasContainer,
+    navesContainer,
+    rotasContainer,
+    visaoContainer,
+    orbitasContainer,
+    memoriaPlanetasContainer,
+  } = mv;
+
+  const planetas: Planeta[] = [];
+  const sistemas: import('../types').Sistema[] = [];
+  const sois: Sol[] = [];
+  const frotas: unknown[] = [];
 
   // Build the system objects first — `criarSistemaSolar` appends each sun
   // and planet directly onto `container`, so they need to exist before
@@ -127,12 +176,7 @@ export async function criarMundo(app: Application, tipoJogador: TipoJogador): Pr
   //   fleets → ships → ship routes → fog → memory ghosts.
   // Fog has transparent holes where vision sources sit, so ships in
   // visible territory remain visible through them.
-  container.addChild(orbitasContainer);
-  container.addChild(frotasContainer);
-  container.addChild(navesContainer);
-  container.addChild(rotasContainer);
-  container.addChild(visaoContainer);
-  container.addChild(memoriaPlanetasContainer);
+  aplicarZOrderMundo(mv);
 
   if (!planetas.some((p) => p.dados.tipoPlaneta === TIPO_PLANETA.COMUM) && planetas.length > 0) {
     planetas[0].dados.tipoPlaneta = TIPO_PLANETA.COMUM;
