@@ -1,11 +1,14 @@
-import type { Mundo, Sol } from '../../types';
+import type { Mundo, Sol, Planeta } from '../../types';
 import type {
   MundoDTO,
   SolDTO,
   SistemaDTO,
   TipoJogadorDTO,
+  PlanetaDTO,
+  MemoriaPlanetaDTO,
 } from './dto';
 import { CURRENT_SCHEMA_VERSION } from './dto';
+import { getMemoria } from '../nevoa';
 
 export function serializarMundo(
   mundo: Mundo,
@@ -30,6 +33,12 @@ export function serializarMundo(
       planetaIds: sis.planetas.map((p) => p.id),
     }));
 
+  const agora = performance.now();
+  const planetas: PlanetaDTO[] = mundo.planetas
+    .slice()
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((p) => serializarPlaneta(p, agora));
+
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     nome,
@@ -40,9 +49,48 @@ export function serializarMundo(
     tipoJogador: serializarTipoJogador(mundo.tipoJogador),
     sistemas,
     sois,
-    planetas: [], // Task 6
+    planetas,
     naves: [],    // Task 7
     fontesVisao: mundo.fontesVisao.map((f) => ({ x: f.x, y: f.y, raio: f.raio })),
+  };
+}
+
+function clonarDadosPlaneta(dados: Planeta['dados']): Planeta['dados'] {
+  return {
+    ...dados,
+    recursos: { ...dados.recursos },
+    fracProducao: { ...dados.fracProducao },
+    pesquisas: Object.fromEntries(
+      Object.entries(dados.pesquisas).map(([k, v]) => [k, [...v]]),
+    ),
+    filaProducao: dados.filaProducao.map((i) => ({ ...i })),
+    construcaoAtual: dados.construcaoAtual ? { ...dados.construcaoAtual } : null,
+    producaoNave: dados.producaoNave ? { ...dados.producaoNave } : null,
+    pesquisaAtual: dados.pesquisaAtual ? { ...dados.pesquisaAtual } : null,
+    selecionado: false, // transient UI state, never persisted
+  };
+}
+
+function serializarPlaneta(planeta: Planeta, agora: number): PlanetaDTO {
+  return {
+    id: planeta.id,
+    orbita: { ...planeta._orbita },
+    dados: clonarDadosPlaneta(planeta.dados),
+    visivelAoJogador: planeta._visivelAoJogador,
+    descobertoAoJogador: planeta._descobertoAoJogador,
+    memoria: serializarMemoria(planeta, agora),
+  };
+}
+
+function serializarMemoria(planeta: Planeta, agora: number): MemoriaPlanetaDTO | null {
+  const mem = getMemoria(planeta);
+  if (!mem || !mem.dados) return null;
+  return {
+    conhecida: mem.conhecida,
+    snapshotX: mem.dados.x,
+    snapshotY: mem.dados.y,
+    idadeMs: agora - mem.dados.timestamp,
+    dados: { ...mem.dados.dados },
   };
 }
 

@@ -208,6 +208,43 @@ export function registrarMemoriaPlaneta(planeta: Planeta): void {
   }
 }
 
+/**
+ * Used by save/reconstruir to restore fog-of-war state after load.
+ * Takes a previously-captured snapshot (with rebased timestamp) and
+ * installs it into the WeakMap. Does NOT regenerate the visual layer —
+ * caller must have already run criarMemoriaVisualPlaneta.
+ */
+export function restaurarMemoriaPlaneta(
+  planeta: Planeta,
+  snapshot: {
+    conhecida: boolean;
+    x: number;
+    y: number;
+    timestamp: number;
+    dados: {
+      dono: string;
+      tipoPlaneta: string;
+      tamanho: number;
+      fabricas: number;
+      infraestrutura: number;
+      naves: number;
+      producao: number;
+    };
+  },
+): void {
+  const memoria = memorias.get(planeta);
+  if (!memoria) return;
+  memoria.conhecida = snapshot.conhecida;
+  memoria.dados = {
+    x: snapshot.x,
+    y: snapshot.y,
+    frame: 0,
+    timestamp: snapshot.timestamp,
+    dados: { ...snapshot.dados },
+  };
+  redesenharVisualMemoria(memoria);
+}
+
 
 
 function formatarTempoPassado(ms: number): string {
