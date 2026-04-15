@@ -184,38 +184,99 @@ function processarLoopCargueira(nave: Nave): void {
   }
 }
 
+const COR_SURVEY = 0x8ce0ff;
+const COR_DECISAO = 0xffd97a;
+const COR_OUTPOST = 0x60ccff;
+const COR_SELECAO = 0x44aaff;
+
 function desenharNaveGfx(nave: Nave): void {
-  // Redraws the ring overlay. The sprite itself never needs to be re-rendered.
-  // Called on selection change (static) and each frame while the ship is in
-  // an animated state (survey / decision / outpost pulse).
   const ring = nave._ring;
   if (!ring) return;
   ring.clear();
   const baseRadius = (SHIP_DISPLAY_SIZE[nave.tipo] ?? 32) * 0.55;
+  const now = performance.now();
 
   if (nave.estado === 'fazendo_survey' && nave.surveyTempoTotalMs) {
-    const progress = 1 - (nave.surveyTempoRestanteMs ?? 0) / nave.surveyTempoTotalMs;
-    const pulse = (performance.now() / 400) % 1;
-    const pulseRadius = baseRadius * (1 + pulse * 2.5);
-    const pulseAlpha = (1 - pulse) * 0.55;
-    ring.circle(0, 0, pulseRadius).stroke({ color: 0x8ce0ff, width: 1.2, alpha: pulseAlpha });
+    const total = nave.surveyTempoTotalMs;
+    const remaining = nave.surveyTempoRestanteMs ?? 0;
+    const elapsed = total - remaining;
+    const progress = 1 - remaining / total;
+
+    // Three concentric pulses, phase-offset so the scan feels continuous.
+    for (let i = 0; i < 3; i++) {
+      const pulse = ((now / 520) + i / 3) % 1;
+      const pulseRadius = baseRadius * (1 + pulse * 2.8);
+      const pulseAlpha = (1 - pulse) * 0.55;
+      ring.circle(0, 0, pulseRadius).stroke({
+        color: COR_SURVEY,
+        width: 1.1,
+        alpha: pulseAlpha,
+      });
+    }
+
+    // Rotating radar sweep line inside the outer ring.
+    const sweepRadius = baseRadius * 2.4;
+    const sweepAngle = (now / 700) % (Math.PI * 2);
+    ring.moveTo(0, 0)
+      .lineTo(Math.cos(sweepAngle) * sweepRadius, Math.sin(sweepAngle) * sweepRadius)
+      .stroke({ color: COR_SURVEY, width: 1.5, alpha: 0.55 });
+
+    // Progress ring: dim backdrop + bright arc that fills clockwise.
     const arcRadius = baseRadius * 1.8;
-    ring.circle(0, 0, arcRadius).stroke({ color: 0x8ce0ff, width: 1, alpha: 0.25 });
+    ring.circle(0, 0, arcRadius).stroke({ color: COR_SURVEY, width: 1, alpha: 0.22 });
     ring.arc(0, 0, arcRadius, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2)
-      .stroke({ color: 0x8ce0ff, width: 2, alpha: 0.9 });
+      .stroke({ color: COR_SURVEY, width: 2.2, alpha: 0.95 });
+
+    // Arrival shockwave — one-shot expanding burst for the first 500ms after
+    // the ship enters survey state. Uses elapsed (not wall-clock) so it
+    // survives pause/speed changes.
+    if (elapsed < 500) {
+      const t = elapsed / 500;
+      const shockRadius = baseRadius * (1 + t * 5);
+      const shockAlpha = (1 - t) * 0.9;
+      ring.circle(0, 0, shockRadius).stroke({
+        color: COR_SURVEY,
+        width: 2.5 * (1 - t) + 0.5,
+        alpha: shockAlpha,
+      });
+    }
   } else if (nave.estado === 'aguardando_decisao') {
-    // Static double ring + slow breath to indicate "awaiting player input".
-    const breath = 0.5 + Math.sin(performance.now() / 500) * 0.25;
-    ring.circle(0, 0, baseRadius * 1.8).stroke({ color: 0xffd97a, width: 1.4, alpha: 0.85 });
-    ring.circle(0, 0, baseRadius * 2.2).stroke({ color: 0xffd97a, width: 1, alpha: breath });
+    // Double ring + breath pulse.
+    const breath = 0.55 + Math.sin(now / 420) * 0.3;
+    ring.circle(0, 0, baseRadius * 1.8).stroke({ color: COR_DECISAO, width: 1.6, alpha: 0.9 });
+    ring.circle(0, 0, baseRadius * 2.2).stroke({ color: COR_DECISAO, width: 1.1, alpha: breath });
+
+    // Four rotating chevrons pointing inward — a clear "needs attention" cue.
+    const chevronR = baseRadius * 2.7;
+    const spin = now / 1400;
+    const chevronSize = baseRadius * 0.45;
+    for (let i = 0; i < 4; i++) {
+      const a = spin + (i * Math.PI) / 2;
+      const cx = Math.cos(a) * chevronR;
+      const cy = Math.sin(a) * chevronR;
+      // Chevron "V" pointing toward the ship (opposite of the radial direction).
+      const inward = a + Math.PI;
+      const leftA = inward + 0.5;
+      const rightA = inward - 0.5;
+      ring.moveTo(cx + Math.cos(leftA) * chevronSize, cy + Math.sin(leftA) * chevronSize)
+        .lineTo(cx, cy)
+        .lineTo(cx + Math.cos(rightA) * chevronSize, cy + Math.sin(rightA) * chevronSize)
+        .stroke({ color: COR_DECISAO, width: 1.6, alpha: 0.85 });
+    }
   } else if (nave.tipo === 'colonizadora' && nave.estado === 'orbitando' && _ehOutpost(nave)) {
-    // Permanent outpost marker — a dim teal ring so the player can tell a
-    // post-survey outpost apart from a normal orbit around its origin.
-    ring.circle(0, 0, baseRadius * 1.6).stroke({ color: 0x60ccff, width: 1, alpha: 0.35 });
+    // Permanent outpost marker — dim ring with a slow beacon orbiting it.
+    const r = baseRadius * 1.6;
+    ring.circle(0, 0, r).stroke({ color: COR_OUTPOST, width: 1, alpha: 0.4 });
+    // Beacon dot — single point rotating slowly around the marker ring.
+    const beaconA = (now / 1800) % (Math.PI * 2);
+    const beaconX = Math.cos(beaconA) * r;
+    const beaconY = Math.sin(beaconA) * r;
+    ring.circle(beaconX, beaconY, 1.8).fill({ color: COR_OUTPOST, alpha: 0.95 });
+    ring.circle(beaconX, beaconY, 3.2).stroke({ color: COR_OUTPOST, width: 0.8, alpha: 0.35 });
   }
 
   if (nave.selecionado) {
-    ring.circle(0, 0, baseRadius).stroke({ color: 0x44aaff, width: 1.4, alpha: 0.95 });
+    ring.circle(0, 0, baseRadius).stroke({ color: COR_SELECAO, width: 1.4, alpha: 0.95 });
   }
 }
 
