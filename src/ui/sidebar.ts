@@ -214,8 +214,9 @@ export function criarSidebar(): HTMLDivElement {
   btnSalvar.addEventListener('click', (e) => {
     e.preventDefault();
     salvarAgora();
-    if (getUltimoErro()) {
-      toast(`Erro ao salvar: ${getUltimoErro()!.message}`, 'err');
+    const erro = getUltimoErro();
+    if (erro) {
+      toast(`Erro ao salvar: ${erro.message}`, 'err');
     } else {
       toast('Salvo', 'info');
     }

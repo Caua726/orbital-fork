@@ -29,6 +29,7 @@ let _mundo: Mundo | null = null;
 let _mundoMenu: MundoMenu | null = null;
 let _gameStarted = false;
 let _hudInstalled = false;
+let _transitioning = false;
 
 // Cinematic camera state during the main menu. Accumulated seconds,
 // fed into layered sines for a non-circular, more organic drift.
@@ -227,7 +228,8 @@ async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJ
 }
 
 async function iniciarJogoNovo(nome: string, tipoJogador: TipoJogador): Promise<void> {
-  if (!_app || _gameStarted) return;
+  if (!_app || _gameStarted || _transitioning) return;
+  _transitioning = true;
   const app = _app;
 
   esconderMainMenu();
@@ -240,7 +242,8 @@ async function iniciarJogoNovo(nome: string, tipoJogador: TipoJogador): Promise<
 }
 
 async function carregarMundo(nome: string): Promise<void> {
-  if (!_app || _gameStarted) return;
+  if (!_app || _gameStarted || _transitioning) return;
+  _transitioning = true;
   const app = _app;
 
   esconderMainMenu();
