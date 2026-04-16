@@ -31,7 +31,7 @@ const PRESETS: Record<Nivel, FlagsDerivadas> = {
     mostrarOrbitas: true,
   },
   minimo: {
-    fogThrottle: 0,
+    fogThrottle: 5,
     maxFantasmas: 0,
     densidadeStarfield: 0.15,
     shaderLive: false,

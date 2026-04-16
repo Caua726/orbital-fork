@@ -32,7 +32,7 @@ describe('aplicarPreset', () => {
     aplicarPreset('minimo');
     const g = getConfig().graphics;
     expect(g.qualidadeEfeitos).toBe('minimo');
-    expect(g.fogThrottle).toBe(0);
+    expect(g.fogThrottle).toBe(5);
     expect(g.maxFantasmas).toBe(0);
     expect(g.densidadeStarfield).toBe(0.15);
     expect(g.shaderLive).toBe(false);

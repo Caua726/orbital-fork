@@ -380,16 +380,10 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
     _fogCtx = _fogCanvas.getContext('2d');
   }
 
-  // Só redesenhar canvas a cada N frames
+  // Só redesenhar canvas a cada N frames (fogThrottle >= 1 sempre)
   const gfxCfg = getConfig().graphics;
-  // fogThrottle === 0 means fog disabled completely — skip everything below.
-  if (gfxCfg.fogThrottle === 0) {
-    if (_fogSprite && _fogSprite.parent) {
-      _fogSprite.parent.removeChild(_fogSprite);
-    }
-    return;
-  }
-  const redesenhar = _fogFrame % gfxCfg.fogThrottle === 0;
+  const fogT = Math.max(1, gfxCfg.fogThrottle);
+  const redesenhar = _fogFrame % fogT === 0;
 
   if (redesenhar) {
     const t0 = performance.now();

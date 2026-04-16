@@ -108,6 +108,50 @@ async function bootstrap(): Promise<void> {
     app.ticker.maxFPS = cfg.graphics.fpsCap > 0 ? cfg.graphics.fpsCap : 0;
   });
 
+  // ── FPS counter ──
+  const fpsEl = document.createElement('div');
+  fpsEl.style.cssText = `
+    position: fixed; top: calc(var(--hud-unit) * 0.5); right: calc(var(--hud-unit) * 0.5);
+    font-family: var(--hud-font); font-size: calc(var(--hud-unit) * 0.75);
+    color: var(--hud-text-dim); background: rgba(0,0,0,0.5);
+    padding: calc(var(--hud-unit) * 0.2) calc(var(--hud-unit) * 0.5);
+    border: 1px solid var(--hud-border); z-index: 100; pointer-events: none;
+    display: ${gfx.mostrarFps ? 'block' : 'none'};
+  `;
+  document.body.appendChild(fpsEl);
+  let _fpsAccum = 0;
+  let _fpsFrames = 0;
+  app.ticker.add(() => {
+    _fpsFrames++;
+    _fpsAccum += app.ticker.deltaMS;
+    if (_fpsAccum >= 500) {
+      fpsEl.textContent = `${Math.round(_fpsFrames / (_fpsAccum / 1000))} FPS`;
+      _fpsAccum = 0;
+      _fpsFrames = 0;
+    }
+  });
+  onConfigChange((cfg) => {
+    fpsEl.style.display = cfg.graphics.mostrarFps ? 'block' : 'none';
+  });
+
+  // ── Scanlines CRT overlay ──
+  const scanlinesEl = document.createElement('div');
+  scanlinesEl.style.cssText = `
+    position: fixed; inset: 0; z-index: 99; pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.08) 2px,
+      rgba(0, 0, 0, 0.08) 4px
+    );
+    display: ${gfx.scanlines ? 'block' : 'none'};
+  `;
+  document.body.appendChild(scanlinesEl);
+  onConfigChange((cfg) => {
+    scanlinesEl.style.display = cfg.graphics.scanlines ? 'block' : 'none';
+  });
+
   document.body.style.margin = '0';
   document.body.style.overflow = 'hidden';
   document.body.appendChild(app.canvas);
