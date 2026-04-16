@@ -35,7 +35,7 @@ export interface OrbitalConfig {
   };
 }
 
-const DEFAULTS: OrbitalConfig = {
+export const DEFAULTS: OrbitalConfig = {
   autosaveIntervalMs: 60000,
   saveMode: 'periodic',
 
