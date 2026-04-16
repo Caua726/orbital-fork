@@ -214,6 +214,12 @@ export async function criarMundo(app: Application, tipoJogador: TipoJogador): Pr
   return mundo;
 }
 
+export function destruirMundo(mundo: Mundo, app: Application): void {
+  app.stage.removeChild(mundo.container);
+  mundo.container.destroy({ children: true });
+  estadoJogo = 'jogando';
+}
+
 // === Game loop ===
 export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): void {
   const frameInicio = profileMark();
