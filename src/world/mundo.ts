@@ -289,7 +289,13 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   for (const planeta of mundo.planetas) {
     const visNaTela = planeta.x > esq && planeta.x < dir && planeta.y > cima && planeta.y < baixo;
     const vis = visNaTela && planeta._visivelAoJogador;
-    planeta.visible = vis;
+    // When baked, hide mesh and control sprite visibility instead
+    if ((planeta as any)._bakedSprite) {
+      planeta.visible = false;
+      (planeta as any)._bakedSprite.visible = vis;
+    } else {
+      planeta.visible = vis;
+    }
 
     const raioOrbita = planeta._orbita.raio;
     const orbitaNaTela =
@@ -322,8 +328,15 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   t = profileMark();
   for (const sol of mundo.sois) {
     const visNaTela = sol.x > esq && sol.x < dir && sol.y > cima && sol.y < baixo;
-    sol.visible = visNaTela && (sol._visivelAoJogador || sol._descobertoAoJogador);
-    sol.alpha = sol._visivelAoJogador ? 1 : 0.28;
+    const solVis = visNaTela && (sol._visivelAoJogador || sol._descobertoAoJogador);
+    if ((sol as any)._bakedSprite) {
+      sol.visible = false;
+      (sol as any)._bakedSprite.visible = solVis;
+      (sol as any)._bakedSprite.alpha = sol._visivelAoJogador ? 1 : 0.28;
+    } else {
+      sol.visible = solVis;
+      sol.alpha = sol._visivelAoJogador ? 1 : 0.28;
+    }
   }
 
   for (const nave of mundo.naves) {

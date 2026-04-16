@@ -4,7 +4,7 @@ import vertexSrc from '../shaders/planeta.vert?raw';
 import fragmentSrc from '../shaders/planeta.frag?raw';
 import wgslSrc from '../shaders/planeta.wgsl?raw';
 import { TIPO_PLANETA } from './planeta';
-import { onConfigChange } from '../core/config';
+import { getConfig, onConfigChange } from '../core/config';
 
 let _appRef: Application | null = null;
 
@@ -276,8 +276,8 @@ export function criarPlanetaProceduralSprite(
   return mesh;
 }
 
-// Cached shaderLive flag — updated by config observer, avoids deepClone per frame
-let _shaderLive = true;
+// Cached shaderLive flag — initialized from config and updated by observer
+let _shaderLive = getConfig().graphics.shaderLive;
 onConfigChange((cfg) => { _shaderLive = cfg.graphics.shaderLive; });
 
 /**
@@ -336,9 +336,11 @@ function unbakePlaneta(planeta: any): void {
   if (!sprite) return;
   sprite.visible = false;
   if (sprite.parent) sprite.parent.removeChild(sprite);
+  const tex = sprite.texture;
   sprite.destroy();
+  tex.destroy(true);
   (planeta as any)._bakedSprite = null;
-  // mesh visibility is restored by the normal culling loop in mundo.ts
+  (planeta as any).visible = true; // restore mesh; culling will correct it later this frame
 }
 
 export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
@@ -351,7 +353,6 @@ export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
       if (sprite) {
         sprite.x = planeta.x;
         sprite.y = planeta.y;
-        sprite.visible = planeta.visible !== false;
       }
     }
     return;
