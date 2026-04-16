@@ -18,7 +18,8 @@ import { criarColonizerPanel, atualizarColonizerPanel } from './ui/colonizer-pan
 import { criarColonyModal, atualizarColonyModal } from './ui/colony-modal';
 import { criarConfirmDialog } from './ui/confirm-dialog';
 import { criarMainMenu, esconderMainMenu, mostrarMainMenu } from './ui/main-menu';
-import { reconstruirMundo, iniciarAutosave, instalarListenersCicloDeVida, acumularTempoJogado, lerEMigrar, salvarAgora, getBackendAtivo, getUltimoErro } from './world/save';
+import { reconstruirMundo, iniciarAutosave, instalarListenersCicloDeVida, acumularTempoJogado, lerEMigrar, recuperarEmergency, salvarAgora, getBackendAtivo, getUltimoErro } from './world/save';
+import type { MundoDTO } from './world/save';
 import { toast } from './ui/toast';
 import { abrirNewWorldModal } from './ui/new-world-modal';
 import { criarLoadingScreen, mostrarCarregando, esconderCarregando } from './ui/loading-screen';
@@ -318,9 +319,10 @@ async function carregarMundo(nome: string): Promise<void> {
   mostrarCarregando(`Carregando mundo: ${nome}`);
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
-  let dto;
+  let dto: MundoDTO | null = null;
   try {
-    dto = await lerEMigrar(nome);
+    dto = await recuperarEmergency(nome);
+    if (!dto) dto = await lerEMigrar(nome);
   } catch (err) {
     _transitioning = false;
     await esconderCarregando();

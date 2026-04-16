@@ -1,5 +1,6 @@
 import { getConfig, setConfig } from '../core/config';
-import { notificarMudancaConfig } from '../world/save';
+import { notificarMudancaConfig, trocarModoSave } from '../world/save';
+import { toast } from './toast';
 
 export function montarSettingsPanel(): HTMLDivElement {
   const container = document.createElement('div');
@@ -41,7 +42,11 @@ export function montarSettingsPanel(): HTMLDivElement {
   expToggle.checked = cfg.saveMode === 'experimental';
   expToggle.addEventListener('change', () => {
     setConfig({ saveMode: expToggle.checked ? 'experimental' : 'periodic' });
-    alert('Modo experimental será ativado no próximo boot do jogo.');
+    trocarModoSave();
+    toast(
+      expToggle.checked ? 'Modo experimental ativado' : 'Modo padrão ativado',
+      'info',
+    );
   });
   expRow.append(expLabel, expToggle);
   container.appendChild(expRow);
