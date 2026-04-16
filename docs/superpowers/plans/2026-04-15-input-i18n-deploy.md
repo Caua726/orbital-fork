@@ -10,7 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-04-15-input-i18n-deploy-design.md`
 
-**Pre-requisites:** Save/Load (spec 1) and Settings (spec 2) must be implemented first. `npm run dev` and `npm run test` must pass before starting.
+**Pre-requisites:** Save/Load (spec 1) and Settings (spec 2) must be **fully implemented** first. Specifically, this plan depends on:
+- `src/core/config.ts` having `onConfigChange()` (observer pattern from Settings spec)
+- `setConfig()` using `mergeDeep` (not shallow spread — from Settings spec)
+- `src/ui/settings-panel.ts` having the Jogabilidade tab (from Settings spec)
+- `src/ui/toast.ts` existing (from Save/Load spec)
+- vitest working (`npm run test` passes)
+
+If Settings is NOT implemented yet, Tasks 3, 8, 12-16 will fail on missing imports.
 
 **Execution order:** Phase C (deploy) first (smallest, unblocks CI), then Phase A (input), then Phase B (i18n — largest, migrates input labels too).
 
@@ -519,6 +526,13 @@ export function onActionUp(actionId: string, callback: ActionCallback): () => vo
   return () => _upListeners.get(actionId)?.delete(callback);
 }
 
+// Keys that should NOT have their default browser behavior blocked even when
+// handled by the dispatcher. F5 is quicksave but the user may also want to
+// reload the page; Space scrolls the page but only matters pre-game (in-game
+// the page doesn't scroll). We block arrows/+/- (conflicting browser defaults)
+// but leave F-keys passthrough so Ctrl+Shift+R / F5 reload still works.
+const PASSTHROUGH_KEYS = new Set(['F1', 'F3', 'F5']);
+
 function dispatch(code: string, targetTag: string, listeners: Map<string, Set<ActionCallback>>): boolean {
   if (!_habilitado) return false;
   if (targetTag === 'INPUT' || targetTag === 'TEXTAREA') return false;
@@ -529,7 +543,8 @@ function dispatch(code: string, targetTag: string, listeners: Map<string, Set<Ac
   for (const cb of cbs) {
     try { cb(); } catch (err) { console.error(`[input] action ${actionId} error:`, err); }
   }
-  return true;
+  // Return false for passthrough keys so the caller does NOT call preventDefault.
+  return !PASSTHROUGH_KEYS.has(code);
 }
 
 export function instalarDispatcher(): void {
@@ -603,9 +618,13 @@ window.addEventListener('keydown', (e: KeyboardEvent) => {
 
 - [ ] **Step 2: Add `fecharDebugOverlays` in debug-menu.ts**
 
-In `src/ui/debug-menu.ts`, add a new export:
+In `src/ui/debug-menu.ts`, add two new exports:
 
 ```ts
+export function setGameSpeed(v: number): void {
+  _state.gameSpeed = v;
+}
+
 export function fecharDebugOverlays(): boolean {
   if (_popupVisible) {
     togglePopup(false);
@@ -672,6 +691,7 @@ onAction('toggle_debug_fast', () => {
 
 onAction('toggle_debug_full', () => {
   togglePopup();
+  if (_popupVisible) toggleFastMenu(false);
 });
 
 onAction('quicksave', () => {
@@ -711,15 +731,18 @@ if (_panState.right) camera.x += panScale;
 Also add speed controls:
 
 ```ts
-onAction('speed_pause', () => {
-  _state.gameSpeed = _state.gameSpeed === 0 ? 1 : 0;
-});
-onAction('speed_1x', () => { _state.gameSpeed = 1; });
-onAction('speed_2x', () => { _state.gameSpeed = 2; });
-onAction('speed_4x', () => { _state.gameSpeed = 4; });
-```
+// Speed controls — `_state` is private in debug-menu.ts, so we need a
+// public setter. Add `export function setGameSpeed(v: number): void`
+// in debug-menu.ts (see Step 2 above for the export).
+import { setGameSpeed, getDebugState } from './ui/debug-menu';
 
-(Use whatever the existing `_state.gameSpeed` / `getDebugState().gameSpeed` pattern is.)
+onAction('speed_pause', () => {
+  setGameSpeed(getDebugState().gameSpeed === 0 ? 1 : 0);
+});
+onAction('speed_1x', () => { setGameSpeed(1); });
+onAction('speed_2x', () => { setGameSpeed(2); });
+onAction('speed_4x', () => { setGameSpeed(4); });
+```
 
 - [ ] **Step 4: Verify typecheck**
 
@@ -778,7 +801,13 @@ for (const cat of CATEGORIAS_ORDEM) {
 
   const catLabel = document.createElement('div');
   catLabel.style.cssText = 'font-size: calc(var(--hud-unit) * 0.7); color: var(--hud-text-dim); text-transform: uppercase; letter-spacing: 0.1em; margin-top: calc(var(--hud-unit) * 0.8); padding-bottom: calc(var(--hud-unit) * 0.2); border-bottom: 1px solid var(--hud-border);';
-  catLabel.textContent = cat === 'camera' ? 'Câmera' : cat === 'interface' ? 'Interface' : cat === 'jogo' ? 'Jogo' : 'Debug';
+  const catNames: Record<string, string> = {
+    camera: t('input.cat_camera'),
+    interface: t('input.cat_interface'),
+    jogo: t('input.cat_jogo'),
+    debug: t('input.cat_debug'),
+  };
+  catLabel.textContent = catNames[cat] ?? cat;
   body.appendChild(catLabel);
 
   for (const action of catActions) {
@@ -1350,16 +1379,20 @@ git commit -m "feat(i18n): migrate main-menu strings to t()"
 
 In `src/ui/sidebar.ts`, import `t` and replace all `textContent = '...'` on buttons and labels.
 
-Add config listener for sidebar (persistent component):
+Add config listener for sidebar (persistent component). **Important**: store the unsubscribe function and call it in `destruirSidebar()` to prevent listener leaks across world entries:
 
 ```ts
-onConfigChange(() => {
+const unsub = onConfigChange(() => {
   btnSalvar.textContent = t('hud.salvar');
   btnConfig.textContent = t('hud.configuracoes');
   btnMenu.textContent = t('hud.menu');
   // ... other labels
 });
+// In destruirSidebar():
+// unsub();
 ```
+
+Same pattern applies to `criarMainMenu` in Task 13 — store the unsubscribe and call it in `destruirMainMenu()`.
 
 - [ ] **Step 2: New world modal — replace strings**
 
