@@ -636,24 +636,24 @@ function renderGraphicsTab(body: HTMLDivElement): void {
   // Qualidade
   {
     const [row] = rowWithLabel('Qualidade', 'qualidade');
-    const select = criarSelect([
+    const isCustom = !presetBateComFlagsDerivadas(cfg);
+    const options: Array<[string, string]> = [
       ['alto', 'Alto'],
       ['medio', 'M\u00E9dio'],
       ['baixo', 'Baixo'],
       ['minimo', 'M\u00EDnimo'],
-    ], gfx.qualidadeEfeitos);
+    ];
+    if (isCustom) {
+      options.push(['personalizado', 'Personalizado']);
+    }
+    const select = criarSelect(options, isCustom ? 'personalizado' : gfx.qualidadeEfeitos);
     select.addEventListener('change', () => {
-      aplicarPreset(select.dataset.value! as typeof gfx.qualidadeEfeitos);
+      const val = select.dataset.value!;
+      if (val === 'personalizado') return; // no-op, already custom
+      aplicarPreset(val as typeof gfx.qualidadeEfeitos);
       _refreshBody?.();
     });
     row.appendChild(select);
-
-    if (!presetBateComFlagsDerivadas(cfg)) {
-      const tag = document.createElement('span');
-      tag.textContent = '(personalizado)';
-      tag.style.cssText = 'color: var(--hud-text-dim); font-size: calc(var(--hud-unit) * 0.7); margin-left: calc(var(--hud-unit) * 0.4);';
-      row.appendChild(tag);
-    }
     body.appendChild(row);
   }
 
