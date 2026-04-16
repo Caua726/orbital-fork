@@ -6,6 +6,7 @@
  */
 
 import { marcarInteracaoUi } from './interacao-ui';
+import { confirmarAcao } from './confirmar-acao';
 import { getBackendAtivo } from '../world/save';
 import type { SaveMetadata } from '../world/save';
 import { montarSettingsPanel } from './settings-panel';
@@ -394,9 +395,10 @@ async function refreshSavesList(list: HTMLDivElement): Promise<void> {
       e.stopPropagation();
       e.preventDefault();
       marcarInteracaoUi();
-      if (!confirm(`Apagar mundo "${save.nome}" permanentemente?`)) return;
-      const backend = getBackendAtivo();
-      void Promise.resolve(backend.apagar(save.nome)).then(() => refreshSavesList(list));
+      confirmarAcao(`Apagar mundo "${save.nome}" permanentemente?`, () => {
+        const backend = getBackendAtivo();
+        void Promise.resolve(backend.apagar(save.nome)).then(() => refreshSavesList(list));
+      });
     });
     card.appendChild(del);
 
