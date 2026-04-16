@@ -272,7 +272,34 @@ function injectStyles(): void {
     .settings-body { min-height: calc(var(--hud-unit) * 10); }
     .settings-row { display: flex; justify-content: space-between; align-items: center; gap: calc(var(--hud-unit) * 1); padding: calc(var(--hud-unit) * 0.5) 0; }
     .settings-row label { font-size: calc(var(--hud-unit) * 0.85); color: var(--hud-text); flex: 1; display: flex; align-items: center; }
-    .settings-row input[type="range"] { flex: 1; max-width: calc(var(--hud-unit) * 10); }
+    .settings-row input[type="range"] {
+      flex: 1; max-width: calc(var(--hud-unit) * 10);
+      -webkit-appearance: none; appearance: none;
+      height: calc(var(--hud-unit) * 0.25);
+      background: rgba(255,255,255,0.15);
+      border: none; border-radius: calc(var(--hud-unit) * 0.15);
+      outline: none;
+    }
+    .settings-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: calc(var(--hud-unit) * 0.8); height: calc(var(--hud-unit) * 0.8);
+      background: var(--hud-text); border: none;
+      border-radius: 50%; cursor: pointer;
+      transition: transform 100ms ease;
+    }
+    .settings-row input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.3);
+    }
+    .settings-row input[type="range"]::-moz-range-thumb {
+      width: calc(var(--hud-unit) * 0.8); height: calc(var(--hud-unit) * 0.8);
+      background: var(--hud-text); border: none;
+      border-radius: 50%; cursor: pointer;
+    }
+    .settings-row input[type="range"]::-moz-range-track {
+      height: calc(var(--hud-unit) * 0.25);
+      background: rgba(255,255,255,0.15);
+      border: none; border-radius: calc(var(--hud-unit) * 0.15);
+    }
     .settings-row input[type="checkbox"] { width: calc(var(--hud-unit) * 1); height: calc(var(--hud-unit) * 1); }
     .settings-row .value-display { min-width: calc(var(--hud-unit) * 2.5); text-align: right; font-family: monospace; font-size: calc(var(--hud-unit) * 0.75); color: var(--hud-text-dim); }
     .settings-row .mute-btn { background: transparent; border: 1px solid var(--hud-border); color: var(--hud-text); cursor: pointer; padding: 0 calc(var(--hud-unit) * 0.5); width: calc(var(--hud-unit) * 1.6); }

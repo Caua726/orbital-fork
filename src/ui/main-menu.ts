@@ -9,7 +9,7 @@ import { marcarInteracaoUi } from './interacao-ui';
 import { confirmarAcao } from './confirmar-acao';
 import { getBackendAtivo } from '../world/save';
 import type { SaveMetadata } from '../world/save';
-import { abrirSettings } from './settings-panel';
+import { renderSettingsInto } from './settings-panel';
 
 interface MainMenuOptions {
   onNewGame: () => void;
@@ -19,6 +19,7 @@ interface MainMenuOptions {
 let _container: HTMLDivElement | null = null;
 let _mainScreen: HTMLDivElement | null = null;
 let _savesScreen: HTMLDivElement | null = null;
+let _settingsScreen: HTMLDivElement | null = null;
 let _styleInjected = false;
 let _options: MainMenuOptions | null = null;
 
@@ -336,7 +337,7 @@ function buildMainScreen(): HTMLDivElement {
   settings.addEventListener('click', (e) => {
     e.preventDefault();
     marcarInteracaoUi();
-    abrirSettings();
+    showSettingsScreen();
   });
   buttons.appendChild(settings);
 
@@ -357,6 +358,34 @@ function buildSavesScreen(): HTMLDivElement {
   list.className = 'menu-saves-list';
   void refreshSavesList(list);
   screen.appendChild(list);
+
+  return screen;
+}
+
+function buildSettingsScreen(): HTMLDivElement {
+  const screen = document.createElement('div');
+  screen.className = 'menu-screen hidden';
+
+  const title = document.createElement('h2');
+  title.className = 'menu-section-title';
+  title.textContent = 'Configurações';
+  screen.appendChild(title);
+
+  const settingsHost = document.createElement('div');
+  settingsHost.style.cssText = `
+    background: var(--hud-bg);
+    border: 1px solid var(--hud-border);
+    border-radius: var(--hud-radius);
+    box-shadow: 0 calc(var(--hud-unit) * 0.4) calc(var(--hud-unit) * 1.2) rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    padding: calc(var(--hud-unit) * 1.2);
+    max-height: 60vh;
+    overflow-y: auto;
+    width: calc(var(--hud-unit) * 32);
+  `;
+  screen.appendChild(settingsHost);
+
+  renderSettingsInto(settingsHost);
 
   return screen;
 }
@@ -435,15 +464,24 @@ function formatarSalvoEm(ts: number): string {
 function showMainScreen(): void {
   _mainScreen?.classList.remove('hidden');
   _savesScreen?.classList.add('hidden');
+  _settingsScreen?.classList.add('hidden');
   updateBackButton(false);
 }
 
 function showSavesScreen(): void {
   _mainScreen?.classList.add('hidden');
   _savesScreen?.classList.remove('hidden');
+  _settingsScreen?.classList.add('hidden');
   updateBackButton(true);
   const list = _savesScreen?.querySelector('.menu-saves-list') as HTMLDivElement | null;
   if (list) void refreshSavesList(list);
+}
+
+function showSettingsScreen(): void {
+  _mainScreen?.classList.add('hidden');
+  _savesScreen?.classList.add('hidden');
+  _settingsScreen?.classList.remove('hidden');
+  updateBackButton(true);
 }
 
 let _backBtn: HTMLButtonElement | null = null;
@@ -479,9 +517,10 @@ export function criarMainMenu(options: MainMenuOptions): HTMLDivElement {
   // Screens (wrapped for slide transitions)
   _mainScreen = buildMainScreen();
   _savesScreen = buildSavesScreen();
+  _settingsScreen = buildSettingsScreen();
   const screensWrapper = document.createElement('div');
   screensWrapper.style.cssText = 'position: relative; width: 100%; flex: 1; display: flex; align-items: center; justify-content: center;';
-  screensWrapper.append(_mainScreen, _savesScreen);
+  screensWrapper.append(_mainScreen, _savesScreen, _settingsScreen);
   container.appendChild(screensWrapper);
 
   // Footer
@@ -519,6 +558,7 @@ export function destruirMainMenu(): void {
   _container = null;
   _mainScreen = null;
   _savesScreen = null;
+  _settingsScreen = null;
   _backBtn = null;
   _options = null;
   _styleInjected = false;
