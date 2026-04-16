@@ -6,6 +6,8 @@
  */
 
 import { marcarInteracaoUi } from './interacao-ui';
+import { getBackendAtivo } from '../world/save';
+import type { SaveMetadata } from '../world/save';
 
 interface MainMenuOptions {
   onNewGame: () => void;
@@ -211,6 +213,7 @@ function injectStyles(): void {
     }
 
     .menu-save-card {
+      position: relative;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -243,6 +246,21 @@ function injectStyles(): void {
       color: var(--hud-text-dim);
       letter-spacing: 0.06em;
     }
+
+    .menu-save-delete {
+      position: absolute;
+      top: calc(var(--hud-unit) * 0.3);
+      right: calc(var(--hud-unit) * 0.3);
+      background: transparent;
+      border: none;
+      color: var(--hud-text-dim);
+      font-size: calc(var(--hud-unit) * 0.9);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 120ms ease, color 120ms ease;
+    }
+    .menu-save-card:hover .menu-save-delete { opacity: 1; }
+    .menu-save-delete:hover { color: #ff6b6b; }
 
     /* ── Footer ── */
     .menu-footer {
@@ -327,15 +345,15 @@ function buildSavesScreen(): HTMLDivElement {
 
   const list = document.createElement('div');
   list.className = 'menu-saves-list';
-  refreshSavesList(list);
+  void refreshSavesList(list);
   screen.appendChild(list);
 
   return screen;
 }
 
-function refreshSavesList(list: HTMLDivElement): void {
+async function refreshSavesList(list: HTMLDivElement): Promise<void> {
   list.replaceChildren();
-  const saves = listSavedWorlds();
+  const saves = await listSavedWorlds();
   if (saves.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'menu-saves-empty';
@@ -346,32 +364,61 @@ function refreshSavesList(list: HTMLDivElement): void {
   for (const save of saves) {
     const card = document.createElement('div');
     card.className = 'menu-save-card';
+
+    const info = document.createElement('div');
     const name = document.createElement('div');
     name.className = 'menu-save-name';
-    name.textContent = save.name;
+    name.textContent = save.nome;
     const meta = document.createElement('div');
     meta.className = 'menu-save-meta';
-    meta.textContent = save.meta;
-    card.append(name, meta);
+    meta.textContent = `${save.tipoJogador.nome} · ${formatarTempoJogado(save.tempoJogadoMs)} · ${formatarSalvoEm(save.salvoEm)}`;
+    info.append(name, meta);
+    card.appendChild(info);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'menu-save-delete';
+    del.textContent = '\u2715';
+    del.title = 'Apagar';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      marcarInteracaoUi();
+      if (!confirm(`Apagar mundo "${save.nome}" permanentemente?`)) return;
+      const backend = getBackendAtivo();
+      void Promise.resolve(backend.apagar(save.nome)).then(() => refreshSavesList(list));
+    });
+    card.appendChild(del);
+
     card.addEventListener('click', (e) => {
       e.preventDefault();
       marcarInteracaoUi();
-      _options?.onLoadGame(save.id);
+      _options?.onLoadGame(save.nome);
     });
     list.appendChild(card);
   }
 }
 
-/** Phase 2: actual save serialization goes here. For now returns empty. */
-function listSavedWorlds(): Array<{ id: string; name: string; meta: string }> {
-  try {
-    const raw = localStorage.getItem('orbital_saves');
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Array<{ id: string; name: string; meta: string }>;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+async function listSavedWorlds(): Promise<SaveMetadata[]> {
+  const backend = getBackendAtivo();
+  return Promise.resolve(backend.listarMundos());
+}
+
+function formatarTempoJogado(ms: number): string {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}min`;
+  const h = Math.floor(min / 60);
+  return `${h}h ${min % 60}min`;
+}
+
+function formatarSalvoEm(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return 'agora';
+  if (diff < 3_600_000) return `há ${Math.floor(diff / 60_000)} min`;
+  if (diff < 86_400_000) return `há ${Math.floor(diff / 3_600_000)} h`;
+  return `há ${Math.floor(diff / 86_400_000)} dias`;
 }
 
 function buildSettingsScreen(): HTMLDivElement {
@@ -403,6 +450,8 @@ function showSavesScreen(): void {
   _savesScreen?.classList.remove('hidden');
   _settingsScreen?.classList.add('hidden');
   updateBackButton(true);
+  const list = _savesScreen?.querySelector('.menu-saves-list') as HTMLDivElement | null;
+  if (list) void refreshSavesList(list);
 }
 
 function showSettingsScreen(): void {
