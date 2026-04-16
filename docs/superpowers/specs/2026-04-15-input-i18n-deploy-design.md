@@ -69,11 +69,20 @@ O dispatcher substitui os 4 listeners centrais existentes (main.ts, player.ts, d
 
 | ID | Label | Default key(s) | Notas |
 |----|-------|----------------|-------|
-| `cancel_command` | Cancelar comando | `Escape` | Migração de `player.ts:346` (cancela `comandoNave`) |
-| `open_pause_menu` | Menu de pausa | `Escape` | Migração de `main.ts:81` (abre pause menu) |
+| `cancel_or_menu` | Cancelar / Menu | `Escape` | Migração de `player.ts:346` + `main.ts:81`. Ação única com lógica condicional: tenta cancelar `comandoNave` → tenta fechar debug overlay → abre pause menu. |
 | `quicksave` | Salvar rápido | `F5` | **Feature nova** — chama `salvarAgora()` |
 
-**Nota sobre Escape dual**: `cancel_command` e `open_pause_menu` compartilham a mesma tecla default (`Escape`). Isso é intencional — o dispatcher resolve a prioridade: se `comandoNave` ativo, cancela o comando; senão, abre o pause menu. Implementação: ambas as ações registram callbacks, e o callback de `cancel_command` chama `e.stopImmediatePropagation()` quando consome o evento (ou o dispatcher resolve sequencialmente: despacha `cancel_command` primeiro, e se o callback retornar `true` = "consumido", não despacha `open_pause_menu`). Alternativa mais simples: o callback de `cancel_command` faz o check de `comandoNave` internamente e, se não há comando ativo, chama `abrirPauseMenu()` direto. Assim é uma ação só com lógica condicional, sem precisar de prioridade no dispatcher.
+**Nota sobre Escape — ação única `cancel_or_menu`**: em vez de duas ações separadas com a mesma tecla (que exigiria prioridade no dispatcher), usamos uma ação única cujo callback resolve a prioridade internamente, nesta ordem:
+
+1. Se `comandoNave` ativo → cancela (via `cancelarComandoNaveSeAtivo()` — wrapper novo, ver abaixo)
+2. Senão se debug overlay aberto (`_popupVisible || _fastVisible`) → fecha (via `fecharDebugOverlays()`)
+3. Senão se jogo rodando e pause menu não tá aberto → abre pause menu
+
+Isso cobre os 3 sites migrados (player.ts Escape, main.ts Escape, debug-menu.ts Escape) numa cadeia de fallback simples.
+
+**`cancelarComandoNaveSeAtivo(): boolean`**: função nova a ser adicionada em `player.ts`. Wraps o check de `comandoNave !== null` + `cancelarComandoNave()` + retorna `true` se havia comando. Hoje `cancelarComandoNave()` existe mas retorna `void` e não checa se há comando ativo.
+
+**`fecharDebugOverlays(): boolean`**: função nova a ser exportada de `debug-menu.ts`. Fecha popup e/ou fast menu se abertos, retorna `true` se havia algo aberto.
 
 **Jogo:**
 
@@ -112,7 +121,7 @@ export const ACTIONS: ActionDef[] = [
   { id: 'pan_down',     label: 'Câmera baixo',      categoria: 'camera',    defaultKeys: ['KeyS', 'ArrowDown'] },
   { id: 'pan_left',     label: 'Câmera esquerda',   categoria: 'camera',    defaultKeys: ['KeyA', 'ArrowLeft'] },
   { id: 'pan_right',    label: 'Câmera direita',    categoria: 'camera',    defaultKeys: ['KeyD', 'ArrowRight'] },
-  { id: 'cancel_command',     label: 'Cancelar / Menu pausa', categoria: 'interface', defaultKeys: ['Escape'] },
+  { id: 'cancel_or_menu',     label: 'Cancelar / Menu',        categoria: 'interface', defaultKeys: ['Escape'] },
   { id: 'quicksave',          label: 'Salvar rápido',          categoria: 'interface', defaultKeys: ['F5'] },
   { id: 'speed_pause',        label: 'Pausar',                 categoria: 'jogo',      defaultKeys: ['Space'] },
   { id: 'speed_1x',           label: 'Velocidade 1x',          categoria: 'jogo',      defaultKeys: ['Digit1'] },
@@ -170,6 +179,7 @@ import { resolveKeyToAction } from './keymap';
 
 type ActionCallback = () => void;
 const _listeners = new Map<string, Set<ActionCallback>>();
+const _upListeners = new Map<string, Set<ActionCallback>>();
 let _installed = false;
 let _habilitado = true;
 
@@ -181,6 +191,12 @@ export function onAction(actionId: string, callback: ActionCallback): () => void
   if (!_listeners.has(actionId)) _listeners.set(actionId, new Set());
   _listeners.get(actionId)!.add(callback);
   return () => _listeners.get(actionId)?.delete(callback);
+}
+
+export function onActionUp(actionId: string, callback: ActionCallback): () => void {
+  if (!_upListeners.has(actionId)) _upListeners.set(actionId, new Set());
+  _upListeners.get(actionId)!.add(callback);
+  return () => _upListeners.get(actionId)?.delete(callback);
 }
 
 export function instalarDispatcher(): void {
@@ -204,6 +220,18 @@ export function instalarDispatcher(): void {
       try { cb(); } catch (err) { console.error(`[input] action ${actionId} error:`, err); }
     }
   });
+
+  // Keyup listener — necessário pra pan contínuo (keydown inicia, keyup para)
+  window.addEventListener('keyup', (e: KeyboardEvent) => {
+    if (!_habilitado) return;
+    const actionId = resolveKeyToAction(e.code);
+    if (!actionId) return;
+    const cbs = _upListeners.get(actionId);
+    if (!cbs) return;
+    for (const cb of cbs) {
+      try { cb(); } catch (err) { console.error(`[input] actionUp ${actionId} error:`, err); }
+    }
+  });
 }
 ```
 
@@ -219,12 +247,11 @@ export function instalarDispatcher(): void {
 import { onAction } from './core/input/dispatcher';
 onAction('zoom_in', () => zoomIn());
 onAction('zoom_out', () => zoomOut());
-onAction('cancel_command', () => {
-  // Lógica condicional: se há comandoNave ativo (delegado via player.ts),
-  // cancela; senão, abre pause menu.
-  if (!cancelarComandoNaveSeAtivo()) {
-    if (_gameStarted && !isPauseMenuOpen()) abrirPauseMenu();
-  }
+onAction('cancel_or_menu', () => {
+  // Cadeia de prioridade: cancela comando → fecha debug → abre pause
+  if (cancelarComandoNaveSeAtivo()) return;
+  if (fecharDebugOverlays()) return;
+  if (_gameStarted && !isPauseMenuOpen()) abrirPauseMenu();
 });
 ```
 
@@ -333,7 +360,8 @@ Jogo
   Velocidade 4x        [ 3 ]          [Rebind]
 
 Debug
-  Debug menu           [ ` ]          [Rebind]
+  Debug rápido         [ F1 ]         [Rebind]
+  Debug completo       [ F3 ]         [Rebind]
 
 [ Resetar controles ]
 ```
@@ -597,7 +625,39 @@ CSS adicionado em `hud-layout.ts` (que já injeta CSS vars globais):
 }
 ```
 
-**Nota**: o fade usa um **overlay preto sobre tudo** em vez de `body.opacity = 0` — `body.opacity` esconderia o canvas Pixi junto com os textos HUD, causando um "tela preta" visual ruim. O overlay preto fica por cima de tudo (z-index 9999), esconde momentaneamente o conteúdo enquanto os textos são trocados, e depois desaparece. O canvas Pixi continua renderizando por baixo (o ticker não para) — o jogador só vê o overlay por 400ms total.
+**Nota**: o fade usa um **overlay preto sobre tudo** em vez de `body.opacity = 0` — `body.opacity` esconderia o canvas Pixi junto com os textos HUD, causando um "tela preta" visual ruim. O overlay preto fica por cima (z-index 1100), esconde momentaneamente o conteúdo enquanto os textos são trocados, e depois desaparece. O canvas Pixi continua renderizando por baixo (ticker não para) — o jogador só vê o overlay por 400ms total.
+
+**Sequência JS** (`src/core/i18n/idioma.ts`):
+
+```ts
+import { setConfig } from '../config';
+
+let _overlay: HTMLDivElement | null = null;
+
+function ensureOverlay(): HTMLDivElement {
+  if (_overlay) return _overlay;
+  const el = document.createElement('div');
+  el.className = 'hud-fade-overlay';
+  document.body.appendChild(el);
+  _overlay = el;
+  return el;
+}
+
+export function trocarIdioma(lang: 'pt' | 'en'): void {
+  const overlay = ensureOverlay();
+  overlay.classList.add('active');
+  // Aguarda o CSS transition de opacity (200ms)
+  overlay.addEventListener('transitionend', function handler() {
+    overlay.removeEventListener('transitionend', handler);
+    // Textos trocam aqui — invisíveis pro jogador
+    setConfig({ language: lang });
+    // Fade-in: remove a opacidade, texto novo aparece
+    requestAnimationFrame(() => {
+      overlay.classList.remove('active');
+    });
+  }, { once: true });
+}
+```
 
 ## B.6 Migração de strings — fases
 
