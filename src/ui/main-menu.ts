@@ -78,7 +78,16 @@ function injectStyles(): void {
     }
 
     .menu-screen.hidden {
-      display: none;
+      opacity: 0;
+      transform: translateX(calc(var(--hud-unit) * 1.5));
+      pointer-events: none;
+      position: absolute;
+      transition: opacity 220ms ease-out, transform 260ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    }
+    .menu-screen:not(.hidden) {
+      opacity: 1;
+      transform: translateX(0);
+      transition: opacity 220ms ease-out, transform 260ms cubic-bezier(0.2, 0.7, 0.2, 1);
     }
 
     .menu-title {
@@ -487,11 +496,14 @@ export function criarMainMenu(options: MainMenuOptions): HTMLDivElement {
   _backBtn = back;
   container.appendChild(back);
 
-  // Screens
+  // Screens (wrapped for slide transitions)
   _mainScreen = buildMainScreen();
   _savesScreen = buildSavesScreen();
   _settingsScreen = buildSettingsScreen();
-  container.append(_mainScreen, _savesScreen, _settingsScreen);
+  const screensWrapper = document.createElement('div');
+  screensWrapper.style.cssText = 'position: relative; width: 100%; flex: 1; display: flex; align-items: center; justify-content: center;';
+  screensWrapper.append(_mainScreen, _savesScreen, _settingsScreen);
+  container.appendChild(screensWrapper);
 
   // Footer
   const footer = document.createElement('div');

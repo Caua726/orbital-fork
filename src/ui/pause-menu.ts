@@ -1,6 +1,4 @@
 import { salvarAgora, pararAutosave, getUltimoErro } from '../world/save';
-import { getConfig, setConfig } from '../core/config';
-import { notificarMudancaConfig } from '../world/save';
 import { toast } from './toast';
 import { marcarInteracaoUi } from './interacao-ui';
 
@@ -108,24 +106,20 @@ function injectStyles(): void {
       background: rgba(255, 100, 100, 0.06);
     }
 
-    .pm-autosave-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: calc(var(--hud-unit) * 0.5) calc(var(--hud-unit) * 1);
-      font-size: calc(var(--hud-unit) * 0.75);
+    .pm-confirm-msg {
+      font-size: calc(var(--hud-unit) * 0.8);
       color: var(--hud-text-dim);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
+      text-align: center;
+      padding: calc(var(--hud-unit) * 0.5) 0;
+      letter-spacing: 0.04em;
     }
-    .pm-autosave-row select {
-      background: rgba(0,0,0,0.4);
-      color: var(--hud-text);
-      border: 1px solid var(--hud-line);
-      border-radius: calc(var(--hud-radius) * 0.5);
-      font-family: var(--hud-font);
-      font-size: calc(var(--hud-unit) * 0.7);
-      padding: calc(var(--hud-unit) * 0.2) calc(var(--hud-unit) * 0.4);
+    .pm-confirm-row {
+      display: flex;
+      gap: calc(var(--hud-unit) * 0.5);
+    }
+    .pm-confirm-row .pm-btn {
+      flex: 1;
+      text-align: center;
     }
   `;
   document.head.appendChild(s);
@@ -165,42 +159,36 @@ export function abrirPauseMenu(): void {
   });
   card.appendChild(btnSave);
 
-  // Autosave interval inline
-  const autosaveRow = document.createElement('div');
-  autosaveRow.className = 'pm-autosave-row';
-  const autosaveLabel = document.createElement('span');
-  autosaveLabel.textContent = 'Autosave';
-  const autosaveSelect = document.createElement('select');
-  const cfg = getConfig();
-  const OPTIONS: Array<[string, number]> = [
-    ['Off', 0],
-    ['30s', 30_000],
-    ['1min', 60_000],
-    ['2min', 120_000],
-    ['5min', 300_000],
-  ];
-  for (const [label, ms] of OPTIONS) {
-    const opt = document.createElement('option');
-    opt.value = String(ms);
-    opt.textContent = label;
-    if (ms === cfg.autosaveIntervalMs) opt.selected = true;
-    autosaveSelect.appendChild(opt);
-  }
-  autosaveSelect.addEventListener('change', () => {
-    setConfig({ autosaveIntervalMs: Number(autosaveSelect.value) });
-    notificarMudancaConfig();
-  });
-  autosaveRow.append(autosaveLabel, autosaveSelect);
-  card.appendChild(autosaveRow);
-
   card.appendChild(criarSeparador());
 
-  // Back to menu
+  // Back to menu — inline confirmation
+  let _confirmVisible = false;
   const btnMenu = criarBotao('Voltar ao Menu', () => {
-    if (!confirm('Voltar ao menu? Seu progresso sera salvo automaticamente.')) return;
-    salvarAgora();
-    pararAutosave();
-    window.dispatchEvent(new CustomEvent('orbital:voltar-ao-menu'));
+    if (_confirmVisible) return;
+    _confirmVisible = true;
+    btnMenu.style.display = 'none';
+
+    const msg = document.createElement('div');
+    msg.className = 'pm-confirm-msg';
+    msg.textContent = 'Seu progresso será salvo automaticamente.';
+
+    const row = document.createElement('div');
+    row.className = 'pm-confirm-row';
+
+    const btnCancel = criarBotao('Cancelar', () => {
+      msg.remove();
+      row.remove();
+      btnMenu.style.display = '';
+      _confirmVisible = false;
+    });
+    const btnConfirm = criarBotao('Sair', () => {
+      salvarAgora();
+      pararAutosave();
+      window.dispatchEvent(new CustomEvent('orbital:voltar-ao-menu'));
+    }, 'danger');
+
+    row.append(btnCancel, btnConfirm);
+    card.append(msg, row);
   }, 'danger');
   card.appendChild(btnMenu);
 
