@@ -4,12 +4,14 @@ import type { StorageBackend, SaveMetadata } from './storage-backend';
 import { PeriodicBackend } from './periodic-save';
 import { serializarMundo } from './serializar';
 import { reconstruirMundo } from './reconstruir';
+import { migrarDto } from './migrations';
 import { getConfig } from '../../core/config';
 
 export type { SaveMetadata } from './storage-backend';
 export type { MundoDTO } from './dto';
 export { reconstruirMundo } from './reconstruir';
 export { serializarMundo } from './serializar';
+export { migrarDto } from './migrations';
 
 let _backend: StorageBackend = new PeriodicBackend();
 let _mundoAtivo: Mundo | null = null;
@@ -97,4 +99,10 @@ export function instalarListenersCicloDeVida(): void {
   window.addEventListener('beforeunload', () => {
     salvarAgora();
   });
+}
+
+export async function lerEMigrar(nome: string): Promise<MundoDTO | null> {
+  const raw = await _backend.carregar(nome);
+  if (!raw) return null;
+  return migrarDto(raw);
 }

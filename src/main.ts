@@ -18,7 +18,7 @@ import { criarColonizerPanel, atualizarColonizerPanel } from './ui/colonizer-pan
 import { criarColonyModal, atualizarColonyModal } from './ui/colony-modal';
 import { criarConfirmDialog } from './ui/confirm-dialog';
 import { criarMainMenu, esconderMainMenu, mostrarMainMenu } from './ui/main-menu';
-import { reconstruirMundo, iniciarAutosave, instalarListenersCicloDeVida, acumularTempoJogado, getBackendAtivo, salvarAgora } from './world/save';
+import { reconstruirMundo, iniciarAutosave, instalarListenersCicloDeVida, acumularTempoJogado, lerEMigrar, salvarAgora } from './world/save';
 import { abrirNewWorldModal } from './ui/new-world-modal';
 import { criarLoadingScreen, mostrarCarregando, esconderCarregando } from './ui/loading-screen';
 import { somVitoria, somDerrota } from './audio/som';
@@ -250,9 +250,7 @@ async function carregarMundo(nome: string): Promise<void> {
   mostrarCarregando(`Carregando mundo: ${nome}`);
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
-  const backend = getBackendAtivo();
-  const resultado = backend.carregar(nome);
-  const dto = resultado instanceof Promise ? await resultado : resultado;
+  const dto = await lerEMigrar(nome);
   if (!dto) {
     await esconderCarregando();
     mostrarMainMenu();
