@@ -298,7 +298,12 @@ export function abrirRendererInfoModal(app: Application): void {
     card.append(row('Count', String(info.features.length)));
   }
 
-  if (info.software) {
+  if (cfg.renderer === 'software') {
+    const b = document.createElement('div');
+    b.className = 'renderer-info-banner info';
+    b.textContent = 'ℹ Modo Software ativo — WebGL 1, sem antialias, resolução 1x, qualidade Mínimo. O navegador ainda usa a GPU para WebGL, mas com configurações mínimas.';
+    card.appendChild(b);
+  } else if (info.software) {
     const b = document.createElement('div');
     b.className = 'renderer-info-banner warn';
     b.textContent = '⚠ Rodando em software — jogo vai travar. Habilite aceleração por hardware no navegador.';

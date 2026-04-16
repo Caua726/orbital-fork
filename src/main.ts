@@ -58,18 +58,40 @@ async function bootstrap(): Promise<void> {
     baseInit.powerPreference = gfx.gpuPreference;
   }
 
-  // Software mode: WebGL 1 with minimal settings + auto-apply Mínimo preset
+  // Software mode: force WebGL 1, no antialias, 1x resolution, Mínimo preset
   const effectiveRenderer = gfx.renderer === 'software' ? 'webgl' : gfx.renderer;
   if (gfx.renderer === 'software') {
     baseInit.antialias = false;
     baseInit.resolution = 1;
-    // Apply minimo preset on boot for maximum performance
-    const { aplicarPreset } = await import('./core/graphics-preset');
-    aplicarPreset('minimo');
+    baseInit.autoDensity = false;
+    // Force WebGL 1 context (most compatible)
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl', {
+      antialias: false,
+      premultipliedAlpha: true,
+      failIfMajorPerformanceCaveat: false,
+      powerPreference: 'low-power',
+    });
+    if (gl) {
+      baseInit.context = gl as any;
+      baseInit.canvas = canvas as any;
+    }
+    // Apply Mínimo preset via boot path (no observers)
+    setConfigDuranteBoot({
+      graphics: {
+        ...gfx,
+        qualidadeEfeitos: 'minimo',
+        fogThrottle: 5,
+        maxFantasmas: 0,
+        densidadeStarfield: 0.15,
+        shaderLive: false,
+        mostrarOrbitas: false,
+      },
+    });
   }
 
-  // Optional: WebGL version forced context injection
-  if (effectiveRenderer === 'webgl' && gfx.webglVersion !== 'auto') {
+  // Optional: WebGL version forced context injection (non-software)
+  if (gfx.renderer !== 'software' && effectiveRenderer === 'webgl' && gfx.webglVersion !== 'auto') {
     const canvas = document.createElement('canvas');
     const ctxOpts: WebGLContextAttributes = { antialias: true, premultipliedAlpha: true };
     if (gfx.gpuPreference !== 'auto') {
