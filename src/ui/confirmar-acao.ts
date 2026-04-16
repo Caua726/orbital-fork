@@ -1,17 +1,22 @@
 import { getConfig } from '../core/config';
+import { confirmar } from './confirm-dialog';
 
 /**
- * Executa `onConfirm` se o usuário confirmar (ou direto se a config
- * `confirmarDestrutivo` estiver desabilitada). Usa `window.confirm` como
- * implementação mínima — pode ser trocado por um modal custom no futuro
- * sem mudar a API.
+ * Executa `onConfirm` se o usuário confirmar via modal custom (ou direto
+ * se a config `confirmarDestrutivo` estiver desabilitada).
  */
 export function confirmarAcao(msg: string, onConfirm: () => void): void {
   if (!getConfig().gameplay.confirmarDestrutivo) {
     onConfirm();
     return;
   }
-  if (window.confirm(msg)) {
-    onConfirm();
-  }
+  void confirmar({
+    title: 'Confirmar',
+    message: msg,
+    confirmLabel: 'Sim',
+    cancelLabel: 'Cancelar',
+    danger: true,
+  }).then((ok) => {
+    if (ok) onConfirm();
+  });
 }

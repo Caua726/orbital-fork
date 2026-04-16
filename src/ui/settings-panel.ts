@@ -286,8 +286,12 @@ function injectStyles(): void {
     .settings-select { position: relative; display: inline-block; }
     .settings-select-display { background: rgba(0,0,0,0.4); color: var(--hud-text); border: 1px solid var(--hud-border); padding: calc(var(--hud-unit) * 0.3) calc(var(--hud-unit) * 0.8); font-family: var(--hud-font); font-size: calc(var(--hud-unit) * 0.8); cursor: pointer; min-width: calc(var(--hud-unit) * 8); text-align: left; transition: border-color 120ms ease; }
     .settings-select-display:hover { border-color: var(--hud-text); }
-    .settings-select-dropdown { display: none; position: absolute; top: 100%; left: 0; right: 0; background: rgba(10, 12, 18, 0.95); border: 1px solid var(--hud-border); border-top: none; z-index: 950; max-height: calc(var(--hud-unit) * 15); overflow-y: auto; }
-    .settings-select-dropdown.open { display: block; }
+    @keyframes settings-dropdown-in {
+      from { opacity: 0; transform: translateY(calc(var(--hud-unit) * -0.3)) scaleY(0.95); }
+      to { opacity: 1; transform: translateY(0) scaleY(1); }
+    }
+    .settings-select-dropdown { display: none; position: absolute; top: 100%; left: 0; right: 0; background: rgba(10, 12, 18, 0.95); border: 1px solid var(--hud-border); border-top: none; z-index: 950; max-height: calc(var(--hud-unit) * 15); overflow-y: auto; transform-origin: top center; }
+    .settings-select-dropdown.open { display: block; animation: settings-dropdown-in 150ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
     .settings-select-option { display: block; width: 100%; background: transparent; border: none; color: var(--hud-text-dim); font-family: var(--hud-font); font-size: calc(var(--hud-unit) * 0.8); padding: calc(var(--hud-unit) * 0.4) calc(var(--hud-unit) * 0.8); cursor: pointer; text-align: left; transition: background 100ms ease, color 100ms ease; }
     .settings-select-option:hover { background: rgba(255,255,255,0.08); color: var(--hud-text); }
     .settings-select-option.active { color: var(--hud-text); background: rgba(255,255,255,0.05); }
@@ -323,6 +327,75 @@ function showReloadBanner(afterRow: HTMLDivElement): void {
 
 // ─── Public API ──────────────────────────────────────────────────────
 
+/**
+ * Renders the settings tabs + body + footer into an arbitrary host element.
+ * Used by the main-menu to embed settings as a sliding screen instead of
+ * a floating overlay.
+ */
+export function renderSettingsInto(host: HTMLDivElement): void {
+  injectStyles();
+  instalarFullscreenListener();
+
+  // Tabs
+  const tabsEl = document.createElement('div');
+  tabsEl.className = 'settings-tabs';
+  const tabs: Array<[Tab, string]> = [
+    ['audio', '\u00C1udio'],
+    ['graphics', 'Gr\u00E1ficos'],
+    ['gameplay', 'Jogabilidade'],
+  ];
+  for (const [id, label] of tabs) {
+    const btn = document.createElement('button');
+    btn.className = 'settings-tab';
+    if (id === _currentTab) btn.classList.add('active');
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      _currentTab = id;
+      refreshBody();
+    });
+    tabsEl.appendChild(btn);
+  }
+  host.appendChild(tabsEl);
+
+  // Body
+  const body = document.createElement('div');
+  body.className = 'settings-body';
+  host.appendChild(body);
+
+  // Footer
+  const footer = document.createElement('div');
+  footer.className = 'settings-footer';
+  const resetTab = document.createElement('button');
+  resetTab.textContent = 'Resetar esta aba';
+  resetTab.addEventListener('click', () => {
+    resetarAba(_currentTab);
+    refreshBody();
+  });
+  const resetAll = document.createElement('button');
+  resetAll.textContent = 'Resetar tudo';
+  resetAll.addEventListener('click', () => {
+    confirmarAcao('Resetar todas as configura\u00E7\u00F5es?', () => {
+      resetarTudo();
+      refreshBody();
+    });
+  });
+  footer.append(resetTab, resetAll);
+  host.appendChild(footer);
+
+  function refreshBody(): void {
+    body.replaceChildren();
+    tabsEl.querySelectorAll('.settings-tab').forEach((b, i) => {
+      b.classList.toggle('active', tabs[i][0] === _currentTab);
+    });
+    if (_currentTab === 'audio') renderAudioTab(body);
+    else if (_currentTab === 'graphics') renderGraphicsTab(body);
+    else renderGameplayTab(body);
+  }
+  _refreshBody = refreshBody;
+  refreshBody();
+}
+
+/** @deprecated Kept for potential future in-game use; not called from main menu. */
 export function abrirSettings(): void {
   injectStyles();
   instalarFullscreenListener();
