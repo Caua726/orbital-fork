@@ -196,6 +196,11 @@ export function abrirPauseMenu(): void {
           cardEl.style.transform = 'translateY(calc(var(--hud-unit) * -0.5)) scale(0.97)';
         }
         setTimeout(() => {
+          // Set body background black so the unload→reload doesn't flash white
+          document.body.style.background = '#000';
+          // Remove the canvas to prevent a white frame during unload
+          const canvas = document.querySelector('canvas');
+          if (canvas) canvas.style.display = 'none';
           window.dispatchEvent(new CustomEvent('orbital:voltar-ao-menu'));
         }, 420);
       } else {
