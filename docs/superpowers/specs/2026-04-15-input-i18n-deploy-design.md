@@ -58,9 +58,9 @@ O dispatcher substitui os 4 listeners centrais existentes (main.ts, player.ts, d
 
 | ID | Label | Default key(s) | Notas |
 |----|-------|----------------|-------|
-| `zoom_in` | Zoom in | `Equal`, `NumpadAdd` | Hoje em `main.ts:72` |
-| `zoom_out` | Zoom out | `Minus`, `NumpadSubtract` | Idem |
-| `pan_up` | Câmera cima | `KeyW`, `ArrowUp` | Hoje em `player.ts:327` |
+| `zoom_in` | Zoom in | `Equal`, `NumpadAdd` | Migração de `main.ts:78` (que usa `e.key === '+' / '='`) |
+| `zoom_out` | Zoom out | `Minus`, `NumpadSubtract` | Idem (usa `e.key === '-' / '_'`) |
+| `pan_up` | Câmera cima | `KeyW`, `ArrowUp` | **Feature nova** — hoje pan é só via mouse |
 | `pan_down` | Câmera baixo | `KeyS`, `ArrowDown` | Idem |
 | `pan_left` | Câmera esquerda | `KeyA`, `ArrowLeft` | Idem |
 | `pan_right` | Câmera direita | `KeyD`, `ArrowRight` | Idem |
@@ -69,23 +69,29 @@ O dispatcher substitui os 4 listeners centrais existentes (main.ts, player.ts, d
 
 | ID | Label | Default key(s) | Notas |
 |----|-------|----------------|-------|
-| `close_panel` | Fechar painel | `Escape` | Hoje em `player.ts` |
-| `quicksave` | Salvar rápido | `F5` | Novo — chama `salvarAgora()` |
+| `cancel_command` | Cancelar comando | `Escape` | Migração de `player.ts:346` (cancela `comandoNave`) |
+| `open_pause_menu` | Menu de pausa | `Escape` | Migração de `main.ts:81` (abre pause menu) |
+| `quicksave` | Salvar rápido | `F5` | **Feature nova** — chama `salvarAgora()` |
+
+**Nota sobre Escape dual**: `cancel_command` e `open_pause_menu` compartilham a mesma tecla default (`Escape`). Isso é intencional — o dispatcher resolve a prioridade: se `comandoNave` ativo, cancela o comando; senão, abre o pause menu. Implementação: ambas as ações registram callbacks, e o callback de `cancel_command` chama `e.stopImmediatePropagation()` quando consome o evento (ou o dispatcher resolve sequencialmente: despacha `cancel_command` primeiro, e se o callback retornar `true` = "consumido", não despacha `open_pause_menu`). Alternativa mais simples: o callback de `cancel_command` faz o check de `comandoNave` internamente e, se não há comando ativo, chama `abrirPauseMenu()` direto. Assim é uma ação só com lógica condicional, sem precisar de prioridade no dispatcher.
 
 **Jogo:**
 
 | ID | Label | Default key(s) | Notas |
 |----|-------|----------------|-------|
-| `speed_pause` | Pausar | `Space` | Novo — seta `app.ticker.speed = 0` |
-| `speed_1x` | Velocidade 1x | `Digit1` | Novo |
-| `speed_2x` | Velocidade 2x | `Digit2` | Novo |
-| `speed_4x` | Velocidade 4x | `Digit3` | Novo |
+| `speed_pause` | Pausar | `Space` | **Feature nova** — seta `app.ticker.speed = 0` |
+| `speed_1x` | Velocidade 1x | `Digit1` | **Feature nova** |
+| `speed_2x` | Velocidade 2x | `Digit2` | **Feature nova** |
+| `speed_4x` | Velocidade 4x | `Digit3` | **Feature nova** |
 
 **Debug:**
 
 | ID | Label | Default key(s) | Notas |
 |----|-------|----------------|-------|
-| `toggle_debug` | Debug menu | `Backquote` | Hoje em `debug-menu.ts:710` |
+| `toggle_debug_fast` | Debug menu rápido | `F1` | Migração de `debug-menu.ts:714` (`toggleFastMenu`) |
+| `toggle_debug_full` | Debug menu completo | `F3` | Migração de `debug-menu.ts:717` (`togglePopup`) |
+
+**Nota sobre `e.key` vs `e.code`**: os listeners atuais usam `e.key` (ex: `'+', '=', '-', '_'`, `'Escape'`, `'F1'`). O dispatcher usa `e.code` (ex: `Equal`, `Minus`, `Escape`, `F1`). Diferença: `e.key` varia com layout/shift (Shift+Minus = `'_'`), `e.code` é posição física. Migrar pra `e.code` perde a detecção de `'+'` via Shift+Equal e `'_'` via Shift+Minus. **Decisão**: aceitável — o usuário pode pressionar `Equal` sem Shift e o zoom funciona. Se quiser o comportamento antigo, pode rebindar pra teclas adicionais. Documentar como mudança de comportamento menor.
 
 **Suporte a múltiplas keys**: cada ação pode ter 1 ou 2 keys default (ex: `Equal` e `NumpadAdd` ambos disparam `zoom_in`). No keymap, isso é representado como array de keycodes: `{ zoom_in: ['Equal', 'NumpadAdd'] }`. Rebind substitui o array inteiro — o jogador pode setar 1 ou 2 teclas por ação.
 
@@ -106,13 +112,14 @@ export const ACTIONS: ActionDef[] = [
   { id: 'pan_down',     label: 'Câmera baixo',      categoria: 'camera',    defaultKeys: ['KeyS', 'ArrowDown'] },
   { id: 'pan_left',     label: 'Câmera esquerda',   categoria: 'camera',    defaultKeys: ['KeyA', 'ArrowLeft'] },
   { id: 'pan_right',    label: 'Câmera direita',    categoria: 'camera',    defaultKeys: ['KeyD', 'ArrowRight'] },
-  { id: 'close_panel',  label: 'Fechar painel',     categoria: 'interface', defaultKeys: ['Escape'] },
-  { id: 'quicksave',    label: 'Salvar rápido',     categoria: 'interface', defaultKeys: ['F5'] },
-  { id: 'speed_pause',  label: 'Pausar',            categoria: 'jogo',      defaultKeys: ['Space'] },
-  { id: 'speed_1x',     label: 'Velocidade 1x',     categoria: 'jogo',      defaultKeys: ['Digit1'] },
-  { id: 'speed_2x',     label: 'Velocidade 2x',     categoria: 'jogo',      defaultKeys: ['Digit2'] },
-  { id: 'speed_4x',     label: 'Velocidade 4x',     categoria: 'jogo',      defaultKeys: ['Digit3'] },
-  { id: 'toggle_debug', label: 'Debug menu',         categoria: 'debug',     defaultKeys: ['Backquote'] },
+  { id: 'cancel_command',     label: 'Cancelar / Menu pausa', categoria: 'interface', defaultKeys: ['Escape'] },
+  { id: 'quicksave',          label: 'Salvar rápido',          categoria: 'interface', defaultKeys: ['F5'] },
+  { id: 'speed_pause',        label: 'Pausar',                 categoria: 'jogo',      defaultKeys: ['Space'] },
+  { id: 'speed_1x',           label: 'Velocidade 1x',          categoria: 'jogo',      defaultKeys: ['Digit1'] },
+  { id: 'speed_2x',           label: 'Velocidade 2x',          categoria: 'jogo',      defaultKeys: ['Digit2'] },
+  { id: 'speed_4x',           label: 'Velocidade 4x',          categoria: 'jogo',      defaultKeys: ['Digit3'] },
+  { id: 'toggle_debug_fast',  label: 'Debug rápido',            categoria: 'debug',     defaultKeys: ['F1'] },
+  { id: 'toggle_debug_full',  label: 'Debug completo',          categoria: 'debug',     defaultKeys: ['F3'] },
 ];
 
 export const ACTION_BY_ID = Object.fromEntries(ACTIONS.map((a) => [a.id, a]));
@@ -202,32 +209,85 @@ export function instalarDispatcher(): void {
 
 **Guard de contexto**: o dispatcher precisa ser desabilitado quando o settings panel está aberto em modo rebind (capturando a próxima tecla pra reassociar). `setDispatcherHabilitado(false)` é chamado ao entrar em modo rebind, `true` ao sair.
 
-## A.6 Migração dos listeners existentes
+## A.6 Migração dos listeners existentes e features novas
 
-**`main.ts:72`** — deleta o `window.addEventListener('keydown')` que trata `+/-`. Substitui por:
+### Migrações (listeners que existem e são deletados)
+
+**`main.ts:78`** — deleta o `window.addEventListener('keydown')` que trata zoom (`e.key === '+'/'-'`) **e** Escape (pause menu). Substitui por:
 
 ```ts
 import { onAction } from './core/input/dispatcher';
 onAction('zoom_in', () => zoomIn());
 onAction('zoom_out', () => zoomOut());
+onAction('cancel_command', () => {
+  // Lógica condicional: se há comandoNave ativo (delegado via player.ts),
+  // cancela; senão, abre pause menu.
+  if (!cancelarComandoNaveSeAtivo()) {
+    if (_gameStarted && !isPauseMenuOpen()) abrirPauseMenu();
+  }
+});
 ```
 
-**`player.ts:327`** — deleta o listener de WASD/arrows/Escape. Pan contínuo (keydown→keyup) precisa de tratamento especial — o dispatcher dispara em keydown mas pan precisa de um estado "está segurando a tecla". Solução: o dispatcher dispara no `keydown`, mas o pan usa um Set `_keysPressed` atualizado por `keydown`/`keyup` e consumido no ticker cada frame. Alternativa mais limpa: o dispatcher também expõe `onActionUp(actionId, callback)` pra keyup. O pan registra:
+**`player.ts:346`** — deleta o listener de Escape que cancela `comandoNave`. A lógica de cancelamento é absorvida pelo callback de `cancel_command` acima — `player.ts` expõe `cancelarComandoNaveSeAtivo(): boolean` que tenta cancelar e retorna `true` se havia comando ativo.
+
+**`debug-menu.ts:710`** — deleta o listener de F1/F3/Escape. Substitui por:
 
 ```ts
+onAction('toggle_debug_fast', () => toggleFastMenu());
+onAction('toggle_debug_full', () => {
+  togglePopup();
+  if (_popupVisible) toggleFastMenu(false);
+});
+// O Escape do debug menu é coberto pelo cancel_command global
+// que pode ser estendido pra fechar overlays abertos.
+```
+
+### Listeners que ficam locais (NÃO migram)
+
+| Arquivo | Listener | Por que fica local |
+|---------|----------|-------------------|
+| `main-menu.ts:~515` | Escape volta de sub-screen | Transitório, fluxo de menu |
+| `pause-menu.ts:~230` | Escape fecha pause overlay (capture: true) | Transitório, usa capture pra precedência |
+| `colony-modal.ts` | Enter confirma, Escape fecha | Transitório, modal |
+| `confirm-dialog.ts` | Enter/Escape | Transitório, modal |
+| `colonizer-panel.ts` | keydown no input | Transitório, campo de texto |
+
+### Features novas (não são migração)
+
+**Pan por teclado (WASD/arrows)**: hoje **não existe** — câmera só move por mouse (drag + edge-scroll do Settings spec). Esta é uma **feature nova** usando o dispatcher.
+
+O dispatcher precisa de `onActionUp` pra pan contínuo (keydown inicia, keyup para). Implementação:
+
+```ts
+// No dispatcher: instala keyup listener também
+window.addEventListener('keyup', (e: KeyboardEvent) => {
+  const actionId = resolveKeyToAction(e.code);
+  if (!actionId) return;
+  const cbs = _upListeners.get(actionId);
+  if (!cbs) return;
+  for (const cb of cbs) { try { cb(); } catch {} }
+});
+
+export function onActionUp(actionId: string, callback: ActionCallback): () => void { ... }
+```
+
+```ts
+// No player.ts ou main.ts:
 const _panState = { up: false, down: false, left: false, right: false };
 onAction('pan_up', () => { _panState.up = true; });
 onActionUp('pan_up', () => { _panState.up = false; });
 // ... idem pra down/left/right
-// No ticker:
+// No ticker a cada frame:
 if (_panState.up) camera.y -= speed * dt;
 ```
 
-Isso exige que o dispatcher instale um `keyup` listener também e resolva key→action nele. Custo: +1 listener, ~10 linhas no dispatcher.
+**Pegadinha de keyup não disparando**: se a window perde foco enquanto uma tecla é pressionada, o browser nunca dispara `keyup`. Solução: listener de `blur` na window zera todos os `_panState` flags:
 
-**`debug-menu.ts:710`** — deleta o listener. Substitui por `onAction('toggle_debug', toggleDebugMenu)`.
-
-**`main-menu.ts:456`** — **mantém** o listener local (Escape pra voltar de sub-screen). É transitório e específico do fluxo de menu. Não é "ação global do jogo".
+```ts
+window.addEventListener('blur', () => {
+  _panState.up = _panState.down = _panState.left = _panState.right = false;
+});
+```
 
 ## A.7 Config
 
@@ -389,10 +449,10 @@ export const DICT: Record<string, { pt: string; en: string }> = {
   'nave.torreta': { pt: 'Torreta', en: 'Turret' },
   'nave.sucatear': { pt: 'Sucatear nave "{tipo}"?', en: 'Scrap ship "{tipo}"?' },
 
-  // Planetas
+  // Planetas (tipos reais do TIPO_PLANETA em planeta.ts)
   'planeta.comum': { pt: 'Comum', en: 'Common' },
-  'planeta.raro': { pt: 'Raro', en: 'Rare' },
-  'planeta.combustivel': { pt: 'Combustível', en: 'Fuel' },
+  'planeta.marte': { pt: 'Rochoso', en: 'Rocky' },
+  'planeta.gasoso': { pt: 'Gasoso', en: 'Gas Giant' },
 
   // New world modal
   'novo_mundo.titulo': { pt: 'Novo Mundo', en: 'New World' },
@@ -407,7 +467,7 @@ export const DICT: Record<string, { pt: string; en: string }> = {
   // Pause
   'pause.continuar': { pt: 'Continuar', en: 'Continue' },
   'pause.salvar': { pt: 'Salvar', en: 'Save' },
-  'pause.voltar': { pt: 'Voltar ao Menu', en: 'Return to Menu' },
+  'pause.sair': { pt: 'Sair', en: 'Exit' },
 
   // Loading
   'loading.criando': { pt: 'Criando mundo', en: 'Creating world' },
@@ -455,7 +515,19 @@ export const DICT: Record<string, { pt: string; en: string }> = {
 };
 ```
 
-**Estimativa final**: ~140-160 keys no dicionário. Os tooltips longos de gráficos adicionam ~13 keys com textos multiline.
+**Estimativa final**: ~180-200 keys no dicionário (revisada pra cima após code review). O sample acima mostra o padrão — o dict completo é escrito durante implementação fase-a-fase.
+
+**Strings adicionais identificadas via code review** (não exaustivo, lista completa descoberta durante implementação por grep):
+
+- **sidebar.ts**: labels em EN hardcoded (`OVERVIEW`, `PLANETS`, `FLEETS`, `RESEARCH`, `CONSTRUCT`, `ALLIANCE`, `INBOX`, `MENU`)
+- **notificacao.ts**: `"Planeta colonizado!"`, `"Fabrica T{n} construida!"`, etc.
+- **planet-panel.ts**: `"Sob seu controle"`, `"Mundo neutro"`, `"Sem atividade"`, `"Tipo"`, `"Fabrica"`, `"Infra"`, `"Naves"`, `"Producao"`, `"Prox. ciclo"`
+- **ship-panel.ts**: `estadoLabel` strings (`"Orbitando"`, `"Viajando"`, `"Parado"`, etc.)
+- **colonizer-panel.ts**: `stageLabel` strings
+- **empire-badge.ts**: `"LEVEL {n}"`
+- **build-panel.ts**: build option labels
+
+Todas essas são cobertas pelas fases de migração abaixo — a lista está organizada pra pegar tudo por módulo.
 
 ## B.3 Função `t()`
 
@@ -511,17 +583,21 @@ Quando o idioma muda via Settings:
 CSS adicionado em `hud-layout.ts` (que já injeta CSS vars globais):
 
 ```css
-body.lang-transitioning {
+.hud-fade-overlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 9999;
+  pointer-events: none;
   opacity: 0;
   transition: opacity 200ms ease;
 }
-body:not(.lang-transitioning) {
+.hud-fade-overlay.active {
   opacity: 1;
-  transition: opacity 200ms ease;
 }
 ```
 
-**Simples**: cobre todos os componentes de uma vez sem lógica per-component pra animação. O fade esconde o momento exato em que os textos mudam, evitando "piscar" de strings.
+**Nota**: o fade usa um **overlay preto sobre tudo** em vez de `body.opacity = 0` — `body.opacity` esconderia o canvas Pixi junto com os textos HUD, causando um "tela preta" visual ruim. O overlay preto fica por cima de tudo (z-index 9999), esconde momentaneamente o conteúdo enquanto os textos são trocados, e depois desaparece. O canvas Pixi continua renderizando por baixo (o ticker não para) — o jogador só vê o overlay por 400ms total.
 
 ## B.6 Migração de strings — fases
 
