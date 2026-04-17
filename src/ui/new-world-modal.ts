@@ -169,6 +169,7 @@ export function abrirNewWorldModal(opts: OpenOpts): void {
     ['normal',   t('dificuldade.normal')],
     ['dificil',  t('dificuldade.dificil')],
     ['brutal',   t('dificuldade.brutal')],
+    ['infernal', t('dificuldade.infernal')],
   ];
   for (const [val, label] of dificuldades) {
     const opt = document.createElement('option');

@@ -98,38 +98,96 @@ function ensureHp(nave: Nave): void {
   nave.hp = getStatsCombate(nave).hp;
 }
 
-export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
-  // Initialize HP on any ship missing it
-  for (const n of mundo.naves) ensureHp(n);
+// ─── Spatial hash for combat target search ───────────────────────────
+// Cells of 600x600 world units. Each ship lives in one cell; target
+// search only iterates ships in the cell + 8 neighbors. Reduces
+// O(n²) target search to O(n × k) where k is neighborhood density (~5).
+//
+// Built once per atualizarCombate call from the current ship array.
+//
+// Cell size is chosen to be larger than any ship's alcance (max ~520 for
+// torreta) so a ship's effective targets are always within at most one
+// neighbor cell. If alcance ever exceeds CELL_SIZE we'd need to widen
+// the search to 2 cells in each direction.
 
-  const now = performance.now();
+const CELL_SIZE = 600;
 
-  // Build a quick spatial cache: hostile pairs only need to check each other.
-  // For the small fleet sizes here (a few hundred ships max), O(n²) is fine.
-  for (const atacante of mundo.naves) {
-    if (!podeAtacar(atacante.tipo)) continue;
-    if (atacante.estado === 'parado' && atacante.tipo !== 'torreta') continue;
+function cellKey(x: number, y: number): string {
+  return `${Math.floor(x / CELL_SIZE)},${Math.floor(y / CELL_SIZE)}`;
+}
 
-    const stats = getStatsCombate(atacante);
-    const cooldown = stats.cooldownMs;
-    const lastShot = atacante._ultimoTiroMs ?? 0;
-    if (now - lastShot < cooldown) continue;
-
-    // Find nearest hostile in range
-    let melhor: Nave | null = null;
-    let melhorDist2 = stats.alcance * stats.alcance;
-    for (const alvo of mundo.naves) {
-      if (alvo === atacante) continue;
-      if (!saoHostis(atacante.dono, alvo.dono)) continue;
-      const dx = alvo.x - atacante.x;
-      const dy = alvo.y - atacante.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < melhorDist2) {
-        melhorDist2 = d2;
-        melhor = alvo;
-      }
+function buildSpatialHash(naves: Nave[]): Map<string, Nave[]> {
+  const grid = new Map<string, Nave[]>();
+  for (const n of naves) {
+    const key = cellKey(n.x, n.y);
+    let cell = grid.get(key);
+    if (!cell) {
+      cell = [];
+      grid.set(key, cell);
     }
-    if (!melhor) continue;
+    cell.push(n);
+  }
+  return grid;
+}
+
+function* iterNeighbors(grid: Map<string, Nave[]>, x: number, y: number): Generator<Nave> {
+  const cx = Math.floor(x / CELL_SIZE);
+  const cy = Math.floor(y / CELL_SIZE);
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const cell = grid.get(`${cx + dx},${cy + dy}`);
+      if (!cell) continue;
+      for (const n of cell) yield n;
+    }
+  }
+}
+
+// ─── Throttle combat to 30Hz ─────────────────────────────────────────
+// Combat resolution runs every other frame. Beams/particles still age
+// at 60fps because they accumulate the deltaMs of skipped frames. The
+// damage tick is deterministic via cooldownMs per attacker, so 30Hz
+// resolution doesn't change the combat math.
+let _combatAccumMs = 0;
+const COMBAT_TICK_MS = 33; // ~30Hz
+
+export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
+  // Always tick the visual decay (beams + particles) at 60Hz so trails
+  // look smooth regardless of combat throttling.
+  _combatAccumMs += deltaMs;
+  const runResolution = _combatAccumMs >= COMBAT_TICK_MS;
+  if (runResolution) _combatAccumMs = 0;
+
+  if (runResolution) {
+    // Initialize HP on any ship missing it
+    for (const n of mundo.naves) ensureHp(n);
+
+    const now = performance.now();
+    const spatialGrid = buildSpatialHash(mundo.naves);
+
+    for (const atacante of mundo.naves) {
+      if (!podeAtacar(atacante.tipo)) continue;
+      if (atacante.estado === 'parado' && atacante.tipo !== 'torreta') continue;
+
+      const stats = getStatsCombate(atacante);
+      const cooldown = stats.cooldownMs;
+      const lastShot = atacante._ultimoTiroMs ?? 0;
+      if (now - lastShot < cooldown) continue;
+
+      // Find nearest hostile via spatial grid (cell + 8 neighbors)
+      let melhor: Nave | null = null;
+      let melhorDist2 = stats.alcance * stats.alcance;
+      for (const alvo of iterNeighbors(spatialGrid, atacante.x, atacante.y)) {
+        if (alvo === atacante) continue;
+        if (!saoHostis(atacante.dono, alvo.dono)) continue;
+        const dx = alvo.x - atacante.x;
+        const dy = alvo.y - atacante.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < melhorDist2) {
+          melhorDist2 = d2;
+          melhor = alvo;
+        }
+      }
+      if (!melhor) continue;
 
     // Apply damage — full hit per cooldown cycle
     const danoPorTiro = stats.dano * (cooldown / 1000);
@@ -188,6 +246,7 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
     atacante.x += (dxFire / dFire) * recoil;
     atacante.y += (dyFire / dFire) * recoil;
   }
+  } // end of if (runResolution)
 
   // Tick hit-flashes for every ship (cheap — only does work for ships with active flash)
   for (const n of mundo.naves) {

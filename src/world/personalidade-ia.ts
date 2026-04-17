@@ -176,17 +176,25 @@ const ARQUETIPOS: Record<Arquetipo, Omit<PersonalidadeIA, 'id' | 'nome' | 'cor' 
 /**
  * Generate a fresh personality. `forca` is the difficulty multiplier
  * applied to the genome — does NOT change archetype, only intensity.
+ *
+ * `corForcada` is used by gerarPersonalidades to assign pre-shuffled
+ * unique colors when generating a batch.
  */
-export function gerarPersonalidade(id: string, forca: number, coresUsadas: Set<number> = new Set()): PersonalidadeIA {
+export function gerarPersonalidade(id: string, forca: number, coresUsadas: Set<number> = new Set(), corForcada?: number): PersonalidadeIA {
   const arquetipo = pick<Arquetipo>(['warlord', 'trader', 'scientist', 'defender', 'explorer']);
   const base = ARQUETIPOS[arquetipo];
 
-  // Pick a unique color
-  let cor = pick(PALETA_INIMIGO);
-  let tries = 0;
-  while (coresUsadas.has(cor) && tries < 16) {
+  let cor: number;
+  if (corForcada !== undefined) {
+    cor = corForcada;
+  } else {
+    // Single-AI path: random pick with retry
     cor = pick(PALETA_INIMIGO);
-    tries++;
+    let tries = 0;
+    while (coresUsadas.has(cor) && tries < 16) {
+      cor = pick(PALETA_INIMIGO);
+      tries++;
+    }
   }
   coresUsadas.add(cor);
 
@@ -218,19 +226,46 @@ export function gerarPersonalidade(id: string, forca: number, coresUsadas: Set<n
 }
 
 /**
- * Generate N personalities at once with unique colors.
+ * Generate N personalities at once with guaranteed unique colors.
+ * Shuffles the palette and assigns one color per AI in order, so even
+ * when N === PALETA_INIMIGO.length there are no collisions.
+ *
+ * If N exceeds PALETA_INIMIGO.length, extra AIs get a procedurally
+ * generated color (HSL rotation around the wheel).
  */
 export function gerarPersonalidades(quantidade: number, forca: number): PersonalidadeIA[] {
+  // Shuffle palette
+  const paleta = [...PALETA_INIMIGO];
+  for (let i = paleta.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [paleta[i], paleta[j]] = [paleta[j], paleta[i]];
+  }
+  // If we need more colors than the palette, generate extras via HSL
+  while (paleta.length < quantidade) {
+    const h = Math.floor(Math.random() * 360);
+    const s = 70 + Math.random() * 25;
+    const l = 60 + Math.random() * 15;
+    paleta.push(hslToHex(h, s, l));
+  }
+
   const coresUsadas = new Set<number>();
   const lista: PersonalidadeIA[] = [];
   for (let i = 0; i < quantidade; i++) {
-    lista.push(gerarPersonalidade(`inimigo${i + 1}`, forca, coresUsadas));
+    lista.push(gerarPersonalidade(`inimigo${i + 1}`, forca, coresUsadas, paleta[i]));
   }
   return lista;
 }
 
+function hslToHex(h: number, s: number, l: number): number {
+  s /= 100; l /= 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))));
+  return (f(0) << 16) | (f(8) << 8) | f(4);
+}
+
 /** Difficulty presets — higher forca = stronger AI. */
-export type Dificuldade = 'pacifico' | 'facil' | 'normal' | 'dificil' | 'brutal';
+export type Dificuldade = 'pacifico' | 'facil' | 'normal' | 'dificil' | 'brutal' | 'infernal';
 
 export interface ConfiguracaoDificuldade {
   /** Number of AI factions to spawn. */
@@ -251,4 +286,5 @@ export const PRESETS_DIFICULDADE: Record<Dificuldade, ConfiguracaoDificuldade> =
   normal:   { quantidadeIas: 2, forca: 1.0,  tickMs: 4000, frotaInicial: 2, fabricasIniciais: 2 },
   dificil:  { quantidadeIas: 3, forca: 1.4,  tickMs: 3000, frotaInicial: 3, fabricasIniciais: 3 },
   brutal:   { quantidadeIas: 4, forca: 2.0,  tickMs: 2500, frotaInicial: 4, fabricasIniciais: 4 },
+  infernal: { quantidadeIas: 8, forca: 2.5,  tickMs: 2000, frotaInicial: 5, fabricasIniciais: 4 },
 };

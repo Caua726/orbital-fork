@@ -2,7 +2,7 @@ import type { Mundo, Planeta, Nave } from '../types';
 import type { PersonalidadeIA, Dificuldade } from './personalidade-ia';
 import { gerarPersonalidades, PRESETS_DIFICULDADE } from './personalidade-ia';
 import { criarNave, enviarNaveParaAlvo } from './naves';
-import { gerarAcoesCandidatas } from './ia-utilidade';
+import { gerarAcoesCandidatas, resetReconCache } from './ia-utilidade';
 import { decairMemorias, registrarBaixa, resetMemoriasIa } from './ia-memoria';
 
 /**
@@ -34,6 +34,14 @@ const ACTIONS_BUDGET = {
   subir_infra: 1,
 };
 
+/**
+ * Hard ceiling on total ships in the world. AIs skip production while
+ * the world is at/over this cap. Prevents O(n²) combat from spiraling
+ * in long games. Player ships count toward this cap too — but the player
+ * builds far fewer ships in practice.
+ */
+const SHIP_CAP_MUNDO = 300;
+
 let _personalidades: PersonalidadeIA[] = [];
 let _accum = 0;
 let _tickMs = 4000;
@@ -49,6 +57,7 @@ export function resetIasV2(): void {
   _ticksDecorridos = 0;
   _tickMs = 4000;
   resetMemoriasIa();
+  resetReconCache();
 }
 
 /**
@@ -174,6 +183,8 @@ function executarAcao(mundo: Mundo, ia: PersonalidadeIA, acao: any): boolean {
       const planeta: Planeta = acao.planeta;
       if (planeta.dados.dono !== ia.id) return false;
       if (planeta.dados.fabricas < 1) return false;
+      // Global ship cap — prevents combat O(n²) explosion in long games
+      if (mundo.naves.length >= SHIP_CAP_MUNDO) return false;
       // Pay resources (scaled by forca — weak AIs pay full price, strong AIs get a discount)
       const custo = Math.max(4, Math.round(CUSTO_NAVE_IA / Math.max(0.5, ia.forca)));
       if (planeta.dados.recursos.comum < custo) return false;

@@ -203,12 +203,26 @@ function scoreSubirInfra(ia: PersonalidadeIA, planeta: Planeta): number {
 
 // ─── Action generation ───────────────────────────────────────────────────
 
+// Recon cache: planets don't move, so seen-set converges quickly.
+// Run recon at most once per RECON_CACHE_MS per AI.
+const RECON_CACHE_MS = 12_000; // 3 ticks at default tickMs=4000
+const _reconLastRun = new Map<string, number>();
+
+/** Test/reset hook — called from resetIasV2 in ia-decisao.ts. */
+export function resetReconCache(): void {
+  _reconLastRun.clear();
+}
+
 /**
  * Update the AI's seen-planet set based on its current ships and planets.
  * Each planet ALWAYS sees its own location; ships extend visibility based
  * on type. Once a planet is seen, it's remembered (no fog re-coverage).
  */
 function atualizarReconIa(ia: PersonalidadeIA, mundo: Mundo): void {
+  const now = performance.now();
+  const last = _reconLastRun.get(ia.id) ?? 0;
+  if (now - last < RECON_CACHE_MS) return;
+  _reconLastRun.set(ia.id, now);
   const meusPlanetas = planetasDoDono(mundo, ia.id);
   const minhasNaves = navesDoDono(mundo, ia.id);
 
