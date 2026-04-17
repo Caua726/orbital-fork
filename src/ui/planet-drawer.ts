@@ -39,14 +39,16 @@ function injectStyles(): void {
        The entry/exit animation uses visibility + opacity + transform;
        display stays flex throughout so the CSS transition fires. */
     .planeta-drawer {
+      /* Anchored top-right, capped height so the build-panel at the
+         bottom-center has clear space below the drawer on narrow
+         viewports. */
       position: fixed;
-      top: 50%;
+      top: calc(var(--hud-margin) + var(--hud-unit) * 5.5);
       left: auto;
       right: var(--hud-margin);
       bottom: auto;
-      /* Wider so multi-column stats + resources get room to breathe. */
       width: clamp(360px, 32vw, 500px);
-      max-height: 88vh;
+      max-height: calc(100vh - var(--hud-unit) * 14);
       margin: 0;
       box-sizing: border-box;
       background: var(--hud-bg);
@@ -64,7 +66,7 @@ function injectStyles(): void {
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
-      transform: translate(calc(100% + var(--hud-margin) * 2), -50%);
+      transform: translateX(calc(100% + var(--hud-margin) * 2));
       transition:
         opacity 220ms ease-out,
         transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1),
@@ -74,7 +76,7 @@ function injectStyles(): void {
       opacity: 1;
       visibility: visible;
       pointer-events: auto;
-      transform: translate(0, -50%);
+      transform: translateX(0);
       transition:
         opacity 220ms ease-out,
         transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1),
