@@ -134,6 +134,10 @@ export interface Nave {
   _trailParticles?: Array<{ x: number; y: number; age: number }>;
   _lastX?: number;
   _lastY?: number;
+  /** Combat HP. Undefined → use STATS_COMBATE max for type. */
+  hp?: number;
+  /** Last frame this ship fired (cooldown gate). */
+  _ultimoTiroMs?: number;
 }
 
 export interface AlvoPonto {

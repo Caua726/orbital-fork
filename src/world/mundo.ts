@@ -9,6 +9,8 @@ import { criarSistemaSolar } from './sistema';
 import { calcularBoundsViewport } from './viewport-bounds';
 import { resetarNomesPlanetas } from './nomes';
 import { atualizarNaves, atualizarSelecaoNave, carregarSpritesheetNaves } from './naves';
+import { spawnInimigosNoMundo, atualizarIaInimigos, resetIaInimigos } from './ia-inimigo';
+import { atualizarCombate, resetCombateVisuals } from './combate-resolucao';
 import { atualizarPesquisaPlaneta } from './pesquisa';
 import { atualizarCampoDeVisao } from './visao';
 import { atualizarFilasPlaneta, desenharConstrucoesPlaneta } from './construcao';
@@ -217,6 +219,9 @@ export async function criarMundo(app: Application, tipoJogador: TipoJogador): Pr
   }
 
   estadoJogo = 'jogando';
+  resetIaInimigos();
+  resetCombateVisuals();
+  spawnInimigosNoMundo(mundo);
   return mundo;
 }
 
@@ -256,6 +261,8 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   }
 
   atualizarNaves(mundo, deltaMs);
+  atualizarIaInimigos(mundo, deltaMs);
+  atualizarCombate(mundo, deltaMs);
   profileAcumular('logica', t);
 
   const zoom = camera.zoom || 1;

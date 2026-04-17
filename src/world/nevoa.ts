@@ -44,6 +44,8 @@ const DISTANCIA_LABEL_MEMORIA = 18;
 function nomeDonoCurto(dono: string): string {
   if (dono === 'jogador') return 'Seu';
   if (dono === 'neutro') return 'Neutro';
+  if (dono === 'inimigo1') return 'Vermelhos';
+  if (dono === 'inimigo2') return 'Roxos';
   return dono || '?';
 }
 

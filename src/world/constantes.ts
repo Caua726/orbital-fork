@@ -3,7 +3,22 @@ import { config } from '../ui/debug';
 export const DONOS: Record<string, number> = {
   neutro: 0x888888,
   jogador: 0x44aaff,
+  inimigo1: 0xff5555,    // hot red — aggressive
+  inimigo2: 0xaa66ff,    // purple — defensive
 };
+
+/** True if this owner is an active AI faction (not jogador, not neutro). */
+export function ehInimigo(dono: string): boolean {
+  return dono === 'inimigo1' || dono === 'inimigo2';
+}
+
+/** True if these two owners should fight each other when fleets meet. */
+export function saoHostis(donoA: string, donoB: string): boolean {
+  if (donoA === donoB) return false;
+  if (donoA === 'neutro' || donoB === 'neutro') return false;
+  // jogador vs inimigo, or inimigo1 vs inimigo2
+  return true;
+}
 
 export const CICLO_RECURSO_MS = 10 * 1000;
 export const TIER_MAX = 5;
