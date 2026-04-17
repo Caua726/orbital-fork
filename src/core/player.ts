@@ -340,6 +340,12 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
         cancelarComandoNave();
         selecionarPlaneta(mundo, clickInfo.planeta);
         somClique();
+        // Open the rich planet modal — replaces the side panel as the
+        // primary surface for planet info. Lazy-imported to avoid
+        // circular dep on this core module.
+        void import('../ui/planet-modal').then((m) => {
+          void m.abrirPlanetaModal(clickInfo!.planeta!, mundo);
+        });
       } else {
         cancelarComandoNave();
         limparSelecoes(mundo);

@@ -17,6 +17,7 @@ import { criarMinimap, atualizarMinimap, onMinimapClick, onMinimapZoomIn, onMini
 import { criarDebugMenu, atualizarDebugMenu, getDebugState, getCheats, destruirDebugMenu, setGameSpeed, fecharDebugOverlays, toggleDebugFast, toggleDebugFull } from './ui/debug-menu';
 import { installRootVariables } from './ui/hud-layout';
 import { criarPlanetPanel, atualizarPlanetPanel, destruirPlanetPanel } from './ui/planet-panel';
+import { atualizarPlanetaModal, destruirPlanetaModal } from './ui/planet-modal';
 import { criarBuildPanel, atualizarBuildPanel, destruirBuildPanel } from './ui/build-panel';
 import { criarShipPanel, atualizarShipPanel, destruirShipPanel } from './ui/ship-panel';
 import { criarColonizerPanel, atualizarColonizerPanel, destruirColonizerPanel } from './ui/colonizer-panel';
@@ -51,6 +52,16 @@ let _fimTocado = false;
 let _cinematicTime = 0;
 
 const _panState = { up: false, down: false, left: false, right: false };
+
+/**
+ * Flag gating the "legacy" HUD elements (sidebar nav and chat log).
+ * Both were non-functional decoration — disabling reclaims significant
+ * screen area. Flip to true to re-enable without code changes.
+ */
+const HUD_LEGACY_ENABLED = false;
+
+/** Flip to re-enable the side planet-panel instead of the modal. */
+const PLANET_PANEL_HABILITADO = false;
 
 async function bootstrap(): Promise<void> {
   installRootVariables();
@@ -366,6 +377,7 @@ function startTicker(): void {
 
     atualizarMinimap(camera);
     atualizarPlanetPanel(mundo, app);
+    atualizarPlanetaModal();
     atualizarBuildPanel(mundo);
     atualizarShipPanel(mundo);
     atualizarColonizerPanel(mundo);
@@ -406,9 +418,17 @@ async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJ
     criarEmpireBadge('Valorian Empire', 24);
     criarCreditsBar(43892);
     criarResourceBar();
-    criarChatLog();
-    criarSidebar();
-    criarPlanetPanel();
+    // Temporarily disabled — sidebar and chat log weren't earning
+    // their screen real estate. The code is preserved so they can be
+    // re-enabled by flipping HUD_LEGACY_ENABLED below.
+    if (HUD_LEGACY_ENABLED) {
+      criarChatLog();
+      criarSidebar();
+    }
+    // The side planet-panel is superseded by the new planet-modal
+    // (opened on planet click). Kept in code but not instantiated —
+    // flip PLANET_PANEL_HABILITADO to restore.
+    if (PLANET_PANEL_HABILITADO) criarPlanetPanel();
     criarBuildPanel();
     criarShipPanel();
     criarColonizerPanel();
@@ -706,6 +726,7 @@ async function voltarAoMenu(): Promise<void> {
     destruirResourceBar();
     destruirChatLog();
     destruirPlanetPanel();
+    destruirPlanetaModal();
     destruirBuildPanel();
     destruirShipPanel();
     destruirColonizerPanel();
