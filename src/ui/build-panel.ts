@@ -9,6 +9,7 @@ import {
 import { construirNoPlaneta } from '../world/construcao';
 import { CUSTO_NAVE_COMUM } from '../world/constantes';
 import { carregarSpritesheet, getSpritesheetImage } from '../world/spritesheets';
+import { t } from '../core/i18n/t';
 
 type AbaId = 'edificios' | 'naves' | 'pesquisa';
 
@@ -20,7 +21,7 @@ interface SpriteCell {
 
 interface CardSpec {
   acao: string;
-  nome: string;
+  nomeKey: string;
   // Given the resolved state, return which cell of which spritesheet to draw.
   sprite: (state: CardState) => SpriteCell;
   // Returns enabled state, current/destination tier, and cost (in comum) for this card.
@@ -136,7 +137,7 @@ function queueFull(planeta: Planeta): boolean {
 const CARDS_EDIFICIOS: CardSpec[] = [
   {
     acao: 'fabrica',
-    nome: 'Fábrica',
+    nomeKey: 'build_panel.card_fabrica',
     sprite: (state) => ({ sheet: 'buildings', row: 0, col: spriteColForTier(state.tier) }),
     resolve: (p) => {
       const tierAtual = p.dados.fabricas;
@@ -158,7 +159,7 @@ const CARDS_EDIFICIOS: CardSpec[] = [
   },
   {
     acao: 'infraestrutura',
-    nome: 'Infra',
+    nomeKey: 'build_panel.card_infra',
     sprite: (state) => ({ sheet: 'buildings', row: 1, col: spriteColForTier(state.tier) }),
     resolve: (p) => {
       const tierAtual = p.dados.infraestrutura;
@@ -182,13 +183,13 @@ const CARDS_EDIFICIOS: CardSpec[] = [
 
 function naveCard(
   acao: string,
-  nome: string,
+  nomeKey: string,
   spriteRow: number,
   categoria: string | null,
 ): CardSpec {
   return {
     acao,
-    nome,
+    nomeKey,
     sprite: (state) => ({
       sheet: 'ships',
       row: spriteRow,
@@ -230,10 +231,10 @@ function naveCard(
 }
 
 const CARDS_NAVES: CardSpec[] = [
-  naveCard('nave_colonizadora', 'Colonizadora', 0, null),
-  naveCard('nave_cargueira', 'Cargueira', 1, 'cargueira'),
-  naveCard('nave_batedora', 'Batedora', 2, 'batedora'),
-  naveCard('nave_torreta', 'Torreta', 3, 'torreta'),
+  naveCard('nave_colonizadora', 'build_panel.card_colonizadora', 0, null),
+  naveCard('nave_cargueira', 'build_panel.card_cargueira', 1, 'cargueira'),
+  naveCard('nave_batedora', 'build_panel.card_batedora', 2, 'batedora'),
+  naveCard('nave_torreta', 'build_panel.card_torreta', 3, 'torreta'),
 ];
 
 const CARDS_PESQUISA: CardSpec[] = [];
@@ -546,7 +547,7 @@ function createCard(spec: CardSpec, state: CardState): HTMLButtonElement {
   }
   card.appendChild(cost);
 
-  card.title = spec.nome;
+  card.title = t(spec.nomeKey);
   card.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -614,9 +615,9 @@ export function criarBuildPanel(): HTMLDivElement {
   const tabs = document.createElement('div');
   tabs.className = 'build-tabs';
   tabs.append(
-    createTab('Edifícios', 'edificios'),
-    createTab('Naves', 'naves'),
-    createTab('Pesquisa', 'pesquisa'),
+    createTab(t('build_panel.tab_edificios'), 'edificios'),
+    createTab(t('build_panel.tab_naves'), 'naves'),
+    createTab(t('build_panel.tab_pesquisa'), 'pesquisa'),
   );
   _tabsEl = tabs;
 

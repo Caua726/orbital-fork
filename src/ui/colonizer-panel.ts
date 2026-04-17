@@ -15,6 +15,7 @@ import { TEMPO_SURVEY_MS } from '../world/constantes';
 import { carregarSpritesheet, getSpritesheetImage } from '../world/spritesheets';
 import { iniciarComandoNave, cancelarComandoNave, getComandoNaveTipo } from '../core/player';
 import { confirmar } from './confirm-dialog';
+import { t } from '../core/i18n/t';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -90,20 +91,20 @@ function drawPortrait(canvas: HTMLCanvasElement): void {
 
 function stageLabel(stage: Stage): string {
   switch (stage) {
-    case 'idle': return 'Em prontidão';
-    case 'outpost': return 'Posto de observação';
-    case 'traveling': return 'Em trânsito';
-    case 'piloting': return 'Em pilotagem';
-    case 'surveying': return 'Fazendo survey';
-    case 'deciding': return 'Aguardando decisão';
+    case 'idle': return t('colonizer_panel.stage_idle');
+    case 'outpost': return t('colonizer_panel.stage_outpost');
+    case 'traveling': return t('colonizer_panel.stage_traveling');
+    case 'piloting': return t('colonizer_panel.stage_piloting');
+    case 'surveying': return t('colonizer_panel.stage_surveying');
+    case 'deciding': return t('colonizer_panel.stage_deciding');
   }
 }
 
 function targetName(nave: Nave): string {
   const a = nave.alvo;
   if (!a) return '—';
-  if (a._tipoAlvo === 'planeta') return a.dados.nome ?? 'Planeta';
-  if (a._tipoAlvo === 'sol') return 'Estrela';
+  if (a._tipoAlvo === 'planeta') return a.dados.nome ?? t('colonizer_panel.alvo_planeta_fallback');
+  if (a._tipoAlvo === 'sol') return t('colonizer_panel.alvo_estrela');
   return `(${Math.round(a.x)}, ${Math.round(a.y)})`;
 }
 
@@ -581,7 +582,7 @@ function renderPanel(nave: Nave): void {
 
   // ── Left section ──
   if (_infoTitleEl) _infoTitleEl.textContent = nave.origem?.dados.nome
-    ? `de ${nave.origem.dados.nome}`
+    ? t('colonizer_panel.origem_subtitle', { nome: nave.origem.dados.nome })
     : '';
   if (_stageBadgeEl) {
     _stageBadgeEl.textContent = stageLabel(stage);
@@ -612,7 +613,7 @@ function renderMiddleInfo(nave: Nave, stage: Stage): void {
     info.className = 'cp-info';
     const infoTitle = document.createElement('div');
     infoTitle.className = 'cp-info-title';
-    infoTitle.textContent = 'Missão';
+    infoTitle.textContent = t('colonizer_panel.missao');
     const infoValue = document.createElement('div');
     infoValue.className = 'cp-info-value';
     _infoSubtitleEl = infoValue;
@@ -631,37 +632,37 @@ function renderMiddleInfo(nave: Nave, stage: Stage): void {
 
   switch (stage) {
     case 'idle':
-      _infoSubtitleEl.textContent = 'Aguardando ordens';
+      _infoSubtitleEl.textContent = t('colonizer_panel.aguardando_ordens');
       _progressBarEl.style.width = '0%';
       _progressLabelEl.textContent = '';
       break;
     case 'outpost':
-      _infoSubtitleEl.textContent = `Em órbita de ${targetName(nave)}`;
+      _infoSubtitleEl.textContent = t('colonizer_panel.orbitando', { nome: targetName(nave) });
       _progressBarEl.style.width = '100%';
-      _progressLabelEl.textContent = 'Posto ativo';
+      _progressLabelEl.textContent = t('colonizer_panel.posto_ativo');
       break;
     case 'traveling':
-      _infoSubtitleEl.textContent = `Rumo a ${targetName(nave)}`;
+      _infoSubtitleEl.textContent = t('colonizer_panel.rumo_a', { nome: targetName(nave) });
       _progressBarEl.style.width = '0%';
-      _progressLabelEl.textContent = `ETA ${etaLabel(nave)}`;
+      _progressLabelEl.textContent = t('colonizer_panel.eta', { tempo: etaLabel(nave) });
       break;
     case 'piloting': {
       const tx = nave.thrustX ?? 0;
       const ty = nave.thrustY ?? 0;
       const mag = Math.hypot(tx, ty);
       const thrusting = mag > 0.01;
-      _infoSubtitleEl.textContent = thrusting ? 'Thrusters ativos' : 'Motores em marcha lenta';
+      _infoSubtitleEl.textContent = thrusting ? t('colonizer_panel.thrusters_ativos') : t('colonizer_panel.motores_lenta');
       _progressBarEl.style.width = `${Math.round(mag * 100)}%`;
       _progressLabelEl.textContent = thrusting
-        ? `Thrust ${Math.round(mag * 100)}%`
-        : 'Solte o joystick pra parar · Stop pra cancelar';
+        ? t('colonizer_panel.thrust_pct', { pct: Math.round(mag * 100) })
+        : t('colonizer_panel.solte_joystick');
       break;
     }
     case 'surveying': {
       const pct = Math.round(surveyProgress(nave) * 100);
-      _infoSubtitleEl.textContent = `Escaneando ${targetName(nave)}`;
+      _infoSubtitleEl.textContent = t('colonizer_panel.escaneando', { nome: targetName(nave) });
       _progressBarEl.style.width = `${pct}%`;
-      _progressLabelEl.textContent = `${surveyCountdownLabel(nave)} restante`;
+      _progressLabelEl.textContent = t('colonizer_panel.survey_restante', { tempo: surveyCountdownLabel(nave) });
       break;
     }
     default:
@@ -679,12 +680,12 @@ function renderMiddleDecision(nave: Nave): void {
 
   const title = document.createElement('div');
   title.className = 'cp-info-title';
-  title.textContent = 'Survey completo — habitável';
+  title.textContent = t('colonizer_panel.decision_titulo');
   wrap.appendChild(title);
 
   const label = document.createElement('div');
   label.className = 'cp-info-title';
-  label.textContent = 'Nome da colônia';
+  label.textContent = t('colonizer_panel.nome_colonia');
   label.style.marginTop = 'calc(var(--hud-unit) * 0.35)';
   wrap.appendChild(label);
 
@@ -704,7 +705,7 @@ function renderMiddleDecision(nave: Nave): void {
 
   const bonus = document.createElement('div');
   bonus.className = 'cp-bonus';
-  bonus.textContent = '+1 Fábrica · +20 Comum · +5 Raro · +5 Combustível';
+  bonus.textContent = t('colonizer_panel.bonus');
   wrap.appendChild(bonus);
 
   _middleEl.appendChild(wrap);
@@ -720,8 +721,8 @@ function renderMiddleDecision(nave: Nave): void {
 
 interface ActionSpec {
   id: string;
-  label: string;
-  hint?: string;
+  labelKey: string;
+  hintKey?: string;
   variant?: 'default' | 'primary' | 'active';
   visible: (nave: Nave, stage: Stage) => boolean;
   enabled?: (nave: Nave, stage: Stage) => boolean;
@@ -731,8 +732,8 @@ interface ActionSpec {
 const ACTIONS: ActionSpec[] = [
   {
     id: 'target',
-    label: 'Target',
-    hint: 'Clique num planeta pra alvejar',
+    labelKey: 'colonizer_panel.action_target',
+    hintKey: 'colonizer_panel.action_target_hint',
     variant: 'primary',
     visible: (_n, stage) => stage === 'idle' || stage === 'outpost' || stage === 'piloting',
     enabled: () => true,
@@ -746,16 +747,16 @@ const ACTIONS: ActionSpec[] = [
   },
   {
     id: 'move',
-    label: 'Mover',
-    hint: 'Abrir painel de movimento livre',
+    labelKey: 'colonizer_panel.action_move',
+    hintKey: 'colonizer_panel.action_move_hint',
     visible: (_n, stage) => stage === 'idle' || stage === 'outpost' || stage === 'piloting',
     enabled: () => true,
     onClick: () => { _movePanelOpen = !_movePanelOpen; },
   },
   {
     id: 'recall',
-    label: 'Recolher',
-    hint: 'Voltar pra planeta de origem',
+    labelKey: 'colonizer_panel.action_recall',
+    hintKey: 'colonizer_panel.action_recall_hint',
     visible: (_n, stage) => stage === 'outpost' || stage === 'idle' || stage === 'piloting',
     enabled: (n, stage) => stage !== 'idle' || n.alvo !== n.origem,
     onClick: (n) => {
@@ -764,24 +765,24 @@ const ACTIONS: ActionSpec[] = [
   },
   {
     id: 'cancel',
-    label: 'Cancelar',
-    hint: 'Parar movimento em trânsito',
+    labelKey: 'colonizer_panel.action_cancel',
+    hintKey: 'colonizer_panel.action_cancel_hint',
     visible: (_n, stage) => stage === 'traveling',
     enabled: () => true,
     onClick: (n) => cancelarMovimentoNave(n),
   },
   {
     id: 'abort_survey',
-    label: 'Abortar',
-    hint: 'Cancelar survey em andamento',
+    labelKey: 'colonizer_panel.action_abort',
+    hintKey: 'colonizer_panel.action_abort_hint',
     visible: (_n, stage) => stage === 'surveying',
     enabled: () => true,
     onClick: (n) => cancelarMovimentoNave(n),
   },
   {
     id: 'colonize',
-    label: 'Colonizar',
-    hint: 'Confirmar colonização',
+    labelKey: 'colonizer_panel.action_colonize',
+    hintKey: 'colonizer_panel.action_colonize_hint',
     variant: 'primary',
     visible: (_n, stage) => stage === 'deciding',
     enabled: () => true,
@@ -793,25 +794,25 @@ const ACTIONS: ActionSpec[] = [
   },
   {
     id: 'outpost',
-    label: 'Orbitar',
-    hint: 'Manter como posto de observação',
+    labelKey: 'colonizer_panel.action_outpost',
+    hintKey: 'colonizer_panel.action_outpost_hint',
     visible: (_n, stage) => stage === 'deciding',
     enabled: () => true,
     onClick: (n) => manterComoOutpost(n),
   },
   {
     id: 'scrap',
-    label: 'Sucatear',
-    hint: 'Destruir a nave',
+    labelKey: 'colonizer_panel.action_scrap',
+    hintKey: 'colonizer_panel.action_scrap_hint',
     visible: (_n, stage) => stage === 'idle' || stage === 'outpost' || stage === 'piloting',
     enabled: () => true,
     onClick: (n) => {
       if (!_mundoRef) return;
       confirmar({
-        title: 'Sucatear colonizadora?',
-        message: 'A nave será destruída permanentemente. Essa ação não pode ser desfeita.',
-        confirmLabel: 'Sucatear',
-        cancelLabel: 'Cancelar',
+        title: t('colonizer_panel.scrap_titulo'),
+        message: t('colonizer_panel.scrap_mensagem'),
+        confirmLabel: t('colonizer_panel.scrap_confirm'),
+        cancelLabel: t('colonizer_panel.scrap_cancel'),
         danger: true,
       }).then((ok) => {
         // Sanity check: mundo and selected ship may have changed while the
@@ -851,8 +852,8 @@ function renderActions(nave: Nave, stage: Stage): void {
     if (spec.id === 'move' && _movePanelOpen) btn.classList.add('active');
     const isEnabled = spec.enabled ? spec.enabled(nave, stage) : true;
     if (!isEnabled) btn.classList.add('disabled');
-    btn.textContent = spec.label;
-    if (spec.hint) btn.title = spec.hint;
+    btn.textContent = t(spec.labelKey);
+    if (spec.hintKey) btn.title = t(spec.hintKey);
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -905,7 +906,7 @@ function updateJoystickNubFromThrust(nave: Nave): void {
   _joystickNubEl.style.transform = `translate(calc(-50% + ${px}px), calc(-50% + ${py}px))`;
 }
 
-function renderMovePanel(nave: Nave): void {
+function renderMovePanel(_nave: Nave): void {
   if (!_movePanelEl) return;
   _movePanelEl.classList.toggle('visible', _movePanelOpen);
   if (!_movePanelOpen) return;
@@ -915,7 +916,7 @@ function renderMovePanel(nave: Nave): void {
 
   const title = document.createElement('div');
   title.className = 'cp-cockpit-title';
-  title.textContent = '// Console de Navegação //';
+  title.textContent = t('colonizer_panel.console_header');
   _movePanelEl.appendChild(title);
 
   const row = document.createElement('div');
@@ -1034,8 +1035,8 @@ function renderMovePanel(nave: Nave): void {
   freeBtn.type = 'button';
   freeBtn.className = 'cp-btn primary';
   if (moveActive) freeBtn.classList.add('active');
-  freeBtn.textContent = moveActive ? 'Aguardando clique...' : 'Click-to-go';
-  freeBtn.title = 'Arma modo voo livre (próximo clique no mapa vira destino)';
+  freeBtn.textContent = moveActive ? t('colonizer_panel.aguardando_clique') : t('colonizer_panel.click_to_go');
+  freeBtn.title = t('colonizer_panel.click_to_go_hint');
   freeBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1052,7 +1053,7 @@ function renderMovePanel(nave: Nave): void {
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'cp-btn';
-  closeBtn.textContent = 'Fechar';
+  closeBtn.textContent = t('colonizer_panel.fechar');
   closeBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1099,7 +1100,7 @@ export function criarColonizerPanel(): HTMLDivElement {
 
   const name = document.createElement('div');
   name.className = 'cp-name';
-  name.textContent = 'Colonizadora';
+  name.textContent = t('colonizer_panel.nome');
 
   const stageBadge = document.createElement('div');
   stageBadge.className = 'cp-stage-badge';

@@ -4,6 +4,7 @@ import type { Mundo, Planeta } from '../types';
 import { registerPlanetPanel, unregisterPlanetPanel } from './hud-layout';
 import { marcarInteracaoUi } from './interacao-ui';
 import { calcularTempoRestantePlaneta, getPesquisaAtual, getTierMax, limparSelecoes, nomeTipoPlaneta, obterProducaoNaturalCiclo } from '../world/mundo';
+import { t } from '../core/i18n/t';
 
 const THUMB_REFRESH_MS = 1200;
 const THUMB_SCALE = 0.45;
@@ -310,9 +311,9 @@ function ownerKind(owner: string): OwnerKind {
 
 function ownerLabel(owner: string): string {
   switch (ownerKind(owner)) {
-    case 'player': return 'Sob seu controle';
-    case 'neutral': return 'Mundo neutro';
-    case 'enemy': return 'Sob controle hostil';
+    case 'player': return t('planet_panel.owner_player');
+    case 'neutral': return t('planet_panel.owner_neutral');
+    case 'enemy': return t('planet_panel.owner_enemy');
   }
 }
 
@@ -341,15 +342,16 @@ function formatTier(current: number): string {
   return `${current} / ${getTierMax()}`;
 }
 
-const NOME_NAVE: Record<string, string> = {
-  colonizadora: 'Colonizadora',
-  cargueira: 'Cargueira',
-  combate: 'Combate',
-  exploradora: 'Exploradora',
+const NOME_NAVE_KEY: Record<string, string> = {
+  colonizadora: 'nave.colonizadora',
+  cargueira: 'nave.cargueira',
+  combate: 'planet_panel.nave_combate',
+  exploradora: 'planet_panel.nave_exploradora',
 };
 
 function nomeTipoNave(tipo: string): string {
-  return NOME_NAVE[tipo] ?? tipo;
+  const key = NOME_NAVE_KEY[tipo];
+  return key ? t(key) : tipo;
 }
 
 function createRow(label: string, value: string): HTMLDivElement {
@@ -400,12 +402,12 @@ function renderRows(planeta: Planeta): void {
   const nextTickValue = formatMs(calcularTempoRestantePlaneta(planeta));
 
   _rowsEl.append(
-    createRow('Tipo', nomeTipoPlaneta(d.tipoPlaneta)),
-    createRow('Fábrica', formatTier(d.fabricas)),
-    createRow('Infra', formatTier(d.infraestrutura)),
-    createRow('Naves', String(d.naves)),
-    createRow('Produção', `${fmtRate(totalProd)} / ciclo`),
-    createRow('Próx. ciclo', nextTickValue),
+    createRow(t('planet_panel.tipo'), nomeTipoPlaneta(d.tipoPlaneta)),
+    createRow(t('planet_panel.fabrica'), formatTier(d.fabricas)),
+    createRow(t('planet_panel.infra'), formatTier(d.infraestrutura)),
+    createRow(t('planet_panel.naves'), String(d.naves)),
+    createRow(t('planet_panel.producao'), t('planet_panel.producao_valor', { valor: fmtRate(totalProd) })),
+    createRow(t('planet_panel.prox_ciclo'), nextTickValue),
   );
 
   const resources = document.createElement('div');
@@ -427,16 +429,17 @@ function renderFooter(planeta: Planeta): void {
   const pesquisa = getPesquisaAtual(planeta);
 
   if (construcao) {
-    lines.push(`Obra: ${construcao.tipo} T${construcao.tierDestino} • ${formatMs(construcao.tempoRestanteMs)}`);
+    lines.push(t('planet_panel.obra', { tipo: construcao.tipo, tier: construcao.tierDestino, tempo: formatMs(construcao.tempoRestanteMs) }));
   }
   if (producaoNave) {
-    lines.push(`Nave: ${nomeTipoNave(producaoNave.tipoNave)} T${producaoNave.tier} • ${formatMs(producaoNave.tempoRestanteMs)}`);
+    lines.push(t('planet_panel.nave_producao', { tipo: nomeTipoNave(producaoNave.tipoNave), tier: producaoNave.tier, tempo: formatMs(producaoNave.tempoRestanteMs) }));
   }
   if (pesquisa) {
-    lines.push(`Pesquisa: ${pesquisa.categoria} T${pesquisa.tier} • ${formatMs(pesquisa.tempoRestanteMs)}`);
+    lines.push(t('planet_panel.pesquisa', { categoria: pesquisa.categoria, tier: pesquisa.tier, tempo: formatMs(pesquisa.tempoRestanteMs) }));
   }
   if (planeta.dados.filaProducao.length > 0) {
-    lines.push(`Fila ${planeta.dados.filaProducao.length}${planeta.dados.repetirFilaProducao ? ' • loop' : ''}`);
+    const n = planeta.dados.filaProducao.length;
+    lines.push(planeta.dados.repetirFilaProducao ? t('planet_panel.fila_loop', { n }) : t('planet_panel.fila', { n }));
   }
 
   if (lines.length > 0) {
@@ -444,7 +447,7 @@ function renderFooter(planeta: Planeta): void {
     _footerEl.textContent = lines.join('\n');
   } else {
     _footerEl.classList.add('is-idle');
-    _footerEl.textContent = 'Sem atividade';
+    _footerEl.textContent = t('planet_panel.sem_atividade');
   }
 }
 
@@ -594,14 +597,14 @@ export function criarPlanetPanel(): HTMLDivElement {
   header.className = 'planet-panel-header';
 
   const title = document.createElement('div');
-  title.textContent = 'Planeta';
+  title.textContent = t('planet_panel.titulo');
   header.appendChild(title);
 
   const close = document.createElement('button');
   close.className = 'planet-panel-close';
   close.type = 'button';
   close.textContent = '×';
-  close.setAttribute('aria-label', 'Fechar painel');
+  close.setAttribute('aria-label', t('planet_panel.fechar'));
   header.appendChild(close);
 
   const body = document.createElement('div');

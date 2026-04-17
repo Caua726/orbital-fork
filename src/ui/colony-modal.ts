@@ -1,6 +1,7 @@
 import type { Mundo, Nave, Planeta } from '../types';
 import { marcarInteracaoUi } from './interacao-ui';
 import { confirmarColonizacao, manterComoOutpost } from '../world/mundo';
+import { t } from '../core/i18n/t';
 
 // ─── Module state ───────────────────────────────────────────────────────────
 
@@ -186,18 +187,18 @@ function buildModal(): HTMLDivElement {
 
   const title = document.createElement('h2');
   title.className = 'colony-title';
-  title.textContent = 'Survey completo';
+  title.textContent = t('colony_modal.titulo');
   modal.appendChild(title);
 
   const subtitle = document.createElement('div');
   subtitle.className = 'colony-subtitle';
-  subtitle.textContent = 'Planeta habitável detectado';
+  subtitle.textContent = t('colony_modal.subtitulo');
   _subtitleEl = subtitle;
   modal.appendChild(subtitle);
 
   const label = document.createElement('div');
   label.className = 'colony-label';
-  label.textContent = 'Nome da colônia';
+  label.textContent = t('colony_modal.nome_label');
   modal.appendChild(label);
 
   const input = document.createElement('input');
@@ -220,7 +221,7 @@ function buildModal(): HTMLDivElement {
   const outpostBtn = document.createElement('button');
   outpostBtn.type = 'button';
   outpostBtn.className = 'colony-btn';
-  outpostBtn.textContent = 'Manter em órbita';
+  outpostBtn.textContent = t('colony_modal.manter_orbita');
   outpostBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -232,7 +233,7 @@ function buildModal(): HTMLDivElement {
   const colonizeBtn = document.createElement('button');
   colonizeBtn.type = 'button';
   colonizeBtn.className = 'colony-btn primary';
-  colonizeBtn.textContent = 'Colonizar';
+  colonizeBtn.textContent = t('colony_modal.colonizar');
   colonizeBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -260,10 +261,10 @@ function populateBonus(): void {
   if (!_bonusEl) return;
   _bonusEl.replaceChildren();
   const rows: [string, string][] = [
-    ['Fábrica', 'T1'],
-    ['Comum', '+20'],
-    ['Raro', '+5'],
-    ['Combustível', '+5'],
+    [t('colony_modal.bonus_fabrica'), 'T1'],
+    [t('colony_modal.bonus_comum'), '+20'],
+    [t('colony_modal.bonus_raro'), '+5'],
+    [t('colony_modal.bonus_combustivel'), '+5'],
   ];
   for (const [label, value] of rows) {
     const row = document.createElement('div');
@@ -298,7 +299,7 @@ function show(nave: Nave, planeta: Planeta): void {
   _pendingPlaneta = planeta;
   _nameInputEl.value = planeta.dados.nome ?? '';
   _nameInputEl.select();
-  _subtitleEl.textContent = `Planeta habitável em sistema ${planeta.dados.sistemaId + 1}`;
+  _subtitleEl.textContent = t('colony_modal.subtitulo_sistema', { n: planeta.dados.sistemaId + 1 });
   populateBonus();
   _backdrop.classList.add('visible');
   _container.classList.add('visible');
