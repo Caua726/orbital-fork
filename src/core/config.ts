@@ -33,6 +33,12 @@ export interface OrbitalConfig {
     confirmarDestrutivo: boolean;
     edgeScroll: boolean;
   };
+
+  input: {
+    bindings: Record<string, string[]>;
+  };
+
+  language: 'pt' | 'en';
 }
 
 export const DEFAULTS: OrbitalConfig = {
@@ -66,6 +72,12 @@ export const DEFAULTS: OrbitalConfig = {
     confirmarDestrutivo: true,
     edgeScroll: false,
   },
+
+  input: {
+    bindings: {},
+  },
+
+  language: 'pt',
 };
 
 const STORAGE_KEY = 'orbital_config';

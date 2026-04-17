@@ -1,4 +1,5 @@
 import { marcarInteracaoUi } from './interacao-ui';
+import { t } from '../core/i18n/t';
 
 /**
  * In-game replacement for the native `confirm()` dialog. Promise-based,
@@ -251,8 +252,8 @@ export function confirmar(opts: ConfirmOptions): Promise<boolean> {
 
   _titleEl.textContent = opts.title;
   _messageEl.textContent = opts.message;
-  _confirmBtn.textContent = opts.confirmLabel ?? 'Confirmar';
-  _cancelBtn.textContent = opts.cancelLabel ?? 'Cancelar';
+  _confirmBtn.textContent = opts.confirmLabel ?? t('confirm.confirmar');
+  _cancelBtn.textContent = opts.cancelLabel ?? t('confirm.cancelar');
   _confirmBtn.classList.toggle('danger', !!opts.danger);
   _confirmBtn.classList.toggle('primary', !opts.danger);
 

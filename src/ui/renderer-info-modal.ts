@@ -1,5 +1,6 @@
 import type { Application } from 'pixi.js';
 import { getConfig } from '../core/config';
+import { t } from '../core/i18n/t';
 
 interface RendererInfo {
   motor: string;
@@ -232,7 +233,7 @@ export function abrirRendererInfoModal(app: Application): void {
   header.className = 'renderer-info-header';
   const title = document.createElement('h2');
   title.className = 'renderer-info-title';
-  title.textContent = 'Informações do Renderer';
+  title.textContent = t('renderer_info.titulo');
   const closeX = document.createElement('button');
   closeX.className = 'renderer-info-close-x';
   closeX.textContent = '✕';
@@ -242,41 +243,41 @@ export function abrirRendererInfoModal(app: Application): void {
 
   // ── Config section: what the user selected ──
   const cfg = getConfig().graphics;
-  const rendererLabels: Record<string, string> = { webgl: 'WebGL', webgpu: 'WebGPU', software: 'Software' };
-  const gpuPrefLabels: Record<string, string> = { auto: 'Automático', 'high-performance': 'Alta performance', 'low-power': 'Economia' };
-  card.append(row('Modo configurado', rendererLabels[cfg.renderer] ?? cfg.renderer));
+  const rendererLabels: Record<string, string> = { webgl: 'WebGL', webgpu: 'WebGPU', software: t('renderer_info.renderer_software') };
+  const gpuPrefLabels: Record<string, string> = { auto: t('renderer_info.automatico'), 'high-performance': t('renderer_info.gpu_alta'), 'low-power': t('renderer_info.gpu_economia') };
+  card.append(row(t('renderer_info.modo_configurado'), rendererLabels[cfg.renderer] ?? cfg.renderer));
   if (cfg.renderer === 'webgl') {
-    card.append(row('Versão WebGL', cfg.webglVersion === 'auto' ? 'Automático' : `WebGL ${cfg.webglVersion} forçado`));
+    card.append(row(t('renderer_info.versao_webgl'), cfg.webglVersion === 'auto' ? t('renderer_info.automatico') : t('renderer_info.webgl_forcado', { v: cfg.webglVersion })));
   }
-  card.append(row('Preferência GPU', gpuPrefLabels[cfg.gpuPreference] ?? cfg.gpuPreference));
-  card.append(row('Resolução', `${Math.round(window.innerWidth * (cfg.renderer === 'software' ? 1 : window.devicePixelRatio))} × ${Math.round(window.innerHeight * (cfg.renderer === 'software' ? 1 : window.devicePixelRatio))}`));
-  card.append(row('Qualidade', cfg.qualidadeEfeitos.charAt(0).toUpperCase() + cfg.qualidadeEfeitos.slice(1)));
+  card.append(row(t('renderer_info.preferencia_gpu'), gpuPrefLabels[cfg.gpuPreference] ?? cfg.gpuPreference));
+  card.append(row(t('renderer_info.resolucao'), `${Math.round(window.innerWidth * (cfg.renderer === 'software' ? 1 : window.devicePixelRatio))} × ${Math.round(window.innerHeight * (cfg.renderer === 'software' ? 1 : window.devicePixelRatio))}`));
+  card.append(row(t('renderer_info.qualidade'), cfg.qualidadeEfeitos.charAt(0).toUpperCase() + cfg.qualidadeEfeitos.slice(1)));
 
   // ── Hardware section: what the GPU reports ──
   const hwSec = document.createElement('div');
   hwSec.className = 'renderer-info-section';
-  hwSec.textContent = 'Hardware detectado';
+  hwSec.textContent = t('renderer_info.hardware_detectado');
   card.appendChild(hwSec);
 
-  card.append(row('Motor ativo', info.motor));
-  card.append(row('Versão', info.versao));
-  card.append(row('GPU', info.gpu));
-  card.append(row('Vendor', info.vendor));
-  if (info.driver) card.append(row('Driver', info.driver));
+  card.append(row(t('renderer_info.motor_ativo'), info.motor));
+  card.append(row(t('renderer_info.versao'), info.versao));
+  card.append(row(t('renderer_info.gpu'), info.gpu));
+  card.append(row(t('renderer_info.vendor'), info.vendor));
+  if (info.driver) card.append(row(t('renderer_info.driver'), info.driver));
 
   if (info.maxTextureSize || info.maxVertexAttribs || info.extensions) {
     const sec = document.createElement('div');
     sec.className = 'renderer-info-section';
-    sec.textContent = 'Capacidades';
+    sec.textContent = t('renderer_info.capacidades');
     card.appendChild(sec);
-    if (info.maxTextureSize) card.append(row('Tamanho máx textura', String(info.maxTextureSize)));
-    if (info.maxVertexAttribs) card.append(row('Vertex attribs', String(info.maxVertexAttribs)));
-    if (info.maxUniformVectors) card.append(row('Uniform vectors', String(info.maxUniformVectors)));
+    if (info.maxTextureSize) card.append(row(t('renderer_info.tamanho_textura'), String(info.maxTextureSize)));
+    if (info.maxVertexAttribs) card.append(row(t('renderer_info.vertex_attribs'), String(info.maxVertexAttribs)));
+    if (info.maxUniformVectors) card.append(row(t('renderer_info.uniform_vectors'), String(info.maxUniformVectors)));
     if (info.extensions && info.extensions.length > 0) {
-      const extRow = row('Extensions', `${info.extensions.length} ativas`);
+      const extRow = row(t('renderer_info.extensions'), t('renderer_info.extensions_ativas', { n: info.extensions.length }));
       const btn = document.createElement('button');
       btn.className = 'renderer-info-ext-toggle';
-      btn.textContent = 'Ver ▼';
+      btn.textContent = t('renderer_info.ver');
       extRow.querySelector('.value')?.appendChild(btn);
       card.appendChild(extRow);
       const list = document.createElement('div');
@@ -285,7 +286,7 @@ export function abrirRendererInfoModal(app: Application): void {
       card.appendChild(list);
       btn.addEventListener('click', () => {
         list.classList.toggle('show');
-        btn.textContent = list.classList.contains('show') ? 'Ocultar ▲' : 'Ver ▼';
+        btn.textContent = list.classList.contains('show') ? t('renderer_info.ocultar') : t('renderer_info.ver');
       });
     }
   }
@@ -293,36 +294,36 @@ export function abrirRendererInfoModal(app: Application): void {
   if (info.features && info.features.length > 0) {
     const sec = document.createElement('div');
     sec.className = 'renderer-info-section';
-    sec.textContent = 'Features (WebGPU)';
+    sec.textContent = t('renderer_info.features_webgpu');
     card.appendChild(sec);
-    card.append(row('Count', String(info.features.length)));
+    card.append(row(t('renderer_info.count'), String(info.features.length)));
   }
 
   if (cfg.renderer === 'software') {
     const b = document.createElement('div');
     b.className = 'renderer-info-banner info';
-    b.textContent = 'ℹ Modo Software ativo — Canvas 2D, sem GPU, resolução 1x, qualidade Mínimo. Shaders não funcionam neste modo.';
+    b.textContent = t('renderer_info.banner_software');
     card.appendChild(b);
   } else if (info.software) {
     const b = document.createElement('div');
     b.className = 'renderer-info-banner warn';
-    b.textContent = '⚠ Rodando em software — jogo vai travar. Habilite aceleração por hardware no navegador.';
+    b.textContent = t('renderer_info.banner_swrender');
     card.appendChild(b);
   } else if (info.bloqueado) {
     const b = document.createElement('div');
     b.className = 'renderer-info-banner info';
-    b.textContent = 'ℹ Detalhes da GPU não disponíveis — seu navegador bloqueia info detalhada por privacidade (Safari, Firefox com resistFingerprinting, ou navegação privada).';
+    b.textContent = t('renderer_info.banner_bloqueado');
     card.appendChild(b);
   } else {
     const b = document.createElement('div');
     b.className = 'renderer-info-banner ok';
-    b.textContent = '✓ Aceleração por hardware ativa';
+    b.textContent = t('renderer_info.banner_ok');
     card.appendChild(b);
   }
 
   const close = document.createElement('button');
   close.className = 'renderer-info-close';
-  close.textContent = 'Fechar';
+  close.textContent = t('renderer_info.fechar');
   close.addEventListener('click', () => fecharRendererInfoModal());
   card.appendChild(close);
 

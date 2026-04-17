@@ -46,6 +46,31 @@ export function getDebugState(): Readonly<DebugState> {
   return _state;
 }
 
+export function setGameSpeed(v: number): void {
+  _state.gameSpeed = v;
+}
+
+export function fecharDebugOverlays(): boolean {
+  if (_popupVisible) {
+    togglePopup(false);
+    return true;
+  }
+  if (_fastVisible) {
+    toggleFastMenu(false);
+    return true;
+  }
+  return false;
+}
+
+export function toggleDebugFast(): void {
+  toggleFastMenu();
+}
+
+export function toggleDebugFull(): void {
+  togglePopup();
+  if (_popupVisible) toggleFastMenu(false);
+}
+
 export function getCheats(): Readonly<CheatsState> {
   return cheats;
 }
@@ -662,24 +687,6 @@ export function criarDebugMenu(app: Application, mundo: Mundo): HTMLDivElement {
   panel.appendChild(actionsSec);
 
   document.body.appendChild(panel);
-
-  // Keyboard shortcuts
-  window.addEventListener('keydown', (e) => {
-    const target = e.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-    if (e.key === 'F1') {
-      e.preventDefault();
-      toggleFastMenu();
-    } else if (e.key === 'F3') {
-      e.preventDefault();
-      togglePopup();
-      if (_popupVisible) toggleFastMenu(false);
-    } else if (e.key === 'Escape') {
-      if (_popupVisible) togglePopup(false);
-      else if (_fastVisible) toggleFastMenu(false);
-    }
-  });
 
   return panel;
 }

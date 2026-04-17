@@ -4,6 +4,8 @@
  * language (blur + HUD tokens, no color accents).
  */
 
+import { t } from '../core/i18n/t';
+
 let _container: HTMLDivElement | null = null;
 let _labelEl: HTMLSpanElement | null = null;
 let _styleInjected = false;
@@ -201,7 +203,7 @@ export function criarLoadingScreen(): HTMLDivElement {
 
   const label = document.createElement('span');
   label.className = 'loading-label';
-  label.textContent = 'Criando mundo';
+  label.textContent = t('loading.criando');
   _labelEl = label;
   card.appendChild(label);
 

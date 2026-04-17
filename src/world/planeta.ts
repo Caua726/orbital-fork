@@ -1,4 +1,5 @@
 import { Assets, AnimatedSprite, Rectangle, Texture } from 'pixi.js';
+import { t } from '../core/i18n/t';
 
 export const TIPO_PLANETA: Record<string, string> = {
   COMUM: 'comum',
@@ -12,18 +13,18 @@ export const SPRITE_PLANETA_POR_TIPO: Record<string, string> = {
   [TIPO_PLANETA.GASOSO]: '/assets/planeta-gasoso.png',
 };
 
-export function aplicarAparenciaTipoPlaneta(sprite: AnimatedSprite, tipoPlaneta: string): void {
+export function aplicarAparenciaTipoPlaneta(sprite: AnimatedSprite, _tipoPlaneta: string): void {
   sprite.tint = 0xffffff;
 }
 
 export function nomeTipoPlaneta(tipo: string): string {
   switch (tipo) {
     case TIPO_PLANETA.COMUM:
-      return 'Comum';
+      return t('planeta.comum');
     case TIPO_PLANETA.MARTE:
-      return 'Marte';
+      return t('planeta.marte');
     case TIPO_PLANETA.GASOSO:
-      return 'Gasoso';
+      return t('planeta.gasoso');
     default:
       return tipo || '?';
   }

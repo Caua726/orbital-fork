@@ -2,6 +2,7 @@ import { marcarInteracaoUi } from './interacao-ui';
 import { getTipos } from './selecao';
 import type { TipoJogador } from '../types';
 import { getBackendAtivo } from '../world/save';
+import { t } from '../core/i18n/t';
 
 interface OpenOpts {
   onConfirm: (nome: string, tipoJogador: TipoJogador) => void;
@@ -137,19 +138,19 @@ export function abrirNewWorldModal(opts: OpenOpts): void {
 
   const title = document.createElement('h2');
   title.className = 'nwm-title';
-  title.textContent = 'Novo Mundo';
+  title.textContent = t('novo_mundo.titulo');
   card.appendChild(title);
 
   const labelNome = document.createElement('div');
   labelNome.className = 'nwm-label';
-  labelNome.textContent = 'Nome do mundo';
+  labelNome.textContent = t('novo_mundo.nome_label');
   card.appendChild(labelNome);
 
   const input = document.createElement('input');
   input.className = 'nwm-input';
   input.type = 'text';
   input.maxLength = 40;
-  input.placeholder = 'Ex: Valoria Prime';
+  input.placeholder = t('novo_mundo.placeholder');
   card.appendChild(input);
 
   const erro = document.createElement('div');
@@ -161,23 +162,23 @@ export function abrirNewWorldModal(opts: OpenOpts): void {
   const btnCancel = document.createElement('button');
   btnCancel.type = 'button';
   btnCancel.className = 'nwm-btn';
-  btnCancel.textContent = 'Cancelar';
+  btnCancel.textContent = t('novo_mundo.cancelar');
   const btnOk = document.createElement('button');
   btnOk.type = 'button';
   btnOk.className = 'nwm-btn primary';
-  btnOk.textContent = 'Criar';
+  btnOk.textContent = t('novo_mundo.criar');
   row.appendChild(btnCancel);
   row.appendChild(btnOk);
   card.appendChild(row);
 
   function validar(nome: string): string | null {
-    const t = nome.trim();
-    if (t.length < 1) return 'Nome é obrigatório';
-    if (t.length > 40) return 'Máximo 40 caracteres';
+    const trimmed = nome.trim();
+    if (trimmed.length < 1) return t('novo_mundo.erro_vazio');
+    if (trimmed.length > 40) return t('novo_mundo.erro_longo');
     const backend = getBackendAtivo();
-    const existe = backend.existe(t);
+    const existe = backend.existe(trimmed);
     if (existe instanceof Promise) return null;
-    if (existe) return 'Já existe um mundo com esse nome';
+    if (existe) return t('novo_mundo.erro_duplicado');
     return null;
   }
 

@@ -75,6 +75,18 @@ export function installRootVariables(): void {
       position: fixed;
       z-index: 100;
     }
+    .hud-fade-overlay {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 1100;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 200ms ease;
+    }
+    .hud-fade-overlay.active {
+      opacity: 1;
+    }
   `;
   document.head.appendChild(style);
 }

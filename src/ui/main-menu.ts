@@ -10,6 +10,8 @@ import { confirmarAcao } from './confirmar-acao';
 import { getBackendAtivo } from '../world/save';
 import type { SaveMetadata } from '../world/save';
 import { renderSettingsInto } from './settings-panel';
+import { t } from '../core/i18n/t';
+import { onConfigChange } from '../core/config';
 
 interface MainMenuOptions {
   onNewGame: () => void;
@@ -22,6 +24,8 @@ let _savesScreen: HTMLDivElement | null = null;
 let _settingsScreen: HTMLDivElement | null = null;
 let _styleInjected = false;
 let _options: MainMenuOptions | null = null;
+let _unsubConfig: (() => void) | null = null;
+let _refreshTextos: (() => void) | null = null;
 
 function injectStyles(): void {
   if (_styleInjected) return;
@@ -297,12 +301,12 @@ function buildMainScreen(): HTMLDivElement {
 
   const title = document.createElement('h1');
   title.className = 'menu-title';
-  title.textContent = 'Orbital Wydra';
+  title.textContent = t('menu.titulo');
   screen.appendChild(title);
 
   const subtitle = document.createElement('div');
   subtitle.className = 'menu-subtitle';
-  subtitle.textContent = 'Expedição Estelar';
+  subtitle.textContent = t('menu.subtitulo');
   screen.appendChild(subtitle);
 
   const buttons = document.createElement('div');
@@ -311,7 +315,7 @@ function buildMainScreen(): HTMLDivElement {
   const newGame = document.createElement('button');
   newGame.type = 'button';
   newGame.className = 'menu-btn primary';
-  newGame.textContent = 'Novo Jogo';
+  newGame.textContent = t('menu.novo_jogo');
   newGame.addEventListener('click', (e) => {
     e.preventDefault();
     marcarInteracaoUi();
@@ -322,7 +326,7 @@ function buildMainScreen(): HTMLDivElement {
   const loadGame = document.createElement('button');
   loadGame.type = 'button';
   loadGame.className = 'menu-btn';
-  loadGame.textContent = 'Mundos Salvos';
+  loadGame.textContent = t('menu.mundos_salvos');
   loadGame.addEventListener('click', (e) => {
     e.preventDefault();
     marcarInteracaoUi();
@@ -333,7 +337,7 @@ function buildMainScreen(): HTMLDivElement {
   const settings = document.createElement('button');
   settings.type = 'button';
   settings.className = 'menu-btn ghost';
-  settings.textContent = 'Configurações';
+  settings.textContent = t('menu.configuracoes');
   settings.addEventListener('click', (e) => {
     e.preventDefault();
     marcarInteracaoUi();
@@ -342,6 +346,13 @@ function buildMainScreen(): HTMLDivElement {
   buttons.appendChild(settings);
 
   screen.appendChild(buttons);
+  (screen as any)._refresh = () => {
+    title.textContent = t('menu.titulo');
+    subtitle.textContent = t('menu.subtitulo');
+    newGame.textContent = t('menu.novo_jogo');
+    loadGame.textContent = t('menu.mundos_salvos');
+    settings.textContent = t('menu.configuracoes');
+  };
   return screen;
 }
 
@@ -351,7 +362,7 @@ function buildSavesScreen(): HTMLDivElement {
 
   const title = document.createElement('h2');
   title.className = 'menu-section-title';
-  title.textContent = 'Mundos Salvos';
+  title.textContent = t('menu.titulo_saves');
   screen.appendChild(title);
 
   const list = document.createElement('div');
@@ -359,6 +370,10 @@ function buildSavesScreen(): HTMLDivElement {
   void refreshSavesList(list);
   screen.appendChild(list);
 
+  (screen as any)._refresh = () => {
+    title.textContent = t('menu.titulo_saves');
+    void refreshSavesList(list);
+  };
   return screen;
 }
 
@@ -368,7 +383,7 @@ function buildSettingsScreen(): HTMLDivElement {
 
   const title = document.createElement('h2');
   title.className = 'menu-section-title';
-  title.textContent = 'Configurações';
+  title.textContent = t('menu.configuracoes');
   screen.appendChild(title);
 
   const settingsHost = document.createElement('div');
@@ -387,6 +402,11 @@ function buildSettingsScreen(): HTMLDivElement {
 
   renderSettingsInto(settingsHost);
 
+  (screen as any)._refresh = () => {
+    title.textContent = t('menu.configuracoes');
+    settingsHost.replaceChildren();
+    renderSettingsInto(settingsHost);
+  };
   return screen;
 }
 
@@ -396,7 +416,7 @@ async function refreshSavesList(list: HTMLDivElement): Promise<void> {
   if (saves.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'menu-saves-empty';
-    empty.textContent = 'Nenhum mundo salvo ainda';
+    empty.textContent = t('menu.nenhum_save');
     list.appendChild(empty);
     return;
   }
@@ -423,7 +443,7 @@ async function refreshSavesList(list: HTMLDivElement): Promise<void> {
       e.stopPropagation();
       e.preventDefault();
       marcarInteracaoUi();
-      confirmarAcao(`Apagar mundo "${save.nome}" permanentemente?`, () => {
+      confirmarAcao(t('menu.apagar_save', { nome: save.nome }), () => {
         const backend = getBackendAtivo();
         void Promise.resolve(backend.apagar(save.nome)).then(() => refreshSavesList(list));
       });
@@ -504,7 +524,7 @@ export function criarMainMenu(options: MainMenuOptions): HTMLDivElement {
   const back = document.createElement('button');
   back.type = 'button';
   back.className = 'menu-back';
-  back.textContent = '◀ Voltar';
+  back.textContent = t('menu.voltar');
   back.style.display = 'none';
   back.addEventListener('click', (e) => {
     e.preventDefault();
@@ -526,8 +546,17 @@ export function criarMainMenu(options: MainMenuOptions): HTMLDivElement {
   // Footer
   const footer = document.createElement('div');
   footer.className = 'menu-footer';
-  footer.textContent = 'v0.1  ·  protótipo';
+  footer.textContent = t('menu.footer');
   container.appendChild(footer);
+
+  _refreshTextos = () => {
+    back.textContent = t('menu.voltar');
+    footer.textContent = t('menu.footer');
+    (_mainScreen as any)?._refresh?.();
+    (_savesScreen as any)?._refresh?.();
+    (_settingsScreen as any)?._refresh?.();
+  };
+  _unsubConfig = onConfigChange(() => _refreshTextos?.());
 
   // Esc on sub-screens goes back to main
   window.addEventListener('keydown', (e) => {
@@ -554,6 +583,9 @@ export function mostrarMainMenu(): void {
 }
 
 export function destruirMainMenu(): void {
+  _unsubConfig?.();
+  _unsubConfig = null;
+  _refreshTextos = null;
   _container?.remove();
   _container = null;
   _mainScreen = null;

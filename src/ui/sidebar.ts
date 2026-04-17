@@ -1,5 +1,7 @@
 import { registerSidebar, unregisterSidebar, onLayoutChange } from './hud-layout';
 import { abrirPauseMenu } from './pause-menu';
+import { t } from '../core/i18n/t';
+import { onConfigChange } from '../core/config';
 
 const SPRITE_SRC_SIZE = 32;
 const SPRITESHEET = 'assets/hud-icons.png';
@@ -45,24 +47,26 @@ function redrawAllIcons(): void {
 
 interface NavItem {
   id: string;
-  label: string;
+  labelKey: string;
   spriteIndex: number;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'overview', label: 'OVERVIEW', spriteIndex: 0 },
-  { id: 'planets', label: 'PLANETS', spriteIndex: 1 },
-  { id: 'fleets', label: 'FLEETS', spriteIndex: 2 },
-  { id: 'research', label: 'RESEARCH', spriteIndex: 3 },
-  { id: 'construct', label: 'CONSTRUCT', spriteIndex: 4 },
-  { id: 'alliance', label: 'ALLIANCE', spriteIndex: 5 },
-  { id: 'inbox', label: 'INBOX', spriteIndex: 6 },
+  { id: 'overview', labelKey: 'sidebar.overview', spriteIndex: 0 },
+  { id: 'planets', labelKey: 'sidebar.planets', spriteIndex: 1 },
+  { id: 'fleets', labelKey: 'sidebar.fleets', spriteIndex: 2 },
+  { id: 'research', labelKey: 'sidebar.research', spriteIndex: 3 },
+  { id: 'construct', labelKey: 'sidebar.construct', spriteIndex: 4 },
+  { id: 'alliance', labelKey: 'sidebar.alliance', spriteIndex: 5 },
+  { id: 'inbox', labelKey: 'sidebar.inbox', spriteIndex: 6 },
 ];
 
 let _container: HTMLDivElement | null = null;
 let _activeId = '';
 let _onNavigate: ((id: string) => void) | null = null;
 let _styleInjected = false;
+let _unsubConfig: (() => void) | null = null;
+let _refreshTextos: (() => void) | null = null;
 
 export function onSidebarNavigate(cb: (id: string) => void): void {
   _onNavigate = cb;
@@ -163,6 +167,7 @@ function createNavButton(item: NavItem): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.className = 'sidebar-btn';
   btn.dataset.navId = item.id;
+  btn.dataset.labelKey = item.labelKey;
 
   const canvas = document.createElement('canvas');
   canvas.className = 'sidebar-icon';
@@ -171,7 +176,7 @@ function createNavButton(item: NavItem): HTMLButtonElement {
 
   const label = document.createElement('span');
   label.className = 'sidebar-label';
-  label.textContent = item.label;
+  label.textContent = t(item.labelKey);
   btn.appendChild(label);
 
   btn.addEventListener('click', () => {
@@ -207,7 +212,7 @@ export function criarSidebar(): HTMLDivElement {
   const btnMenuOpen = document.createElement('button');
   btnMenuOpen.type = 'button';
   btnMenuOpen.className = 'sidebar-btn sidebar-btn-text';
-  btnMenuOpen.textContent = 'MENU';
+  btnMenuOpen.textContent = t('hud.menu');
   btnMenuOpen.addEventListener('click', (e) => {
     e.preventDefault();
     abrirPauseMenu();
@@ -218,6 +223,15 @@ export function criarSidebar(): HTMLDivElement {
   document.body.appendChild(sidebar);
   registerSidebar(sidebar);
   updateActive();
+
+  _refreshTextos = () => {
+    sidebar.querySelectorAll<HTMLSpanElement>('.sidebar-label').forEach((el) => {
+      const key = el.parentElement?.dataset.labelKey;
+      if (key) el.textContent = t(key);
+    });
+    btnMenuOpen.textContent = t('hud.menu');
+  };
+  _unsubConfig = onConfigChange(() => _refreshTextos?.());
 
   // Redraw icons whenever layout changes (resize, sidebar height update).
   onLayoutChange(() => requestAnimationFrame(redrawAllIcons));
@@ -234,4 +248,7 @@ export function destruirSidebar(): void {
     _container.remove();
     _container = null;
   }
+  _unsubConfig?.();
+  _unsubConfig = null;
+  _refreshTextos = null;
 }

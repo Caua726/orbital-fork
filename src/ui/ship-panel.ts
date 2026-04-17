@@ -8,14 +8,15 @@ import {
 } from '../world/mundo';
 import { iniciarComandoNave } from '../core/player';
 import { carregarSpritesheet, getSpritesheetImage } from '../world/spritesheets';
+import { t } from '../core/i18n/t';
 
 // ─── Static lookup tables ───────────────────────────────────────────────────
 
-const NOME_TIPO: Record<string, string> = {
-  colonizadora: 'Colonizadora',
-  cargueira: 'Cargueira',
-  batedora: 'Batedora',
-  torreta: 'Torreta',
+const NOME_TIPO_KEY: Record<string, string> = {
+  colonizadora: 'nave.colonizadora',
+  cargueira: 'nave.cargueira',
+  batedora: 'nave.batedora',
+  torreta: 'nave.torreta',
 };
 
 const SHIP_SPRITE_ROW: Record<string, number> = {
@@ -87,19 +88,20 @@ let _statsKey = '';
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function nomeTipoNave(tipo: string): string {
-  return NOME_TIPO[tipo] ?? tipo;
+  const key = NOME_TIPO_KEY[tipo];
+  return key ? t(key) : tipo;
 }
 
 function shipLabel(nave: Nave): string {
-  if (nave.tipo === 'colonizadora') return 'Colonizadora';
+  if (nave.tipo === 'colonizadora') return t('nave.colonizadora');
   return `${nomeTipoNave(nave.tipo)} ${ROMAN[nave.tier] ?? nave.tier}`;
 }
 
 function estadoLabel(estado: string): string {
   switch (estado) {
-    case 'orbitando': return 'Orbitando';
-    case 'viajando': return 'Viajando';
-    case 'parado': return 'Parado';
+    case 'orbitando': return t('nave.estado.orbitando');
+    case 'viajando': return t('nave.estado.viajando');
+    case 'parado': return t('nave.estado.parado');
     default: return estado;
   }
 }
@@ -107,8 +109,8 @@ function estadoLabel(estado: string): string {
 function alvoLabel(nave: Nave): string {
   const alvo = nave.alvo;
   if (!alvo) return '—';
-  if (alvo._tipoAlvo === 'planeta') return (alvo as { dados: { nome?: string } }).dados.nome ?? 'Planeta';
-  if (alvo._tipoAlvo === 'sol') return 'Estrela';
+  if (alvo._tipoAlvo === 'planeta') return (alvo as { dados: { nome?: string } }).dados.nome ?? t('ship_panel.alvo_planeta_fallback');
+  if (alvo._tipoAlvo === 'sol') return t('ship_panel.alvo_estrela');
   if (alvo._tipoAlvo === 'ponto') return `(${Math.round((alvo as { x: number }).x)}, ${Math.round((alvo as { y: number }).y)})`;
   return '—';
 }
@@ -398,45 +400,45 @@ interface ActionSpec {
   onClick: (nave: Nave, mundo: Mundo) => void;
 }
 
-const ACTIONS: ActionSpec[] = [
+const ACTIONS: (Omit<ActionSpec, 'title'> & { titleKey: string })[] = [
   {
     id: 'move',
-    title: 'Traçar rota (clique no mapa)',
+    titleKey: 'ship_panel.action_move',
     icon: iconMove,
     enabled: (n) => n.dono === 'jogador',
     onClick: (n) => iniciarComandoNave('mover', n),
   },
   {
     id: 'cancel',
-    title: 'Cancelar movimento',
+    titleKey: 'ship_panel.action_cancel',
     icon: iconCancel,
     enabled: (n) => n.dono === 'jogador' && (n.estado === 'viajando' || n.rotaManual.length > 0),
     onClick: (n) => cancelarMovimentoNave(n),
   },
   {
     id: 'close',
-    title: 'Fechar painel',
+    titleKey: 'ship_panel.action_close',
     icon: iconClose,
     enabled: () => true,
     onClick: (n) => { n.selecionado = false; },
   },
   {
     id: 'origin',
-    title: 'Definir planeta de origem',
+    titleKey: 'ship_panel.action_origin',
     icon: iconOrigin,
     enabled: (n) => n.dono === 'jogador' && n.tipo === 'cargueira',
     onClick: (n) => iniciarComandoNave('origem', n),
   },
   {
     id: 'destination',
-    title: 'Definir planeta de destino',
+    titleKey: 'ship_panel.action_destination',
     icon: iconTarget,
     enabled: (n) => n.dono === 'jogador' && n.tipo === 'cargueira',
     onClick: (n) => iniciarComandoNave('destino', n),
   },
   {
     id: 'loop',
-    title: 'Alternar loop de rota',
+    titleKey: 'ship_panel.action_loop',
     icon: iconLoop,
     enabled: (n) => n.dono === 'jogador' && n.tipo === 'cargueira' && !!n.rotaCargueira?.origem && !!n.rotaCargueira?.destino,
     onClick: (n) => alternarLoopCargueira(n),
@@ -452,7 +454,7 @@ function renderActions(nave: Nave): void {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'ship-panel-action';
-    btn.title = action.title;
+    btn.title = t(action.titleKey);
     btn.appendChild(action.icon());
     const isEnabled = action.enabled(nave);
     if (!isEnabled) btn.classList.add('disabled');
@@ -473,16 +475,16 @@ function renderStats(nave: Nave): void {
   _statsEl.replaceChildren();
 
   const rows: [string, string][] = [
-    ['Estado', estadoLabel(nave.estado)],
-    ['Origem', nave.origem?.dados.nome ?? '—'],
-    ['Alvo', alvoLabel(nave)],
+    [t('ship_panel.estado'), estadoLabel(nave.estado)],
+    [t('ship_panel.origem'), nave.origem?.dados.nome ?? '—'],
+    [t('ship_panel.alvo'), alvoLabel(nave)],
   ];
 
   if (nave.tipo === 'cargueira') {
     const cap = capacidadeCargaCargueira(nave.tier);
-    rows.push(['Capacidade', String(cap)]);
+    rows.push([t('ship_panel.capacidade'), String(cap)]);
   } else {
-    rows.push(['Tipo', nomeTipoNave(nave.tipo)]);
+    rows.push([t('ship_panel.tipo'), nomeTipoNave(nave.tipo)]);
   }
 
   for (const [label, value] of rows) {
@@ -625,7 +627,7 @@ export function atualizarShipPanel(mundo: Mundo): void {
     _statsKey = '';
     if (_nameEl) _nameEl.textContent = shipLabel(nave);
     if (_subtitleEl) _subtitleEl.textContent = nave.origem?.dados.nome
-      ? `de ${nave.origem.dados.nome}`
+      ? t('ship_panel.subtitulo_origem', { nome: nave.origem.dados.nome })
       : '—';
     const cell = spriteCellForShip(nave);
     if (_portraitCanvas) {
