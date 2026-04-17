@@ -6,6 +6,7 @@ import { criarMundoVazio, aplicarZOrderMundo, type MundoVazio } from '../mundo';
 import { criarEstrelaProcedural, criarPlanetaProceduralSprite } from '../planeta-procedural';
 import { criarMemoriaVisualPlaneta, restaurarMemoriaPlaneta } from '../nevoa';
 import { resetarNomesPlanetas } from '../nomes';
+import { instalarTrail } from '../engine-trails';
 
 export interface ReconstruirFactories {
   criarSol: (x: number, y: number, raio: number) => Sol;
@@ -91,6 +92,8 @@ export async function reconstruirMundo(
     if (!factories.skipVisuals) {
       mv.navesContainer.addChild(nave.gfx);
       mv.rotasContainer.addChild(nave.rotaGfx);
+      // Engine trail rendered behind the (placeholder) sprite.
+      instalarTrail(nave);
     }
   }
 

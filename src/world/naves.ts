@@ -8,6 +8,7 @@ import { revelarSistemaCompleto } from './visao';
 import { confirmarAcao } from '../ui/confirmar-acao';
 import { carregarSpritesheet, getSpritesheetTexture, onSpritesheetReady } from './spritesheets';
 import { t } from '../core/i18n/t';
+import { instalarTrail, atualizarTrail, destruirTrail } from './engine-trails';
 
 // ─── Spritesheet loading ────────────────────────────────────────────────────
 
@@ -385,6 +386,7 @@ export function criarNave(mundo: Mundo, planetaOrigem: Planeta, tipo: string, ti
   mundo.navesContainer.addChild(nave.gfx);
   mundo.naves.push(nave);
   entrarEmOrbita(nave, planetaOrigem);
+  instalarTrail(nave);
   return nave;
 }
 
@@ -404,11 +406,12 @@ export function removerNave(mundo: Mundo, nave: Nave): void {
   }
   if (nave.gfx) {
     mundo.navesContainer.removeChild(nave.gfx);
-    // destroy({children:true}) tears down the Container + Sprite + Graphics.
-    // The Sprite's texture is a sub-frame backed by the shared sheet — we do
-    // NOT want to destroy the texture source itself.
+    // destroy({children:true}) tears down the Container + Sprite + Graphics
+    // (including the trail Graphics). The Sprite's texture is a sub-frame
+    // backed by the shared sheet — we do NOT want to destroy the texture source.
     nave.gfx.destroy({ children: true });
   }
+  destruirTrail(nave);
 }
 
 export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
@@ -519,6 +522,7 @@ export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
     }
     nave.gfx.x = nave.x;
     nave.gfx.y = nave.y;
+    atualizarTrail(nave, deltaMs);
   }
 }
 

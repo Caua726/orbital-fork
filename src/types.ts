@@ -130,6 +130,10 @@ export interface Nave {
   _selecaoAnterior?: boolean;
   _sprite?: Sprite;
   _ring?: Graphics;
+  _trail?: Graphics;
+  _trailParticles?: Array<{ x: number; y: number; age: number }>;
+  _lastX?: number;
+  _lastY?: number;
 }
 
 export interface AlvoPonto {
