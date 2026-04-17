@@ -2,14 +2,15 @@ import { Application } from 'pixi.js';
 import type { Mundo, TipoJogador } from './types';
 import { criarMundo, atualizarMundo, getEstadoJogo, destruirMundo } from './world/mundo';
 import { criarMundoMenu, atualizarMundoMenu, destruirMundoMenu, type MundoMenu } from './world/mundo-menu';
-import { configurarCamera, destruirCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador, zoomIn, zoomOut, setZoom, instalarEdgeScroll, aplicarEdgeScrollAoCamera } from './core/player';
+import { configurarCamera, destruirCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador, zoomIn, zoomOut, setZoom, instalarEdgeScroll, aplicarEdgeScrollAoCamera, cancelarComandoNaveSeAtivo } from './core/player';
+import { instalarDispatcher, onAction, onActionUp } from './core/input/dispatcher';
 import { criarSidebar, destruirSidebar } from './ui/sidebar';
 import { criarEmpireBadge, destruirEmpireBadge } from './ui/empire-badge';
 import { criarChatLog, destruirChatLog } from './ui/chat-log';
 import { criarResourceBar, destruirResourceBar } from './ui/resource-bar';
 import { criarCreditsBar, destruirCreditsBar } from './ui/credits-bar';
 import { criarMinimap, atualizarMinimap, onMinimapClick, onMinimapZoomIn, onMinimapZoomOut, destruirMinimap } from './ui/minimap';
-import { criarDebugMenu, atualizarDebugMenu, getDebugState, getCheats, destruirDebugMenu } from './ui/debug-menu';
+import { criarDebugMenu, atualizarDebugMenu, getDebugState, getCheats, destruirDebugMenu, setGameSpeed, fecharDebugOverlays, toggleDebugFast, toggleDebugFull } from './ui/debug-menu';
 import { installRootVariables } from './ui/hud-layout';
 import { criarPlanetPanel, atualizarPlanetPanel, destruirPlanetPanel } from './ui/planet-panel';
 import { criarBuildPanel, atualizarBuildPanel, destruirBuildPanel } from './ui/build-panel';
@@ -39,6 +40,8 @@ let _fimTocado = false;
 // Cinematic camera state during the main menu. Accumulated seconds,
 // fed into layered sines for a non-circular, more organic drift.
 let _cinematicTime = 0;
+
+const _panState = { up: false, down: false, left: false, right: false };
 
 async function bootstrap(): Promise<void> {
   installRootVariables();
@@ -203,17 +206,45 @@ async function bootstrap(): Promise<void> {
   setZoom(0.55);
   instalarEdgeScroll();
 
-  // Keyboard zoom — installed once, active during both menu and game.
-  window.addEventListener('keydown', (e) => {
-    const target = e.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-    if (e.key === 'Escape' && _gameStarted && !isPauseMenuOpen()) {
-      e.preventDefault();
-      abrirPauseMenu();
-      return;
-    }
-    if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); }
-    else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); }
+  // Install the global input dispatcher and register action handlers.
+  instalarDispatcher();
+
+  onAction('zoom_in', () => zoomIn());
+  onAction('zoom_out', () => zoomOut());
+
+  onAction('cancel_or_menu', () => {
+    if (cancelarComandoNaveSeAtivo()) return;
+    if (fecharDebugOverlays()) return;
+    if (_gameStarted && !isPauseMenuOpen()) abrirPauseMenu();
+  });
+
+  onAction('toggle_debug_fast', () => { toggleDebugFast(); });
+  onAction('toggle_debug_full', () => { toggleDebugFull(); });
+
+  onAction('quicksave', () => {
+    salvarAgora();
+    toast('Salvo', 'info');
+  });
+
+  onAction('speed_pause', () => {
+    setGameSpeed(getDebugState().gameSpeed === 0 ? 1 : 0);
+  });
+  onAction('speed_1x', () => { setGameSpeed(1); });
+  onAction('speed_2x', () => { setGameSpeed(2); });
+  onAction('speed_4x', () => { setGameSpeed(4); });
+
+  onAction('pan_up',    () => { _panState.up = true; });
+  onActionUp('pan_up',  () => { _panState.up = false; });
+  onAction('pan_down',  () => { _panState.down = true; });
+  onActionUp('pan_down',() => { _panState.down = false; });
+  onAction('pan_left',  () => { _panState.left = true; });
+  onActionUp('pan_left',() => { _panState.left = false; });
+  onAction('pan_right', () => { _panState.right = true; });
+  onActionUp('pan_right',() => { _panState.right = false; });
+
+  // Release any held pan keys if the window loses focus mid-press.
+  window.addEventListener('blur', () => {
+    _panState.up = _panState.down = _panState.left = _panState.right = false;
   });
 
   // Start the ticker. During the menu it only updates the menu world +
@@ -296,6 +327,15 @@ function startTicker(): void {
     const camera = getCamera();
     atualizarCamera(mundo, app);
     aplicarEdgeScrollAoCamera(app.ticker.deltaMS);
+
+    // Keyboard pan — applied per-frame so holding a key scrolls smoothly.
+    const PAN_SPEED = 800;
+    const panScale = PAN_SPEED * (app.ticker.deltaMS / 1000) / (camera.zoom || 1);
+    if (_panState.up) camera.y -= panScale;
+    if (_panState.down) camera.y += panScale;
+    if (_panState.left) camera.x -= panScale;
+    if (_panState.right) camera.x += panScale;
+
     atualizarMundo(mundo, app, camera);
 
     atualizarMinimap(camera);

@@ -139,6 +139,12 @@ export function cancelarComandoNave(): void {
   atualizarPreviewComandoNave();
 }
 
+export function cancelarComandoNaveSeAtivo(): boolean {
+  if (!comandoNave) return false;
+  cancelarComandoNave();
+  return true;
+}
+
 export function getTextoComandoNave(): string {
   if (!comandoNave?.nave?.selecionado) return '';
   switch (comandoNave.tipo) {
@@ -340,18 +346,6 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
     }
 
     clickInfo = null;
-  }, { signal });
-
-  // Global Escape: cancels any active command mode, unless the user is
-  // currently typing in an input (e.g. the colony-modal name field).
-  window.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return;
-    const target = e.target as HTMLElement | null;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
-    if (comandoNave) {
-      cancelarComandoNave();
-      e.preventDefault();
-    }
   }, { signal });
 
   canvas.addEventListener('wheel', (e: WheelEvent) => {
