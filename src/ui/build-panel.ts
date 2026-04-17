@@ -238,7 +238,56 @@ const CARDS_NAVES: CardSpec[] = [
   naveCard('nave_fragata', 'build_panel.card_fragata', 4, 'fragata'),
 ];
 
-const CARDS_PESQUISA: CardSpec[] = [];
+// Custo de pesquisa em RARO (constant in pesquisa.ts: CUSTO_PESQUISA_RARO=5)
+const CUSTO_PESQ_RARO = 5;
+
+function pesquisaCard(
+  categoria: 'cargueira' | 'batedora' | 'torreta' | 'fragata',
+  nomeKey: string,
+  spriteRow: number,
+): CardSpec {
+  return {
+    // The acao gets the dynamic tier suffix appended in resolveAcao.
+    acao: `pesquisa_${categoria}`,
+    nomeKey,
+    sprite: (state) => ({
+      sheet: 'ships',
+      row: spriteRow,
+      col: spriteColForTier(state.tier),
+    }),
+    resolve: (p) => {
+      const tierAtual = highestUnlockedTier(p, categoria);
+      const proxTier = tierAtual + 1;
+      // Already maxed?
+      if (proxTier > getTierMax()) {
+        return { enabled: false, tier: tierAtual, cost: null, hiddenReason: 'maxTier' };
+      }
+      // Need a factory of at least the destination tier (same gate as
+      // building the ship itself).
+      if (p.dados.fabricas < proxTier) {
+        return { enabled: false, tier: proxTier, cost: CUSTO_PESQ_RARO, hiddenReason: 'noFactory' };
+      }
+      // One research at a time per planet.
+      if (p.dados.pesquisaAtual) {
+        return { enabled: false, tier: proxTier, cost: CUSTO_PESQ_RARO, hiddenReason: 'queueFull' };
+      }
+      const okRecursos = p.dados.recursos.raro >= CUSTO_PESQ_RARO;
+      return {
+        enabled: okRecursos,
+        tier: proxTier,
+        cost: CUSTO_PESQ_RARO,
+        hiddenReason: !okRecursos ? 'lowResources' : undefined,
+      };
+    },
+  };
+}
+
+const CARDS_PESQUISA: CardSpec[] = [
+  pesquisaCard('cargueira', 'build_panel.card_pesq_cargueira', 1),
+  pesquisaCard('batedora', 'build_panel.card_pesq_batedora', 2),
+  pesquisaCard('torreta', 'build_panel.card_pesq_torreta', 3),
+  pesquisaCard('fragata', 'build_panel.card_pesq_fragata', 4),
+];
 
 function cardsForTab(tab: AbaId): CardSpec[] {
   switch (tab) {
@@ -248,10 +297,17 @@ function cardsForTab(tab: AbaId): CardSpec[] {
   }
 }
 
-// For tiered ship cards, the actual queued action must include the chosen tier.
+// For tiered cards (ships and research), the actual action must include
+// the chosen tier suffix.
 function resolveAcao(spec: CardSpec, state: CardState): string {
-  if (!spec.acao.startsWith('nave_') || spec.acao === 'nave_colonizadora') return spec.acao;
-  return state.tier ? `${spec.acao}_${state.tier}` : spec.acao;
+  if (spec.acao === 'nave_colonizadora') return spec.acao;
+  if (spec.acao.startsWith('nave_')) {
+    return state.tier ? `${spec.acao}_${state.tier}` : spec.acao;
+  }
+  if (spec.acao.startsWith('pesquisa_')) {
+    return state.tier ? `${spec.acao}_${state.tier}` : spec.acao;
+  }
+  return spec.acao;
 }
 
 // ─── Styles ─────────────────────────────────────────────────────────────────

@@ -190,6 +190,10 @@ export const DICT: Record<string, { pt: string; en: string }> = {
   'build_panel.card_batedora': { pt: 'Batedora', en: 'Scout' },
   'build_panel.card_torreta': { pt: 'Torreta', en: 'Turret' },
   'build_panel.card_fragata': { pt: 'Fragata', en: 'Frigate' },
+  'build_panel.card_pesq_cargueira': { pt: 'Pesq. Cargueira', en: 'Res. Freighter' },
+  'build_panel.card_pesq_batedora': { pt: 'Pesq. Batedora', en: 'Res. Scout' },
+  'build_panel.card_pesq_torreta': { pt: 'Pesq. Torreta', en: 'Res. Turret' },
+  'build_panel.card_pesq_fragata': { pt: 'Pesq. Fragata', en: 'Res. Frigate' },
 
   // Colonizer panel
   'colonizer_panel.nome': { pt: 'Colonizadora', en: 'Colonizer' },

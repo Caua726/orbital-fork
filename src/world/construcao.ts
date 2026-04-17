@@ -3,6 +3,7 @@ import { cheats } from '../ui/debug';
 import { CICLO_RECURSO_MS, CUSTO_NAVE_COMUM } from './constantes';
 import { aplicarProducaoCicloAoPlaneta, calcularCustoTier, calcularTempoConstrucaoMs, calcularTempoColonizadoraMs } from './recursos';
 import { criarNave, parseAcaoNave } from './naves';
+import { iniciarPesquisa } from './pesquisa';
 import { notifConstrucaoCompleta, notifNaveProducida } from '../ui/notificacao';
 import { somConstrucaoCompleta, somNaveProducida } from '../audio/som';
 
@@ -137,6 +138,13 @@ export function construirNoPlaneta(mundo: Mundo, planeta: Planeta, tipo: string)
       : [];
     planeta.dados.repetirFilaProducao = false;
     return true;
+  }
+  // Research actions bypass the build queue — they go to pesquisaAtual,
+  // which has its own update loop in atualizarPesquisaPlaneta.
+  // Format: pesquisa_<categoria>_<tier>
+  const pesqMatch = tipo.match(/^pesquisa_(cargueira|batedora|torreta|fragata)_([1-5])$/);
+  if (pesqMatch) {
+    return iniciarPesquisa(planeta, pesqMatch[1], Number(pesqMatch[2]));
   }
   if (totalItensProduzindo(planeta) >= 5) return false;
   planeta.dados.filaProducao.push({ acao: tipo });
