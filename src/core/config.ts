@@ -11,6 +11,7 @@ export interface OrbitalConfig {
     sfx:    { volume: number; muted: boolean };
     ui:     { volume: number; muted: boolean };
     aviso:  { volume: number; muted: boolean };
+    musica: { volume: number; muted: boolean };
   };
 
   graphics: {
@@ -50,6 +51,7 @@ export const DEFAULTS: OrbitalConfig = {
     sfx:    { volume: 1.0, muted: false },
     ui:     { volume: 0.7, muted: false },
     aviso:  { volume: 1.0, muted: false },
+    musica: { volume: 0.45, muted: false },
   },
 
   graphics: {

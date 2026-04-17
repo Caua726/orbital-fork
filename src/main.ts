@@ -28,6 +28,7 @@ import { abrirNewWorldModal } from './ui/new-world-modal';
 import { criarLoadingScreen, mostrarCarregando, esconderCarregando } from './ui/loading-screen';
 import { t } from './core/i18n/t';
 import { somVitoria, somDerrota } from './audio/som';
+import { iniciarMusicaAmbiente, pararMusicaAmbiente } from './audio/musica-ambiente';
 import { setAppReferenceForBake } from './world/planeta-procedural';
 // Top-level state shared across bootstrap, iniciarJogoNovo, and carregarMundo.
 let _app: Application | null = null;
@@ -403,6 +404,7 @@ async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJ
   _gameStarted = true;
   iniciarAutosave({ mundo, nome, criadoEm, tempoJogadoMs });
   salvarAgora();
+  iniciarMusicaAmbiente();
   await esconderCarregando();
 }
 
@@ -581,6 +583,7 @@ async function voltarAoMenu(): Promise<void> {
   _gameStarted = false;
   _transitioning = false;
   _fimTocado = false;
+  pararMusicaAmbiente();
 
   // 5. Recreate menu background world (behind the curtain)
   const mundoMenu = await criarMundoMenu(app);

@@ -443,9 +443,10 @@ export function fecharSettings(): void {
 
 function renderAudioTab(body: HTMLDivElement): void {
   const cfg = getConfig();
-  type CatKey = 'master' | 'sfx' | 'ui' | 'aviso';
+  type CatKey = 'master' | 'sfx' | 'ui' | 'aviso' | 'musica';
   const cats: Array<[CatKey, string]> = [
     ['master', t('settings.audio.master')],
+    ['musica', t('settings.audio.musica')],
     ['sfx', t('settings.audio.sfx')],
     ['ui', t('settings.audio.ui')],
     ['aviso', t('settings.audio.aviso')],

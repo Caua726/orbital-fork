@@ -1,6 +1,6 @@
 import { getConfig, onConfigChange } from '../core/config';
 
-export type AudioCategoria = 'sfx' | 'ui' | 'aviso';
+export type AudioCategoria = 'sfx' | 'ui' | 'aviso' | 'musica';
 
 interface MixerState {
   ctx: AudioContext;
@@ -8,6 +8,7 @@ interface MixerState {
   sfx: GainNode;
   ui: GainNode;
   aviso: GainNode;
+  musica: GainNode;
 }
 
 let _state: MixerState | null = null;
@@ -29,7 +30,8 @@ export function getMixer(): MixerState | null {
     const sfx = ctx.createGain();    sfx.connect(master);
     const ui = ctx.createGain();     ui.connect(master);
     const aviso = ctx.createGain();  aviso.connect(master);
-    _state = { ctx, master, sfx, ui, aviso };
+    const musica = ctx.createGain(); musica.connect(master);
+    _state = { ctx, master, sfx, ui, aviso, musica };
     aplicarConfigAtual();
     if (!_observerAttached) {
       _observerAttached = true;
@@ -56,6 +58,7 @@ export function aplicarConfigAtual(): void {
   m.sfx.gain.value = a.sfx.muted ? 0 : a.sfx.volume;
   m.ui.gain.value = a.ui.muted ? 0 : a.ui.volume;
   m.aviso.gain.value = a.aviso.muted ? 0 : a.aviso.volume;
+  m.musica.gain.value = a.musica.muted ? 0 : a.musica.volume;
 }
 
 export function resetMixerForTest(): void {

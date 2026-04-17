@@ -336,6 +336,7 @@ export const DICT: Record<string, { pt: string; en: string }> = {
 
   // Settings — audio categories
   'settings.audio.master': { pt: 'Master', en: 'Master' },
+  'settings.audio.musica': { pt: 'Música', en: 'Music' },
   'settings.audio.sfx': { pt: 'SFX Jogo', en: 'Game SFX' },
   'settings.audio.ui': { pt: 'SFX UI', en: 'UI SFX' },
   'settings.audio.aviso': { pt: 'Avisos', en: 'Alerts' },
