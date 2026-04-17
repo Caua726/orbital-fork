@@ -9,6 +9,7 @@ export function criarEstadoPesquisas(): PesquisasState {
     torreta: [false, false, false, false, false],
     cargueira: [false, false, false, false, false],
     batedora: [false, false, false, false, false],
+    fragata: [false, false, false, false, false],
   };
 }
 

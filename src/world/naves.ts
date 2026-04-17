@@ -14,12 +14,14 @@ import { instalarTrail, atualizarTrail, destruirTrail } from './engine-trails';
 
 const SHIP_SPRITE_CELL = 96;
 
-// Row per ship type within ships.png
+// Row per ship type within ships.png. Fragata reuses torreta's row and
+// is tinted red in criarShipSprite — no dedicated art yet.
 export const SHIP_SHEET_ROW: Record<string, number> = {
   colonizadora: 0,
   cargueira: 1,
   batedora: 2,
   torreta: 3,
+  fragata: 3,
 };
 
 // Display size per ship type in world pixels (base size; some ships render bigger)
@@ -28,6 +30,13 @@ const SHIP_DISPLAY_SIZE: Record<string, number> = {
   cargueira: 36,
   batedora: 32,
   torreta: 32,
+  fragata: 40,
+};
+
+// Tint per ship type — overrides default sprite color. Used when a type
+// reuses another's row in the spritesheet to keep them visually distinct.
+const SHIP_TINT: Record<string, number> = {
+  fragata: 0xff7070, // hot red — combat ship
 };
 
 const _frameCache = new Map<string, Texture>();
@@ -72,6 +81,7 @@ function criarShipSprite(tipo: string, tier: number): Sprite {
   const displaySize = SHIP_DISPLAY_SIZE[tipo] ?? 32;
   sprite.width = displaySize;
   sprite.height = displaySize;
+  if (SHIP_TINT[tipo] !== undefined) sprite.tint = SHIP_TINT[tipo];
   if (!hasSheet) {
     _pendingSprites.push({ sprite, tipo, tier });
     // Ensure the load is in flight even if carregarSpritesheetNaves was
@@ -786,7 +796,7 @@ export function setNaveThrust(nave: Nave, tx: number, ty: number): void {
 
 export function parseAcaoNave(acao: string): AcaoNaveParsed | null {
   if (acao === 'nave_colonizadora') return { tipo: 'colonizadora', tier: 1 };
-  const m = acao.match(/^nave_(cargueira|batedora|torreta)_([1-5])$/);
+  const m = acao.match(/^nave_(cargueira|batedora|torreta|fragata)_([1-5])$/);
   if (m) return { tipo: m[1], tier: Number(m[2]) };
   return null;
 }

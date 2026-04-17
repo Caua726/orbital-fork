@@ -22,7 +22,7 @@ export const CUSTO_PESQUISA_RARO = 5;
 export const TEMPO_PESQUISA_MS = 60 * 1000;
 export const VELOCIDADE_NAVE = 0.045;
 export const VELOCIDADE_ORBITA_NAVE = 0.00055;
-export const CATEGORIAS_PESQUISA = ['torreta', 'cargueira', 'batedora'];
+export const CATEGORIAS_PESQUISA = ['torreta', 'cargueira', 'batedora', 'fragata'];
 
 export function formatarId(prefixo: string): string {
   return `${prefixo}_${Math.random().toString(36).slice(2, 10)}`;

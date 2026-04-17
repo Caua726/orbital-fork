@@ -235,6 +235,7 @@ const CARDS_NAVES: CardSpec[] = [
   naveCard('nave_cargueira', 'build_panel.card_cargueira', 1, 'cargueira'),
   naveCard('nave_batedora', 'build_panel.card_batedora', 2, 'batedora'),
   naveCard('nave_torreta', 'build_panel.card_torreta', 3, 'torreta'),
+  naveCard('nave_fragata', 'build_panel.card_fragata', 4, 'fragata'),
 ];
 
 const CARDS_PESQUISA: CardSpec[] = [];

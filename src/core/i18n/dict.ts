@@ -56,6 +56,7 @@ export const DICT: Record<string, { pt: string; en: string }> = {
   'nave.cargueira': { pt: 'Cargueira', en: 'Freighter' },
   'nave.batedora': { pt: 'Batedora', en: 'Scout' },
   'nave.torreta': { pt: 'Torreta', en: 'Turret' },
+  'nave.fragata': { pt: 'Fragata', en: 'Frigate' },
 
   // Planetas
   'planeta.comum': { pt: 'Comum', en: 'Common' },
@@ -188,6 +189,7 @@ export const DICT: Record<string, { pt: string; en: string }> = {
   'build_panel.card_cargueira': { pt: 'Cargueira', en: 'Freighter' },
   'build_panel.card_batedora': { pt: 'Batedora', en: 'Scout' },
   'build_panel.card_torreta': { pt: 'Torreta', en: 'Turret' },
+  'build_panel.card_fragata': { pt: 'Fragata', en: 'Frigate' },
 
   // Colonizer panel
   'colonizer_panel.nome': { pt: 'Colonizadora', en: 'Colonizer' },
