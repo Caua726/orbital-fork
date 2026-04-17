@@ -2,7 +2,7 @@ import { Application } from 'pixi.js';
 import type { Mundo, TipoJogador } from './types';
 import { criarMundo, atualizarMundo, getEstadoJogo, destruirMundo } from './world/mundo';
 import { criarMundoMenu, atualizarMundoMenu, destruirMundoMenu, type MundoMenu } from './world/mundo-menu';
-import { configurarCamera, destruirCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador, zoomIn, zoomOut, setZoom } from './core/player';
+import { configurarCamera, destruirCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador, zoomIn, zoomOut, setZoom, instalarEdgeScroll, aplicarEdgeScrollAoCamera } from './core/player';
 import { criarSidebar, destruirSidebar } from './ui/sidebar';
 import { criarEmpireBadge, destruirEmpireBadge } from './ui/empire-badge';
 import { criarChatLog, destruirChatLog } from './ui/chat-log';
@@ -22,10 +22,11 @@ import { abrirPauseMenu, isPauseMenuOpen } from './ui/pause-menu';
 import { reconstruirMundo, iniciarAutosave, instalarListenersCicloDeVida, acumularTempoJogado, lerEMigrar, recuperarEmergency, salvarAgora, getBackendAtivo, getUltimoErro } from './world/save';
 import type { MundoDTO } from './world/save';
 import { toast } from './ui/toast';
+import { getConfig, setConfigDuranteBoot, onConfigChange } from './core/config';
 import { abrirNewWorldModal } from './ui/new-world-modal';
 import { criarLoadingScreen, mostrarCarregando, esconderCarregando } from './ui/loading-screen';
 import { somVitoria, somDerrota } from './audio/som';
-
+import { setAppReferenceForBake } from './world/planeta-procedural';
 // Top-level state shared across bootstrap, iniciarJogoNovo, and carregarMundo.
 let _app: Application | null = null;
 let _mundo: Mundo | null = null;
@@ -43,13 +44,138 @@ async function bootstrap(): Promise<void> {
   installRootVariables();
 
   const app = new Application();
-  await app.init({
+
+  const gfx = getConfig().graphics;
+  const baseInit: any = {
     width: window.innerWidth,
     height: window.innerHeight,
     backgroundColor: 0x000000,
     resolution: window.devicePixelRatio || 1,
     autoDensity: true,
     antialias: true,
+  };
+  if (gfx.gpuPreference !== 'auto') {
+    baseInit.powerPreference = gfx.gpuPreference;
+  }
+
+  // Software mode: Canvas 2D renderer (no GPU), Mínimo preset
+  const effectiveRenderer = gfx.renderer === 'software' ? 'canvas' : gfx.renderer;
+  if (gfx.renderer === 'software') {
+    baseInit.antialias = false;
+    baseInit.resolution = 1;
+    baseInit.autoDensity = false;
+    // Apply Mínimo preset via boot path (no observers)
+    setConfigDuranteBoot({
+      graphics: {
+        ...gfx,
+        qualidadeEfeitos: 'minimo',
+        fogThrottle: 5,
+        maxFantasmas: 0,
+        densidadeStarfield: 0.15,
+        shaderLive: false,
+        mostrarOrbitas: false,
+      },
+    });
+  }
+
+  // Optional: WebGL version forced context injection (non-software)
+  if (gfx.renderer !== 'software' && effectiveRenderer === 'webgl' && gfx.webglVersion !== 'auto') {
+    const canvas = document.createElement('canvas');
+    const ctxOpts: WebGLContextAttributes = { antialias: true, premultipliedAlpha: true };
+    if (gfx.gpuPreference !== 'auto') {
+      ctxOpts.powerPreference = gfx.gpuPreference;
+    }
+    const gl = gfx.webglVersion === '1'
+      ? canvas.getContext('webgl', ctxOpts)
+      : canvas.getContext('webgl2', ctxOpts);
+    if (gl) {
+      baseInit.context = gl as any;
+      baseInit.canvas = canvas as any;
+    } else {
+      console.warn(`[renderer] WebGL ${gfx.webglVersion} indisponível, caindo pra auto`);
+      setConfigDuranteBoot({ graphics: { ...gfx, webglVersion: 'auto' } });
+    }
+  }
+
+  try {
+    await app.init({ ...baseInit, preference: effectiveRenderer });
+  } catch (err) {
+    if (gfx.renderer === 'software') {
+      console.warn('[renderer] Canvas renderer failed, falling back to WebGL:', err);
+      setConfigDuranteBoot({ graphics: { ...getConfig().graphics, renderer: 'webgl' } });
+      await app.init({ ...baseInit, preference: 'webgl' });
+      window.setTimeout(() => toast('Renderizador Canvas indisponível — usando WebGL', 'err'), 2000);
+    } else if (gfx.renderer === 'webgpu') {
+      console.warn('[renderer] WebGPU failed, falling back to WebGL:', err);
+      setConfigDuranteBoot({ graphics: { ...getConfig().graphics, renderer: 'webgl' } });
+      await app.init({ ...baseInit, preference: 'webgl' });
+      window.setTimeout(() => toast('WebGPU indisponível — usando WebGL', 'err'), 2000);
+    } else if (effectiveRenderer === 'webgl' && gfx.webglVersion !== 'auto') {
+      console.warn(`[renderer] WebGL ${gfx.webglVersion} forçado falhou, caindo pra auto:`, err);
+      setConfigDuranteBoot({ graphics: { ...getConfig().graphics, webglVersion: 'auto' } });
+      delete baseInit.context;
+      delete baseInit.canvas;
+      await app.init({ ...baseInit, preference: 'webgl' });
+      window.setTimeout(() => toast(`WebGL ${gfx.webglVersion} indisponível — usando automático`, 'err'), 2000);
+    } else {
+      throw err;
+    }
+  }
+
+  // Apply initial FPS cap
+  if (gfx.fpsCap > 0) {
+    app.ticker.maxFPS = gfx.fpsCap;
+  }
+
+  // React to config changes for FPS cap
+  onConfigChange((cfg) => {
+    app.ticker.maxFPS = cfg.graphics.fpsCap > 0 ? cfg.graphics.fpsCap : 0;
+  });
+
+  // ── FPS counter ──
+  const fpsEl = document.createElement('div');
+  fpsEl.style.cssText = `
+    position: fixed; top: calc(var(--hud-unit) * 0.5); right: calc(var(--hud-unit) * 0.5);
+    font-family: var(--hud-font); font-size: calc(var(--hud-unit) * 0.75);
+    color: var(--hud-text-dim); background: rgba(0,0,0,0.5);
+    padding: calc(var(--hud-unit) * 0.2) calc(var(--hud-unit) * 0.5);
+    border: 1px solid var(--hud-border); z-index: 600; pointer-events: none;
+    display: ${gfx.mostrarFps ? 'block' : 'none'};
+  `;
+  document.body.appendChild(fpsEl);
+  let _fpsAccum = 0;
+  let _fpsFrames = 0;
+  app.ticker.add(() => {
+    _fpsFrames++;
+    _fpsAccum += app.ticker.deltaMS;
+    if (_fpsAccum >= 500) {
+      fpsEl.textContent = `${Math.round(_fpsFrames / (_fpsAccum / 1000))} FPS`;
+      _fpsAccum = 0;
+      _fpsFrames = 0;
+    }
+  });
+  onConfigChange((cfg) => {
+    fpsEl.style.display = cfg.graphics.mostrarFps ? 'block' : 'none';
+  });
+
+  // ── Scanlines CRT overlay ──
+  const scanlinesEl = document.createElement('div');
+  scanlinesEl.style.cssText = `
+    position: fixed; inset: 0; z-index: 99; pointer-events: none;
+    background:
+      repeating-linear-gradient(
+        0deg,
+        transparent 0px,
+        transparent 1px,
+        rgba(0, 0, 0, 0.12) 1px,
+        rgba(0, 0, 0, 0.12) 2px
+      ),
+      radial-gradient(ellipse at 50% 50%, transparent 60%, rgba(0,0,0,0.25) 100%);
+    display: ${gfx.scanlines ? 'block' : 'none'};
+  `;
+  document.body.appendChild(scanlinesEl);
+  onConfigChange((cfg) => {
+    scanlinesEl.style.display = cfg.graphics.scanlines ? 'block' : 'none';
   });
 
   document.body.style.margin = '0';
@@ -61,6 +187,8 @@ async function bootstrap(): Promise<void> {
   });
 
   _app = app;
+  (window as any)._app = app;
+  setAppReferenceForBake(app);
 
   // Build the menu background: a lightweight single-system world, not
   // the full 18-system game world. When the player clicks Novo Jogo we
@@ -73,6 +201,7 @@ async function bootstrap(): Promise<void> {
   // the whole thing fits nicely in view.
   setCameraPos(mundoMenu.sistema.sol.x, mundoMenu.sistema.sol.y);
   setZoom(0.55);
+  instalarEdgeScroll();
 
   // Keyboard zoom — installed once, active during both menu and game.
   window.addEventListener('keydown', (e) => {
@@ -166,6 +295,7 @@ function startTicker(): void {
 
     const camera = getCamera();
     atualizarCamera(mundo, app);
+    aplicarEdgeScrollAoCamera(app.ticker.deltaMS);
     atualizarMundo(mundo, app, camera);
 
     atualizarMinimap(camera);

@@ -128,6 +128,8 @@ export function abrirNewWorldModal(opts: OpenOpts): void {
 
   const container = document.createElement('div');
   container.className = 'new-world-modal';
+  container.setAttribute('data-ui', 'true');
+  container.style.pointerEvents = 'auto';
 
   const card = document.createElement('div');
   card.className = 'nwm-card';

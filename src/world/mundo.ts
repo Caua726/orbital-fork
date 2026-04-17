@@ -4,8 +4,9 @@ import type { Mundo, Planeta, Sol, Nave, Camera, TipoJogador } from '../types';
 import { criarFundo, atualizarFundo } from './fundo';
 import { TIPO_PLANETA } from './planeta';
 import { atualizarTempoPlanetas, atualizarLuzPlaneta } from './planeta-procedural';
-import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria } from './nevoa';
+import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria, aplicarLimiteFantasmas } from './nevoa';
 import { criarSistemaSolar } from './sistema';
+import { calcularBoundsViewport } from './viewport-bounds';
 import { resetarNomesPlanetas } from './nomes';
 import { atualizarNaves, atualizarSelecaoNave, carregarSpritesheetNaves } from './naves';
 import { atualizarPesquisaPlaneta } from './pesquisa';
@@ -258,28 +259,43 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   profileAcumular('logica', t);
 
   const zoom = camera.zoom || 1;
-  const camX = camera.x + app.screen.width / 2;
-  const camY = camera.y + app.screen.height / 2;
 
   t = profileMark();
-  atualizarFundo(mundo.fundo as ReturnType<typeof criarFundo>, camX, camY, app.screen.width, app.screen.height);
+  atualizarFundo(
+    mundo.fundo as ReturnType<typeof criarFundo>,
+    camera.x,
+    camera.y,
+    app.screen.width / zoom,
+    app.screen.height / zoom,
+  );
   profileAcumular('fundo', t);
 
-  const margem = 600 / zoom;
-  const esq = camera.x - margem;
-  const dir = camera.x + app.screen.width / zoom + margem;
-  const cima = camera.y - margem;
-  const baixo = camera.y + app.screen.height / zoom + margem;
+  const bounds = calcularBoundsViewport(
+    camera.x,
+    camera.y,
+    camera.zoom,
+    app.screen.width,
+    app.screen.height,
+  );
+  const { esq, dir, cima, baixo } = bounds;
 
   t = profileMark();
   atualizarCampoDeVisao(mundo, camera, app);
   profileAcumular('fog', t);
 
+  const gfxCfg = getConfig().graphics;
+
   t = profileMark();
   for (const planeta of mundo.planetas) {
     const visNaTela = planeta.x > esq && planeta.x < dir && planeta.y > cima && planeta.y < baixo;
     const vis = visNaTela && planeta._visivelAoJogador;
-    planeta.visible = vis;
+    // When baked, hide mesh and control sprite visibility instead
+    if ((planeta as any)._bakedSprite) {
+      planeta.visible = false;
+      (planeta as any)._bakedSprite.visible = vis;
+    } else {
+      planeta.visible = vis;
+    }
 
     const raioOrbita = planeta._orbita.raio;
     const orbitaNaTela =
@@ -290,7 +306,7 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     const sistema = mundo.sistemas[planeta.dados.sistemaId];
     const solDoSistema = sistema?.sol;
     const orbitaDescoberta = planeta._descobertoAoJogador && !!(solDoSistema?._descobertoAoJogador);
-    planeta._linhaOrbita.visible = orbitaDescoberta && orbitaNaTela;
+    planeta._linhaOrbita.visible = gfxCfg.mostrarOrbitas && orbitaDescoberta && orbitaNaTela;
     planeta._linhaOrbita.alpha = planeta._visivelAoJogador && !!(solDoSistema?._visivelAoJogador) ? 0.5 : 0.18;
 
     if (vis) {
@@ -303,16 +319,24 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
       desenharConstrucoesPlaneta(planeta);
     }
 
-    atualizarVisibilidadeMemoria(planeta, planeta._visivelAoJogador, esq, dir, cima, baixo);
+    atualizarVisibilidadeMemoria(planeta, planeta._visivelAoJogador, esq, dir, cima, baixo, gfxCfg.maxFantasmas);
     atualizarEscalaLabelMemoria(planeta, zoom);
   }
+  aplicarLimiteFantasmas(mundo);
   profileAcumular('planetas', t);
 
   t = profileMark();
   for (const sol of mundo.sois) {
     const visNaTela = sol.x > esq && sol.x < dir && sol.y > cima && sol.y < baixo;
-    sol.visible = visNaTela && (sol._visivelAoJogador || sol._descobertoAoJogador);
-    sol.alpha = sol._visivelAoJogador ? 1 : 0.28;
+    const solVis = visNaTela && (sol._visivelAoJogador || sol._descobertoAoJogador);
+    if ((sol as any)._bakedSprite) {
+      sol.visible = false;
+      (sol as any)._bakedSprite.visible = solVis;
+      (sol as any)._bakedSprite.alpha = sol._visivelAoJogador ? 1 : 0.28;
+    } else {
+      sol.visible = solVis;
+      sol.alpha = sol._visivelAoJogador ? 1 : 0.28;
+    }
   }
 
   for (const nave of mundo.naves) {

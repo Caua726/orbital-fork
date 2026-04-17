@@ -1079,6 +1079,8 @@ export function criarColonizerPanel(): HTMLDivElement {
 
   const panel = document.createElement('div');
   panel.className = 'colonizer-panel';
+  panel.setAttribute('data-ui', 'true');
+  panel.style.pointerEvents = 'auto';
   panel.addEventListener('pointerdown', () => marcarInteracaoUi());
 
   const row = document.createElement('div');

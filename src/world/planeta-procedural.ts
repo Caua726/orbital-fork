@@ -1,8 +1,16 @@
-import { Mesh, Shader, GlProgram, GpuProgram, UniformGroup, Geometry, Buffer, State } from 'pixi.js';
+import { Mesh, Shader, GlProgram, GpuProgram, UniformGroup, Geometry, Buffer, State, Sprite, Container, Rectangle } from 'pixi.js';
+import type { Application } from 'pixi.js';
 import vertexSrc from '../shaders/planeta.vert?raw';
 import fragmentSrc from '../shaders/planeta.frag?raw';
 import wgslSrc from '../shaders/planeta.wgsl?raw';
 import { TIPO_PLANETA } from './planeta';
+import { getConfig, onConfigChange } from '../core/config';
+
+let _appRef: Application | null = null;
+
+export function setAppReferenceForBake(app: Application): void {
+  _appRef = app;
+}
 
 interface PaletaPlaneta {
   planetType: number;
@@ -268,10 +276,92 @@ export function criarPlanetaProceduralSprite(
   return mesh;
 }
 
+// Cached shaderLive flag — initialized from config and updated by observer
+let _shaderLive = getConfig().graphics.shaderLive;
+onConfigChange((cfg) => { _shaderLive = cfg.graphics.shaderLive; });
+
+/**
+ * Lazily bake a planet/star mesh into a static Sprite. The mesh is hidden
+ * (not destroyed) so we can swap back when shaderLive is re-enabled.
+ * The baked sprite is stored as `_bakedSprite` on the mesh.
+ */
+function bakePlaneta(planeta: any): void {
+  if (!_appRef) return;
+  if ((planeta as any)._bakedSprite) return; // already baked
+  const mesh = planeta as Mesh;
+  const shader = (mesh as any)._planetShader as Shader | undefined;
+  if (!shader) return;
+
+  try {
+    const tamanho = mesh.scale.x;
+    const frameSize = Math.max(64, tamanho * 1.08);
+
+    const clone = new Mesh({ geometry: quadGeometry, shader, state: mesh.state });
+    clone.scale.set(tamanho);
+    clone.position.set(frameSize / 2, frameSize / 2);
+    const wrapper = new Container();
+    wrapper.addChild(clone);
+
+    const texture = _appRef.renderer.generateTexture({
+      target: wrapper,
+      frame: new Rectangle(0, 0, frameSize, frameSize),
+      resolution: 1,
+      antialias: true,
+    });
+    clone.destroy();
+    wrapper.destroy();
+
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    sprite.width = tamanho;
+    sprite.height = tamanho;
+
+    // Add baked sprite as sibling, hide the mesh
+    (planeta as any)._bakedSprite = sprite;
+    if (mesh.parent) {
+      mesh.parent.addChildAt(sprite, mesh.parent.getChildIndex(mesh));
+      sprite.x = mesh.x;
+      sprite.y = mesh.y;
+    }
+    mesh.visible = false;
+    sprite.visible = true;
+  } catch (err) {
+    console.warn('[planeta-procedural] bake failed:', err);
+  }
+}
+
+/** Swap back from baked sprite to live mesh. */
+function unbakePlaneta(planeta: any): void {
+  const sprite = (planeta as any)._bakedSprite as Sprite | undefined;
+  if (!sprite) return;
+  sprite.visible = false;
+  if (sprite.parent) sprite.parent.removeChild(sprite);
+  const tex = sprite.texture;
+  sprite.destroy();
+  tex.destroy(true);
+  (planeta as any)._bakedSprite = null;
+  (planeta as any).visible = true; // restore mesh; culling will correct it later this frame
+}
+
 export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
+  if (!_shaderLive) {
+    // Lazily bake visible planets on first frame after toggle
+    for (const planeta of planetas) {
+      if (!(planeta as any)._bakedSprite) bakePlaneta(planeta);
+      // Keep baked sprite position in sync (planet orbits move it)
+      const sprite = (planeta as any)._bakedSprite as Sprite | undefined;
+      if (sprite) {
+        sprite.x = planeta.x;
+        sprite.y = planeta.y;
+      }
+    }
+    return;
+  }
+
+  // shaderLive is ON — unbake any baked planets and resume updates
   const deltaSec = deltaMs / 1000;
   for (const planeta of planetas) {
-    // Only update uniforms for visible planets (off-screen ones are skipped)
+    if ((planeta as any)._bakedSprite) unbakePlaneta(planeta);
     if (!planeta.visible) continue;
     const shader = (planeta as any)._planetShader as Shader | undefined;
     if (shader) {
@@ -346,6 +436,7 @@ export function criarEstrelaProcedural(
   mesh.y = y;
   (mesh as any)._planetShader = shader;
   (mesh as any)._rotSpeed = 0.005 + Math.random() * 0.01;
+
 
   return mesh;
 }

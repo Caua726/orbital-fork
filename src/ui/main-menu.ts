@@ -6,9 +6,10 @@
  */
 
 import { marcarInteracaoUi } from './interacao-ui';
+import { confirmarAcao } from './confirmar-acao';
 import { getBackendAtivo } from '../world/save';
 import type { SaveMetadata } from '../world/save';
-import { montarSettingsPanel } from './settings-panel';
+import { renderSettingsInto } from './settings-panel';
 
 interface MainMenuOptions {
   onNewGame: () => void;
@@ -361,6 +362,34 @@ function buildSavesScreen(): HTMLDivElement {
   return screen;
 }
 
+function buildSettingsScreen(): HTMLDivElement {
+  const screen = document.createElement('div');
+  screen.className = 'menu-screen hidden';
+
+  const title = document.createElement('h2');
+  title.className = 'menu-section-title';
+  title.textContent = 'Configurações';
+  screen.appendChild(title);
+
+  const settingsHost = document.createElement('div');
+  settingsHost.style.cssText = `
+    background: var(--hud-bg);
+    border: 1px solid var(--hud-border);
+    border-radius: var(--hud-radius);
+    box-shadow: 0 calc(var(--hud-unit) * 0.4) calc(var(--hud-unit) * 1.2) rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    padding: calc(var(--hud-unit) * 1.2);
+    max-height: 60vh;
+    overflow-y: auto;
+    width: calc(var(--hud-unit) * 32);
+  `;
+  screen.appendChild(settingsHost);
+
+  renderSettingsInto(settingsHost);
+
+  return screen;
+}
+
 async function refreshSavesList(list: HTMLDivElement): Promise<void> {
   list.replaceChildren();
   const saves = await listSavedWorlds();
@@ -394,9 +423,10 @@ async function refreshSavesList(list: HTMLDivElement): Promise<void> {
       e.stopPropagation();
       e.preventDefault();
       marcarInteracaoUi();
-      if (!confirm(`Apagar mundo "${save.nome}" permanentemente?`)) return;
-      const backend = getBackendAtivo();
-      void Promise.resolve(backend.apagar(save.nome)).then(() => refreshSavesList(list));
+      confirmarAcao(`Apagar mundo "${save.nome}" permanentemente?`, () => {
+        const backend = getBackendAtivo();
+        void Promise.resolve(backend.apagar(save.nome)).then(() => refreshSavesList(list));
+      });
     });
     card.appendChild(del);
 
@@ -429,20 +459,6 @@ function formatarSalvoEm(ts: number): string {
   if (diff < 3_600_000) return `há ${Math.floor(diff / 60_000)} min`;
   if (diff < 86_400_000) return `há ${Math.floor(diff / 3_600_000)} h`;
   return `há ${Math.floor(diff / 86_400_000)} dias`;
-}
-
-function buildSettingsScreen(): HTMLDivElement {
-  const screen = document.createElement('div');
-  screen.className = 'menu-screen hidden';
-
-  const title = document.createElement('h2');
-  title.className = 'menu-section-title';
-  title.textContent = 'Configurações';
-  screen.appendChild(title);
-
-  screen.appendChild(montarSettingsPanel());
-
-  return screen;
 }
 
 function showMainScreen(): void {
@@ -481,6 +497,8 @@ export function criarMainMenu(options: MainMenuOptions): HTMLDivElement {
 
   const container = document.createElement('div');
   container.className = 'main-menu';
+  container.setAttribute('data-ui', 'true');
+  container.style.pointerEvents = 'auto';
 
   // Back button (hidden on main screen)
   const back = document.createElement('button');
@@ -494,7 +512,6 @@ export function criarMainMenu(options: MainMenuOptions): HTMLDivElement {
     showMainScreen();
   });
   _backBtn = back;
-  container.appendChild(back);
 
   // Screens (wrapped for slide transitions)
   _mainScreen = buildMainScreen();
@@ -503,6 +520,7 @@ export function criarMainMenu(options: MainMenuOptions): HTMLDivElement {
   const screensWrapper = document.createElement('div');
   screensWrapper.style.cssText = 'position: relative; width: 100%; flex: 1; display: flex; align-items: center; justify-content: center;';
   screensWrapper.append(_mainScreen, _savesScreen, _settingsScreen);
+  container.appendChild(back);
   container.appendChild(screensWrapper);
 
   // Footer

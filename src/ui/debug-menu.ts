@@ -3,7 +3,7 @@ import type { Mundo, CheatsState, DebugConfig, ProfilingData } from '../types';
 import { getCamera } from '../core/player';
 // Reuse the state objects that the existing game systems already read from.
 // Flipping these here affects the game live, no wiring needed.
-import { cheats, config, getRendererPreference, setRendererPreference } from './debug';
+import { cheats, config } from './debug';
 import { profiling } from '../world/mundo';
 
 interface DebugState {
@@ -345,19 +345,6 @@ function injectStyles(): void {
       outline: none;
     }
 
-    .debug-select {
-      width: 100%;
-      background: rgba(0,0,0,0.5);
-      color: #f5f5f5;
-      border: 1px solid rgba(255,255,255,0.3);
-      border-radius: 3px;
-      padding: calc(var(--hud-unit) * 0.4);
-      font-family: inherit;
-      font-size: clamp(10px, 1vmin, 12px);
-      outline: none;
-      margin-top: calc(var(--hud-unit) * 0.3);
-    }
-
     .debug-value-warn { color: #ffcc40 !important; }
     .debug-value-bad { color: #ff5050 !important; }
     .debug-value-ok { color: #60ff90 !important; }
@@ -657,36 +644,6 @@ export function criarDebugMenu(app: Application, mundo: Mundo): HTMLDivElement {
   visionSec.appendChild(createSlider('Fog throttle (frames)', 1, 10, 1, config.fogThrottle, (v) => { config.fogThrottle = v; }));
 
   panel.appendChild(visionSec);
-
-  // --- Renderer section
-  const rendererSec = document.createElement('div');
-  rendererSec.className = 'debug-section';
-  const rendererTitle = document.createElement('div');
-  rendererTitle.className = 'debug-section-title';
-  rendererTitle.textContent = 'Renderer';
-  rendererSec.appendChild(rendererTitle);
-
-  const select = document.createElement('select');
-  select.className = 'debug-select';
-  for (const [val, label] of [['webgl', 'WebGL'], ['webgpu', 'WebGPU']]) {
-    const opt = document.createElement('option');
-    opt.value = val;
-    opt.textContent = label;
-    select.appendChild(opt);
-  }
-  select.value = getRendererPreference();
-  rendererSec.appendChild(select);
-
-  const applyBtn = document.createElement('button');
-  applyBtn.className = 'debug-action-btn';
-  applyBtn.textContent = 'Apply & Reload';
-  applyBtn.addEventListener('click', () => {
-    setRendererPreference(select.value);
-    window.location.reload();
-  });
-  rendererSec.appendChild(applyBtn);
-
-  panel.appendChild(rendererSec);
 
   // --- Actions section
   const actionsSec = document.createElement('div');

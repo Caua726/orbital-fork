@@ -536,6 +536,8 @@ export function criarShipPanel(): HTMLDivElement {
 
   const panel = document.createElement('div');
   panel.className = 'ship-panel';
+  panel.setAttribute('data-ui', 'true');
+  panel.style.pointerEvents = 'auto';
   panel.addEventListener('pointerdown', () => marcarInteracaoUi());
 
   const row = document.createElement('div');

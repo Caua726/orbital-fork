@@ -584,6 +584,8 @@ export function criarPlanetPanel(): HTMLDivElement {
 
   const panel = document.createElement('div');
   panel.className = 'hud-panel planet-panel';
+  panel.setAttribute('data-ui', 'true');
+  panel.style.pointerEvents = 'auto';
   panel.addEventListener('pointerdown', () => {
     marcarInteracaoUi();
   });

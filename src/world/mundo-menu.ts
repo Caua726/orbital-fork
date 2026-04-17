@@ -1,6 +1,7 @@
 import { Container } from 'pixi.js';
 import type { Application } from 'pixi.js';
 import type { Planeta, Sistema } from '../types';
+import { getCamera } from '../core/player';
 import { criarFundo, atualizarFundo } from './fundo';
 import { criarSistemaSolar } from './sistema';
 import { atualizarTempoPlanetas, atualizarLuzPlaneta } from './planeta-procedural';
@@ -95,7 +96,8 @@ export function atualizarMundoMenu(
   }
   atualizarTempoPlanetas(mundo.planetas, deltaMs);
   atualizarTempoPlanetas([mundo.sistema.sol], deltaMs);
-  atualizarFundo(mundo.fundo, camX, camY, app.screen.width, app.screen.height);
+  const zoom = getCamera().zoom || 1;
+  atualizarFundo(mundo.fundo, camX, camY, app.screen.width / zoom, app.screen.height / zoom);
 }
 
 export function destruirMundoMenu(mundo: MundoMenu, app: Application): void {

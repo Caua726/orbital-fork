@@ -1,4 +1,5 @@
 import { Sprite, Texture, Container } from 'pixi.js';
+import { getConfig } from '../core/config';
 
 const TILE = 2048;
 
@@ -26,7 +27,8 @@ function gerarTile(w: number, h: number, seed: number): Texture {
   let s = seed;
   const rand = (): number => { s = (s * 16807 + 0) % 2147483647; return s / 2147483647; };
 
-  const estrelas = Math.floor(180 * (w / TILE) * (h / TILE));
+  const densidade = getConfig().graphics.densidadeStarfield;
+  const estrelas = Math.max(1, Math.floor(180 * (w / TILE) * (h / TILE) * densidade));
   for (let i = 0; i < estrelas; i++) {
     const x = rand() * w;
     const y = rand() * h;
@@ -70,6 +72,24 @@ export function criarFundo(tamanhoMundo: number): FundoContainer {
   return container;
 }
 
+/**
+ * Atualiza o starfield do fundo pra refletir o panning da câmera.
+ *
+ * IMPORTANTE: `jogadorX/jogadorY` são o centro da viewport em
+ * coordenadas de mundo. `telaW/telaH` são as dimensões da viewport
+ * visível em **unidades de MUNDO**, não pixels — o chamador deve
+ * dividir screen.width/height pelo zoom antes de passar aqui.
+ *
+ * Exemplo de chamada correta:
+ *   atualizarFundo(fundo, camera.x, camera.y,
+ *                  app.screen.width / zoom, app.screen.height / zoom);
+ *
+ * @param fundo   Container do starfield retornado por criarFundo()
+ * @param jogadorX Centro X da viewport em world units
+ * @param jogadorY Centro Y da viewport em world units
+ * @param telaW   Largura da viewport em world units
+ * @param telaH   Altura da viewport em world units
+ */
 export function atualizarFundo(fundo: FundoContainer, jogadorX: number, jogadorY: number, telaW: number, telaH: number): void {
   const margem = TILE;
   const esq = jogadorX - telaW / 2 - margem;

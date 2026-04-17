@@ -196,6 +196,8 @@ export function criarSidebar(): HTMLDivElement {
 
   const sidebar = document.createElement('div');
   sidebar.className = 'hud-panel sidebar';
+  sidebar.setAttribute('data-ui', 'true');
+  sidebar.style.pointerEvents = 'auto';
 
   for (const item of NAV_ITEMS) {
     sidebar.appendChild(createNavButton(item));

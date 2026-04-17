@@ -40,7 +40,7 @@ function injectStyles(): void {
       inset: 0;
       background: rgba(0,0,0,0.6);
       backdrop-filter: blur(3px);
-      z-index: 220;
+      z-index: 950;
       display: none;
     }
     .confirm-backdrop.visible { display: block; }
@@ -59,7 +59,7 @@ function injectStyles(): void {
       backdrop-filter: blur(4px);
       color: var(--hud-text);
       font-family: var(--hud-font-body);
-      z-index: 221;
+      z-index: 951;
 
       opacity: 0;
       transform: translate(-50%, calc(-50% + var(--hud-unit) * 0.5)) scale(0.98);
@@ -189,6 +189,8 @@ export function criarConfirmDialog(): void {
 
   const modal = document.createElement('div');
   modal.className = 'confirm-dialog';
+  modal.setAttribute('data-ui', 'true');
+  modal.style.pointerEvents = 'auto';
   modal.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     marcarInteracaoUi();

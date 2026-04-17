@@ -2,6 +2,8 @@ import { Container, Graphics, Text } from 'pixi.js';
 import type { Planeta, Mundo, FonteVisao, Camera } from '../types';
 import { nomeTipoPlaneta } from './planeta';
 import { criarPlanetaProceduralSprite } from './planeta-procedural';
+import { calcularBoundsViewport } from './viewport-bounds';
+import { getConfig } from '../core/config';
 
 interface MemoriaPlanetaDados {
   dono: string;
@@ -255,9 +257,14 @@ function formatarTempoPassado(ms: number): string {
   return `~${Math.floor(min / 60)}h atrás`;
 }
 
-export function atualizarVisibilidadeMemoria(planeta: Planeta, visivelAoJogador: boolean, esq: number, dir: number, cima: number, baixo: number): void {
+export function atualizarVisibilidadeMemoria(planeta: Planeta, visivelAoJogador: boolean, esq: number, dir: number, cima: number, baixo: number, maxFantasmas: number): void {
   const memoria = memorias.get(planeta);
   if (!memoria) return;
+
+  if (maxFantasmas === 0) {
+    memoria.visual.visible = false;
+    return;
+  }
 
   const memoriaDados = memoria.dados;
   const deveMostrar = memoria.conhecida && !visivelAoJogador && !!memoriaDados;
@@ -278,6 +285,32 @@ export function atualizarVisibilidadeMemoria(planeta: Planeta, visivelAoJogador:
     }
   } else {
     memoria.visual.visible = false;
+  }
+}
+
+/**
+ * Enforces the max-fantasmas cap. Called once per frame (from
+ * atualizarMundo) after all individual atualizarVisibilidadeMemoria
+ * calls. Visible ghosts beyond the cap are hidden, ordered by timestamp
+ * desc (most recent wins).
+ */
+export function aplicarLimiteFantasmas(mundo: Mundo): void {
+  const max = getConfig().graphics.maxFantasmas;
+  if (max < 0) return; // unlimited
+  if (max === 0) return; // already handled in atualizarVisibilidadeMemoria
+
+  const visiveis: Array<{ planeta: Planeta; ts: number }> = [];
+  for (const p of mundo.planetas) {
+    const m = memorias.get(p);
+    if (!m || !m.visual.visible || !m.dados) continue;
+    visiveis.push({ planeta: p, ts: m.dados.timestamp });
+  }
+  if (visiveis.length <= max) return;
+
+  visiveis.sort((a, b) => b.ts - a.ts);
+  for (let i = max; i < visiveis.length; i++) {
+    const m = memorias.get(visiveis[i].planeta);
+    if (m) m.visual.visible = false;
   }
 }
 
@@ -326,13 +359,13 @@ let _fogProfFrames: number = 0;
 export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], camera: Camera, screenW: number, screenH: number, zoom: number): void {
   _fogFrame++;
 
-  const invZoom = 1 / (zoom || 1);
-  const margem = 1500 * invZoom;
-
-  const worldX = camera.x - margem;
-  const worldY = camera.y - margem;
-  const worldW = screenW * invZoom + margem * 2;
-  const worldH = screenH * invZoom + margem * 2;
+  // margemMin=0 (sem piso constante), margemMultiplier=1500 (replica
+  // exatamente o comportamento original margem=1500*invZoom).
+  const bounds = calcularBoundsViewport(camera.x, camera.y, zoom, screenW, screenH, 0, 1500);
+  const worldX = bounds.esq;
+  const worldY = bounds.cima;
+  const worldW = bounds.dir - bounds.esq;
+  const worldH = bounds.baixo - bounds.cima;
 
   // Resolução fixa — nunca muda com zoom
   const canvasW = FOG_MAX_W;
@@ -347,8 +380,10 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
     _fogCtx = _fogCanvas.getContext('2d');
   }
 
-  // Só redesenhar canvas a cada N frames
-  const redesenhar = _fogFrame % config.fogThrottle === 0;
+  // Só redesenhar canvas a cada N frames (fogThrottle >= 1 sempre)
+  const gfxCfg = getConfig().graphics;
+  const fogT = Math.max(1, gfxCfg.fogThrottle);
+  const redesenhar = _fogFrame % fogT === 0;
 
   if (redesenhar) {
     const t0 = performance.now();

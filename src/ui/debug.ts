@@ -35,13 +35,6 @@ export const config: DebugConfig = {
   fogThrottle: 3,
 };
 
-export function getRendererPreference(): string {
-  return localStorage.getItem('renderer') || 'webgl';
-}
-export function setRendererPreference(val: string): void {
-  localStorage.setItem('renderer', val);
-}
-
 // === Historico para graficos ===
 const _fpsHist: number[] = [];
 const _profHist: Record<string, number[]> = { logica: [], fundo: [], fog: [], planetas: [], render: [] };
@@ -465,39 +458,6 @@ function criarPopupHTML(): DebugPopup {
   const cLeft = el('div');
   ctrlGrid.appendChild(cLeft);
 
-  cLeft.appendChild(secTitle('RENDERER'));
-  const rendAtual = el('div', { fontSize: '11px', marginBottom: '8px', color: '#667' });
-  rendAtual.id = 'dbg-renderer-atual';
-  cLeft.appendChild(rendAtual);
-
-  const rendSelect = document.createElement('select');
-  rendSelect.id = 'dbg-renderer-select';
-  Object.assign(rendSelect.style, {
-    background: '#0a1020', color: '#60ccff', border: '1px solid #2a4070',
-    borderRadius: '4px', padding: '6px 10px', fontFamily: 'monospace',
-    fontSize: '11px', width: '100%', marginBottom: '8px',
-  });
-  for (const [val, label] of [['webgl', 'WebGL (GPU)'], ['webgpu', 'WebGPU (GPU)']]) {
-    const opt = document.createElement('option');
-    opt.value = val;
-    opt.textContent = label;
-    rendSelect.appendChild(opt);
-  }
-  rendSelect.value = getRendererPreference();
-  cLeft.appendChild(rendSelect);
-
-  const rendBtn = el('button', {
-    background: 'linear-gradient(180deg, #1a3060, #102040)', color: '#60ccff',
-    border: '1px solid #2a4070', borderRadius: '4px', padding: '8px 16px',
-    fontFamily: 'monospace', fontSize: '11px', cursor: 'pointer', width: '100%',
-    transition: 'all 0.15s',
-  }, 'Aplicar e Recarregar');
-  rendBtn.addEventListener('click', () => { setRendererPreference(rendSelect.value); window.location.reload(); });
-  rendBtn.addEventListener('mouseenter', () => { rendBtn.style.borderColor = '#4a90cc'; });
-  rendBtn.addEventListener('mouseleave', () => { rendBtn.style.borderColor = '#2a4070'; });
-  cLeft.appendChild(rendBtn);
-
-  cLeft.appendChild(el('div', { height: '16px' }));
   cLeft.appendChild(secTitle('AJUSTES DE VISAO'));
   criarSlider(cLeft, 'Raio visao planeta', 200, 2000, 50, config.raioVisaoBase, 'raioVisaoBase');
   criarSlider(cLeft, 'Raio visao nave', 100, 1500, 50, config.raioVisaoNave, 'raioVisaoNave');
@@ -729,10 +689,6 @@ export function atualizarDebug(debug: DebugPopup, mundo: Mundo, app: Application
 
   atualizarBarra();
   desenharGraficoProf(_popup._profCanvas, _profHist);
-
-  // Renderer atual
-  const rendAtualEl = _popup.querySelector('#dbg-renderer-atual');
-  if (rendAtualEl) rendAtualEl.textContent = `Atual: ${rendererType}`;
 
   // Cheats recursos
   if (cheats.recursosInfinitos) {

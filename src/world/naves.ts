@@ -5,6 +5,7 @@ import { cheats } from '../ui/debug';
 import { notifColonizacao, mostrarNotificacao } from '../ui/notificacao';
 import { somConquista } from '../audio/som';
 import { revelarSistemaCompleto } from './visao';
+import { confirmarAcao } from '../ui/confirmar-acao';
 import { carregarSpritesheet, getSpritesheetTexture, onSpritesheetReady } from './spritesheets';
 
 // ─── Spritesheet loading ────────────────────────────────────────────────────
@@ -597,7 +598,9 @@ export function recolherColonizadoraParaOrigem(mundo: Mundo, nave: Nave): boolea
 
 /** Scrap a colonizadora on demand (e.g. when the player gives up on a stuck outpost). */
 export function sucatearNave(mundo: Mundo, nave: Nave): void {
-  removerNave(mundo, nave);
+  confirmarAcao(`Sucatear nave "${nave.tipo}"?`, () => {
+    removerNave(mundo, nave);
+  });
 }
 
 /** Called by the colony-modal UI when the player confirms colonization. */

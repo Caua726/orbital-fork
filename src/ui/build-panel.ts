@@ -607,6 +607,8 @@ export function criarBuildPanel(): HTMLDivElement {
 
   const panel = document.createElement('div');
   panel.className = 'build-panel';
+  panel.setAttribute('data-ui', 'true');
+  panel.style.pointerEvents = 'auto';
   panel.addEventListener('pointerdown', () => marcarInteracaoUi());
 
   const tabs = document.createElement('div');

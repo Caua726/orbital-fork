@@ -180,6 +180,8 @@ function injectStyles(): void {
 function buildModal(): HTMLDivElement {
   const modal = document.createElement('div');
   modal.className = 'colony-modal';
+  modal.setAttribute('data-ui', 'true');
+  modal.style.pointerEvents = 'auto';
   modal.addEventListener('pointerdown', () => marcarInteracaoUi());
 
   const title = document.createElement('h2');

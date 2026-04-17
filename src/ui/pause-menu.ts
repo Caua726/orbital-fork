@@ -1,6 +1,8 @@
 import { salvarAgora, pararAutosave, getUltimoErro } from '../world/save';
 import { toast } from './toast';
 import { marcarInteracaoUi } from './interacao-ui';
+import { getConfig } from '../core/config';
+import { abrirSettings } from './settings-panel';
 
 let _container: HTMLDivElement | null = null;
 let _styleInjected = false;
@@ -132,6 +134,8 @@ export function abrirPauseMenu(): void {
 
   const overlay = document.createElement('div');
   overlay.className = 'pause-menu';
+  overlay.setAttribute('data-ui', 'true');
+  overlay.style.pointerEvents = 'auto';
 
   const card = document.createElement('div');
   card.className = 'pm-card';
@@ -159,11 +163,43 @@ export function abrirPauseMenu(): void {
   });
   card.appendChild(btnSave);
 
+  const btnConfig = criarBotao('Configurações', () => {
+    fecharPauseMenu();
+    abrirSettings();
+  });
+  card.appendChild(btnConfig);
+
   card.appendChild(criarSeparador());
 
-  // Back to menu — inline confirmation
+  // Back to menu — inline confirmation (skipped if confirmarDestrutivo is false)
   let _confirmVisible = false;
+  function executarVoltarAoMenu(): void {
+    salvarAgora();
+    pararAutosave();
+    if (_container) {
+      const c = _container;
+      const cardEl = c.querySelector('.pm-card') as HTMLElement | null;
+      if (cardEl) {
+        cardEl.style.transition = 'opacity 200ms ease-out, transform 240ms ease-out';
+        cardEl.style.opacity = '0';
+        cardEl.style.transform = 'translateY(calc(var(--hud-unit) * -0.4)) scale(0.97)';
+      }
+      c.style.transition = 'opacity 350ms ease-out';
+      setTimeout(() => { c.style.opacity = '0'; }, 100);
+      setTimeout(() => {
+        c.remove();
+        _container = null;
+        window.dispatchEvent(new CustomEvent('orbital:voltar-ao-menu'));
+      }, 400);
+    } else {
+      window.dispatchEvent(new CustomEvent('orbital:voltar-ao-menu'));
+    }
+  }
   const btnMenu = criarBotao('Voltar ao Menu', () => {
+    if (!getConfig().gameplay.confirmarDestrutivo) {
+      executarVoltarAoMenu();
+      return;
+    }
     if (_confirmVisible) return;
     _confirmVisible = true;
     btnMenu.style.display = 'none';
@@ -182,27 +218,7 @@ export function abrirPauseMenu(): void {
       _confirmVisible = false;
     });
     const btnConfirm = criarBotao('Sair', () => {
-      salvarAgora();
-      pararAutosave();
-      // Animate card out, then dispatch event for seamless teardown
-      if (_container) {
-        const c = _container;
-        const cardEl = c.querySelector('.pm-card') as HTMLElement | null;
-        if (cardEl) {
-          cardEl.style.transition = 'opacity 200ms ease-out, transform 240ms ease-out';
-          cardEl.style.opacity = '0';
-          cardEl.style.transform = 'translateY(calc(var(--hud-unit) * -0.4)) scale(0.97)';
-        }
-        c.style.transition = 'opacity 350ms ease-out';
-        setTimeout(() => { c.style.opacity = '0'; }, 100);
-        setTimeout(() => {
-          c.remove();
-          _container = null;
-          window.dispatchEvent(new CustomEvent('orbital:voltar-ao-menu'));
-        }, 400);
-      } else {
-        window.dispatchEvent(new CustomEvent('orbital:voltar-ao-menu'));
-      }
+      executarVoltarAoMenu();
     }, 'danger');
 
     row.append(btnCancel, btnConfirm);

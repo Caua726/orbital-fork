@@ -3,6 +3,7 @@ import { Graphics } from 'pixi.js';
 import type { Application } from 'pixi.js';
 import type { Mundo, Camera, Nave, Planeta, Sol } from '../types';
 import { consumirInteracaoUi } from '../ui/interacao-ui';
+import { getConfig } from './config';
 import {
   cancelarMovimentoNave,
   definirRotaManualNave,
@@ -378,4 +379,52 @@ export function atualizarCamera(mundo: Mundo, app: Application): void {
   mundo.container.scale.set(camera.zoom);
   mundo.container.x = -camera.x * camera.zoom + app.screen.width / 2;
   mundo.container.y = -camera.y * camera.zoom + app.screen.height / 2;
+}
+
+let _edgeScrollInstalled = false;
+let _edgeScrollVec = { x: 0, y: 0 };
+
+export function instalarEdgeScroll(): void {
+  if (_edgeScrollInstalled) return;
+  _edgeScrollInstalled = true;
+
+  const THRESHOLD = 40;
+
+  window.addEventListener('mousemove', (e) => {
+    if (!getConfig().gameplay.edgeScroll) {
+      _edgeScrollVec.x = 0;
+      _edgeScrollVec.y = 0;
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    if (target && target.closest?.('[data-ui="true"]')) {
+      _edgeScrollVec.x = 0;
+      _edgeScrollVec.y = 0;
+      return;
+    }
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    let dx = 0, dy = 0;
+    if (e.clientX < THRESHOLD) dx = -(THRESHOLD - e.clientX) / THRESHOLD;
+    else if (e.clientX > w - THRESHOLD) dx = (e.clientX - (w - THRESHOLD)) / THRESHOLD;
+    if (e.clientY < THRESHOLD) dy = -(THRESHOLD - e.clientY) / THRESHOLD;
+    else if (e.clientY > h - THRESHOLD) dy = (e.clientY - (h - THRESHOLD)) / THRESHOLD;
+    _edgeScrollVec.x = Math.max(-1, Math.min(1, dx));
+    _edgeScrollVec.y = Math.max(-1, Math.min(1, dy));
+  });
+
+  window.addEventListener('mouseleave', () => {
+    _edgeScrollVec.x = 0;
+    _edgeScrollVec.y = 0;
+  });
+}
+
+export function aplicarEdgeScrollAoCamera(deltaMs: number): void {
+  if (_edgeScrollVec.x === 0 && _edgeScrollVec.y === 0) return;
+  if (!getConfig().gameplay.edgeScroll) return;
+  const VELOCIDADE_MAX = 800;
+  const cam = getCamera();
+  const scale = VELOCIDADE_MAX * (deltaMs / 1000) / (cam.zoom || 1);
+  cam.x += _edgeScrollVec.x * scale;
+  cam.y += _edgeScrollVec.y * scale;
 }
