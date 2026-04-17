@@ -968,20 +968,12 @@ function renderGameplayTab(body: HTMLDivElement): void {
     const lbl = document.createElement('label');
     lbl.textContent = t('idioma.label');
     row.appendChild(lbl);
-    const select = document.createElement('select');
-    const opts: Array<['pt' | 'en', string]> = [
+    const select = criarSelect([
       ['pt', t('idioma.pt')],
       ['en', t('idioma.en')],
-    ];
-    for (const [val, label] of opts) {
-      const opt = document.createElement('option');
-      opt.value = val;
-      opt.textContent = label;
-      if (val === getIdioma()) opt.selected = true;
-      select.appendChild(opt);
-    }
+    ], getIdioma());
     select.addEventListener('change', () => {
-      trocarIdioma(select.value as 'pt' | 'en');
+      trocarIdioma(select.dataset.value as 'pt' | 'en');
     });
     row.appendChild(select);
     body.appendChild(row);
