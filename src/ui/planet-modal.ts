@@ -36,10 +36,11 @@ function injectStyles(): void {
   _styleInjected = true;
   const style = document.createElement('style');
   style.textContent = `
+    /* Backdrop kept but invisible — world stays interactive beneath
+       the side panel. Clicks on the world still reach the canvas. */
     .planeta-modal-backdrop {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,0.72);
-      backdrop-filter: blur(6px);
+      pointer-events: none;
       z-index: 940;
       display: none;
     }
@@ -47,9 +48,10 @@ function injectStyles(): void {
 
     .planeta-modal {
       position: fixed;
-      top: 50%; left: 50%;
-      width: clamp(360px, 60vmin, 720px);
-      max-height: 88vh;
+      top: 50%;
+      right: var(--hud-margin);
+      width: clamp(320px, 28vw, 420px);
+      max-height: 86vh;
       box-sizing: border-box;
       background: var(--hud-bg);
       border: 1px solid var(--hud-border);
@@ -64,21 +66,21 @@ function injectStyles(): void {
       overflow: hidden;
 
       opacity: 0;
-      transform: translate(-50%, calc(-50% + var(--hud-unit) * 0.8)) scale(0.97);
+      transform: translate(calc(var(--hud-unit) * 1.4), -50%);
       visibility: hidden;
       pointer-events: none;
       transition:
-        opacity 200ms ease-out,
+        opacity 180ms ease-out,
         transform 240ms cubic-bezier(0.2, 0.7, 0.2, 1),
         visibility 0s linear 240ms;
     }
     .planeta-modal.visible {
       opacity: 1;
-      transform: translate(-50%, -50%) scale(1);
+      transform: translate(0, -50%);
       visibility: visible;
       pointer-events: auto;
       transition:
-        opacity 200ms ease-out,
+        opacity 180ms ease-out,
         transform 240ms cubic-bezier(0.2, 0.7, 0.2, 1),
         visibility 0s linear 0s;
     }
@@ -173,11 +175,11 @@ function injectStyles(): void {
     }
 
     .planeta-modal-body {
-      padding: calc(var(--hud-unit) * 0.9) calc(var(--hud-unit) * 1.3) calc(var(--hud-unit) * 1.2);
+      padding: calc(var(--hud-unit) * 0.9) calc(var(--hud-unit) * 1.1) calc(var(--hud-unit) * 1);
       overflow-y: auto;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: calc(var(--hud-unit) * 0.9);
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--hud-unit) * 0.75);
     }
 
     .planeta-card {
@@ -650,9 +652,11 @@ function rebuildBody(p: Planeta, mundo: Mundo): void {
 function ensureModal(): void {
   if (_modal) return;
   injectStyles();
+  // The backdrop element still exists so the visible-class toggle keeps
+  // working, but it is pointer-events: none — the world beneath stays
+  // interactive while the side panel is open.
   const backdrop = document.createElement('div');
   backdrop.className = 'planeta-modal-backdrop';
-  backdrop.addEventListener('click', () => close());
   _backdrop = backdrop;
   document.body.appendChild(backdrop);
 
