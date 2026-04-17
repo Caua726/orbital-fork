@@ -25,17 +25,24 @@ const defaultFactories: ReconstruirFactories = {
     criarPlanetaProceduralSprite(x, y, tamanho, tipo) as unknown as Planeta,
 };
 
+/** Async fase callback — same signature as criarMundo's onFase. */
+export type FaseLoadCallback = (label: string) => Promise<void>;
+const noopLoadFase: FaseLoadCallback = async () => {};
+
 export async function reconstruirMundo(
   dto: MundoDTO,
   app: Application,
   factories: ReconstruirFactories = defaultFactories,
+  onFase: FaseLoadCallback = noopLoadFase,
 ): Promise<Mundo> {
+  await onFase('Lendo arquivo do mundo');
   resetarNomesPlanetas();
 
   const mv = criarMundoVazio(dto.tamanho);
 
   // 1. Reconstruct sois first — they hold the system centers planets
   //    orbit around.
+  await onFase('Reacendendo estrelas');
   const solsById = new Map<string, Sol>();
   for (const solDto of dto.sois) {
     const sol = reconstruirSol(solDto, factories);
@@ -45,6 +52,7 @@ export async function reconstruirMundo(
 
   // 2. Reconstruct planetas — position is derived from the saved orbit
   //    (centro + angulo + raio) so we don't need to persist x/y.
+  await onFase('Restaurando planetas');
   const planetasById = new Map<string, Planeta>();
   for (const planetaDto of dto.planetas) {
     const planeta = reconstruirPlaneta(planetaDto, factories, mv);
@@ -84,7 +92,11 @@ export async function reconstruirMundo(
   const planetas = Array.from(planetasById.values());
   const sois = Array.from(solsById.values());
 
+  // 4.5 Re-link sistemas
+  await onFase('Reconectando sistemas estelares');
+
   // 5. Reconstruct naves
+  await onFase(`Restaurando ${dto.naves.length} naves em órbita`);
   const naves: Nave[] = [];
   for (const naveDto of dto.naves) {
     const nave = reconstruirNave(naveDto, planetasById, solsById);
@@ -122,6 +134,7 @@ export async function reconstruirMundo(
   // 7. Rebuild fog-of-war memory visuals and restore captured snapshots.
   //    Tests flip skipVisuals so they don't need a real Pixi renderer.
   if (!factories.skipVisuals) {
+    await onFase('Recuperando névoa de guerra');
     for (const planeta of planetas) {
       criarMemoriaVisualPlaneta(mundo, planeta);
       const dtoRef = dto.planetas.find((p) => p.id === planeta.id);
@@ -139,6 +152,7 @@ export async function reconstruirMundo(
     }
   }
 
+  await onFase('Mundo carregado');
   return mundo;
 }
 

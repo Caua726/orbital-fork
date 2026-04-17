@@ -1,7 +1,9 @@
 import { Application } from 'pixi.js';
 import type { Mundo, TipoJogador } from './types';
-import { criarMundo, atualizarMundo, getEstadoJogo, destruirMundo, setDificuldadeProximoMundo } from './world/mundo';
+import { criarMundo, atualizarMundo, getEstadoJogo, destruirMundo, setDificuldadeProximoMundo, getDificuldadeAtual } from './world/mundo';
 import type { Dificuldade } from './world/personalidade-ia';
+import { gerarPersonalidades, PRESETS_DIFICULDADE } from './world/personalidade-ia';
+import { setPersonalidadesParaMundoCarregado } from './world/ia-decisao';
 import { criarMundoMenu, atualizarMundoMenu, destruirMundoMenu, type MundoMenu } from './world/mundo-menu';
 import { configurarCamera, destruirCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador, zoomIn, zoomOut, setZoom, instalarEdgeScroll, aplicarEdgeScrollAoCamera, cancelarComandoNaveSeAtivo } from './core/player';
 import { instalarDispatcher, onAction, onActionUp } from './core/input/dispatcher';
@@ -522,7 +524,15 @@ async function carregarMundo(nome: string): Promise<void> {
 
   try {
     setTipoJogador();
-    const mundo = await reconstruirMundo(dto, app);
+    const mundo = await reconstruirMundo(dto, app, undefined, async (label) => {
+      await setLoadingFase(label);
+    });
+    // Re-init AI personalities for any non-jogador, non-neutro owners
+    // present in the loaded world. Personalities are not persisted (yet),
+    // so we regenerate them from scratch — names/colors will differ from
+    // the original session but gameplay continues.
+    await setLoadingFase('Reativando civilizações');
+    reinicializarIasParaMundoCarregado(mundo);
     await entrarNoJogo(mundo, nome, dto.criadoEm, dto.tempoJogadoMs);
   } catch (err) {
     _transitioning = false;
@@ -530,6 +540,32 @@ async function carregarMundo(nome: string): Promise<void> {
     mostrarMainMenu();
     mostrarModalSaveCorrompido(nome, err);
   }
+}
+
+/**
+ * Scan the loaded world for AI-owned planets and regenerate personalities
+ * for each unique faction id present. Without this, AI ships sit motionless
+ * after load because no decision loop is active for their dono.
+ */
+function reinicializarIasParaMundoCarregado(mundo: Mundo): void {
+  const idsAtivos = new Set<string>();
+  for (const p of mundo.planetas) {
+    const d = p.dados.dono;
+    if (d.startsWith('inimigo')) idsAtivos.add(d);
+  }
+  if (idsAtivos.size === 0) return;
+  // Map saved AI ids to personalities — same forca as currently selected
+  // difficulty preset. If the player loaded a save into a different
+  // difficulty than they originally chose, the AI uses the new strength.
+  const dificuldade = getDificuldadeAtual();
+  const cfg = PRESETS_DIFICULDADE[dificuldade];
+  const ias = gerarPersonalidades(idsAtivos.size, cfg.forca || 1);
+  // Override the generated ids to match the saved ones (so dono === ia.id)
+  const idsArr = Array.from(idsAtivos);
+  for (let i = 0; i < ias.length; i++) {
+    ias[i].id = idsArr[i];
+  }
+  setPersonalidadesParaMundoCarregado(ias, cfg.tickMs);
 }
 
 async function voltarAoMenu(): Promise<void> {

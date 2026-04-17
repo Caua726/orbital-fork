@@ -51,6 +51,17 @@ export function getPersonalidades(): readonly PersonalidadeIA[] {
   return _personalidades;
 }
 
+/**
+ * Used by the load path to install personalities for AI factions present
+ * in a loaded save. Caller passes the regenerated personalities (with ids
+ * matching the saved dono fields) and the desired tick rate.
+ */
+export function setPersonalidadesParaMundoCarregado(ias: PersonalidadeIA[], tickMs: number): void {
+  resetIasV2();
+  _personalidades = ias;
+  _tickMs = tickMs;
+}
+
 export function resetIasV2(): void {
   _personalidades = [];
   _accum = 0;
