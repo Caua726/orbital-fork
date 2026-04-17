@@ -663,8 +663,9 @@ describe('healer ordering contract', () => {
     reconciliarMundo(mockMundo([p]), dto);
     const ia = getPersonalidades().find((x) => x.id === 'inimigo7');
     expect(ia).toBeDefined();
-    // brutal preset: forca 2.0 — moderate tolerance since jitter can shift slightly
-    expect(ia!.forca).toBeGreaterThanOrEqual(1.9);
+    // brutal preset: forca exactly 2.0 (not jittered). Any other value
+    // means the healer used the wrong preset.
+    expect(ia!.forca).toBe(2.0);
   });
 
   it('does NOT wipe AI memories when orphan personality is added mid-reconcile', async () => {
@@ -684,14 +685,28 @@ describe('healer ordering contract', () => {
 });
 
 describe('lore-edge: unknown archetype guard', () => {
-  it('gerarPlanetaLore tolerates unknown donoArquetipo without crashing', async () => {
+  it('gerarPlanetaLore degrades gracefully with unknown donoArquetipo', async () => {
     const { gerarPlanetaLore } = await import('../../lore/planeta-lore');
-    expect(() => gerarPlanetaLore({
+    const lore = gerarPlanetaLore({
       planetaId: 'pla-0', galaxySeed: 1, tipo: 'comum',
       dono: 'inimigo1', nomePlaneta: 'X', tamanho: 200,
       donoNome: 'X',
       donoArquetipo: 'ghost-archetype' as any,
-    })).not.toThrow();
+    });
+    // Core fields populated
+    expect(lore.slogan.length).toBeGreaterThan(10);
+    expect(lore.geologia).toMatch(/[.!?]$/);
+    expect(lore.biomas).toMatch(/[.!?]$/);
+    expect(lore.costumes).toMatch(/[.!?]$/);
+    expect(lore.religiao).toMatch(/[.!?]$/);
+    expect(lore.economia).toMatch(/[.!?]$/);
+    // Unknown archetype should mean empty profissoes — not a crash or undefined
+    expect(lore.profissoesDominantes).toEqual([]);
+    // No bleed-through of the raw archetype string
+    for (const key of ['slogan', 'geologia', 'biomas', 'costumes', 'nota'] as const) {
+      expect(lore[key]).not.toContain('undefined');
+      expect(lore[key]).not.toContain('ghost-archetype');
+    }
   });
 });
 

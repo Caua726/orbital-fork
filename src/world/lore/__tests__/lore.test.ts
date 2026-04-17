@@ -137,7 +137,7 @@ describe('gerarImperioLore', () => {
     expect(a).toEqual(b);
   });
 
-  it('populates all required sections', () => {
+  it('populates every section with real prose content', () => {
     const lore = gerarImperioLore({
       empireId: 'inimigo1',
       galaxySeed: 99,
@@ -145,23 +145,41 @@ describe('gerarImperioLore', () => {
       nomeImperio: 'Academia Okhar',
     });
     expect(lore.titulo).toBe('Academia Okhar');
-    expect(lore.subtitulo).toBeTruthy();
-    expect(lore.perfil.agressao).toBeTruthy();
-    expect(lore.secoes.length).toBeGreaterThanOrEqual(4);
+    // Subtitle must contain an archetype-specific adjective, not just non-empty.
+    expect(lore.subtitulo).toMatch(/tecnocracia|império|confederação|liga|povo/i);
+    // Profile must use the allowed vocabulary, not arbitrary strings.
+    expect(['baixa', 'moderada', 'alta', 'extrema']).toContain(lore.perfil.agressao);
+    expect(['contida', 'regular', 'agressiva']).toContain(lore.perfil.expansao);
+    // Must have the five canonical sections.
+    const titulos = lore.secoes.map((s) => s.titulo);
+    expect(titulos).toEqual(expect.arrayContaining([
+      'Origem', 'Governo e propósito', 'Cultura e cotidiano', 'Doutrina militar', 'O presente',
+    ]));
+    // Each paragraph must be a real sentence (contain a verb-like pattern
+    // and end with punctuation) — not just >20 chars of junk.
     for (const sec of lore.secoes) {
-      expect(sec.titulo).toBeTruthy();
-      expect(sec.paragrafos.length).toBeGreaterThanOrEqual(1);
-      for (const p of sec.paragrafos) expect(p.length).toBeGreaterThan(20);
+      for (const p of sec.paragrafos) {
+        expect(p).toMatch(/^[A-ZÁÂÃÀÇÉÊÍÓÔÕÚÑ]/);        // starts capitalized
+        expect(p).toMatch(/[.!?]$/);                      // ends with punctuation
+        expect(p).not.toContain('undefined');
+        expect(p).not.toContain('NaN');
+        expect(p).not.toContain('[object');
+      }
+    }
+    // Proverbs must be quoted or real sentences.
+    for (const prov of lore.proverbios) {
+      expect(prov.length).toBeGreaterThan(10);
+      expect(prov).not.toContain('undefined');
     }
     expect(lore.proverbios.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('weight-driven: two warlords with opposite weights produce different lore', () => {
+  it('weight-driven: specific fields change when personality genome changes', () => {
     const extremo = gerarImperioLore({
       empireId: 'e1', galaxySeed: 1,
       personalidade: mockPersonalidade({
         pesos: { agressao: 1.6, expansao: 1.2, economia: 0.4, ciencia: 0.3, defesa: 0.4, vinganca: 1.5 },
-        paciencia: 1, frotaMax: 34, frotaMinAtaque: 2,
+        paciencia: 1, frotaMax: 34, frotaMinAtaque: 2, naveFavorita: 'fragata',
       }),
       nomeImperio: 'X',
     });
@@ -169,16 +187,35 @@ describe('gerarImperioLore', () => {
       empireId: 'e1', galaxySeed: 1,
       personalidade: mockPersonalidade({
         pesos: { agressao: 1.0, expansao: 0.9, economia: 1.0, ciencia: 0.8, defesa: 0.9, vinganca: 0.7 },
-        paciencia: 5, frotaMax: 20, frotaMinAtaque: 6,
+        paciencia: 6, frotaMax: 20, frotaMinAtaque: 6, naveFavorita: 'torreta',
       }),
       nomeImperio: 'X',
     });
-    expect(extremo.perfil.agressao).not.toBe(moderado.perfil.agressao);
-    expect(extremo.perfil.vinganca).not.toBe(moderado.perfil.vinganca);
-    // Full biography prose should diverge
-    const jsonExtr = JSON.stringify(extremo.secoes);
-    const jsonMod = JSON.stringify(moderado.secoes);
-    expect(jsonExtr).not.toBe(jsonMod);
+    // Profile intensity must differ across several axes — this is
+    // derived directly from pesos.* thresholds, not from RNG.
+    expect(extremo.perfil.agressao).toBe('extrema');
+    expect(moderado.perfil.agressao).toBe('moderada');
+    expect(extremo.perfil.vinganca).toBe('implacável');
+    expect(moderado.perfil.vinganca).toBe('esquecida');
+
+    // Military section must cite the specific naveFavorita by its
+    // translated label.
+    const militarExtr = extremo.secoes.find((s) => s.titulo === 'Doutrina militar')!;
+    const militarMod = moderado.secoes.find((s) => s.titulo === 'Doutrina militar')!;
+    const proseExtr = militarExtr.paragrafos.join(' ');
+    const proseMod = militarMod.paragrafos.join(' ');
+    expect(proseExtr).toContain('fragatas de combate');          // from naveFavorita='fragata'
+    expect(proseMod).toContain('torres orbitais fortificadas');   // from naveFavorita='torreta'
+    expect(proseExtr).not.toBe(proseMod);
+
+    // Paciência shapes filosofia-de-combate branch: 1 → "primeiro sinal",
+    // 6 → "décadas de preparação".
+    expect(proseExtr.toLowerCase()).toContain('primeiro sinal');
+    expect(proseMod.toLowerCase()).toContain('décadas de preparação');
+
+    // frotaMax shapes size language: 34 → "massivas", 20 → "compactas".
+    expect(proseExtr).toContain('massivas');
+    expect(proseMod).toContain('compactas');
   });
 
   it('tone varies by archetype', () => {

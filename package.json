@@ -24,6 +24,7 @@
     "@typescript-eslint/parser": "^8.58.0",
     "@vitest/ui": "^2.1.9",
     "eslint": "^10.2.0",
+    "happy-dom": "^20.9.0",
     "jiti": "^2.6.1",
     "typescript": "^6.0.2",
     "vite": "^6.0.0",
