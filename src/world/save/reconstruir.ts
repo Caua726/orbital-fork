@@ -7,6 +7,15 @@ import { criarEstrelaProcedural, criarPlanetaProceduralSprite } from '../planeta
 import { criarMemoriaVisualPlaneta, restaurarMemoriaPlaneta } from '../nevoa';
 import { resetarNomesPlanetas } from '../nomes';
 import { instalarTrail } from '../engine-trails';
+import { restaurarMemoriasIa, resetMemoriasIa } from '../ia-memoria';
+import { restaurarEventos, resetEventos } from '../eventos';
+import { restaurarStats, resetStats } from '../stats';
+import { restaurarBattles, resetBattles } from '../battle-log';
+import { restaurarFirstContact, resetFirstContact } from '../first-contact';
+import { restaurarLastSeen, resetLastSeen } from '../last-seen';
+import { restaurarNomesUsados, resetNomesUsados } from '../proc-names';
+import { setIaTickState } from '../ia-decisao';
+import { buildDistanceMatrix } from '../distance-matrix';
 
 export interface ReconstruirFactories {
   criarSol: (x: number, y: number, raio: number) => Sol;
@@ -129,6 +138,7 @@ export async function reconstruirMundo(
     memoriaPlanetasContainer: mv.memoriaPlanetasContainer,
     fontesVisao: dto.fontesVisao.map((f: FonteVisao) => ({ ...f })),
     seedMusical: dto.seedMusical ?? Math.floor(Math.random() * 0xFFFFFFFF),
+    galaxySeed: dto.galaxySeed ?? Math.floor(Math.random() * 0xFFFFFFFF),
   } as Mundo;
 
   // 7. Rebuild fog-of-war memory visuals and restore captured snapshots.
@@ -152,8 +162,44 @@ export async function reconstruirMundo(
     }
   }
 
+  await onFase('Restaurando memórias das facções');
+  restaurarEstadoGlobalDoSave(dto);
+  if (dto.iaTickState) setIaTickState(dto.iaTickState);
+
+  // Rebuild the planet-to-planet distance cache so post-load AI decisions
+  // don't eat a cold Math.hypot storm on their first tick.
+  buildDistanceMatrix(mundo);
+
   await onFase('Mundo carregado');
   return mundo;
+}
+
+/**
+ * Restore all module-scoped state (AI memory, events, stats, etc.) from
+ * the save. Caller must have already rebuilt the Mundo struct — this
+ * step only touches in-process state of other modules.
+ */
+function restaurarEstadoGlobalDoSave(dto: MundoDTO): void {
+  if (dto.iaMemoria) restaurarMemoriasIa(dto.iaMemoria);
+  else resetMemoriasIa();
+
+  if (dto.eventosHistorico) restaurarEventos(dto.eventosHistorico);
+  else resetEventos();
+
+  if (dto.statsAmostragem) restaurarStats(dto.statsAmostragem);
+  else resetStats();
+
+  if (dto.battleHistory) restaurarBattles(dto.battleHistory);
+  else resetBattles();
+
+  if (dto.firstContact) restaurarFirstContact(dto.firstContact);
+  else resetFirstContact();
+
+  if (dto.lastSeenInimigos) restaurarLastSeen(dto.lastSeenInimigos);
+  else resetLastSeen();
+
+  if (dto.procNamesUsados) restaurarNomesUsados(dto.procNamesUsados);
+  else resetNomesUsados();
 }
 
 function reconstruirSol(dto: SolDTO, factories: ReconstruirFactories): Sol {
@@ -273,6 +319,8 @@ function reconstruirNave(
     rotaGfx: new Graphics(),
     _tipoAlvo: 'nave',
     orbita: dto.orbita ? { ...dto.orbita } : null,
+    hp: dto.hp,
+    _ultimoTiroMs: dto.ultimoTiroMs,
   } as Nave;
 }
 

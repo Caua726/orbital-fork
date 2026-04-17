@@ -190,6 +190,8 @@ export interface Mundo {
   fontesVisao: FonteVisao[];
   /** Deterministic seed for procedural music — same seed = same musical theme. */
   seedMusical: number;
+  /** Deterministic seed for procedural lore — same seed → same stories. */
+  galaxySeed: number;
 }
 
 // === Tipo de Jogador ===

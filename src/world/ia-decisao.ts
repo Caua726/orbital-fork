@@ -71,6 +71,17 @@ export function resetIasV2(): void {
   resetReconCache();
 }
 
+/** Save — capture current tick accumulator so load resumes cadence exactly. */
+export function getIaTickState(): { accumMs: number; ticksDecorridos: number } {
+  return { accumMs: _accum, ticksDecorridos: _ticksDecorridos };
+}
+
+/** Load — restore the tick accumulator saved by getIaTickState. */
+export function setIaTickState(state: { accumMs: number; ticksDecorridos: number }): void {
+  _accum = state.accumMs;
+  _ticksDecorridos = state.ticksDecorridos;
+}
+
 /**
  * Initialize AI factions on the world based on the chosen difficulty.
  * Picks home planets far from the player AND each other, sets ownership,
@@ -87,41 +98,88 @@ export function inicializarIas(mundo: Mundo, dificuldade: Dificuldade): Personal
   const jogadorHome = mundo.planetas.find((p) => p.dados.dono === 'jogador');
   if (!jogadorHome) return _personalidades;
 
-  // Sort neutros by distance from jogador, pick farthest available
-  const neutros = mundo.planetas
-    .filter((p) => p.dados.dono === 'neutro')
-    .map((p) => ({ p, dJogador: dist(p, jogadorHome) }))
+  // Placement algorithm:
+  //   1. Work at the system level — two AIs never end up orbiting the
+  //      same sun (one AI per system home).
+  //   2. Prefer systems different from the player's starter system, and
+  //      ideally not directly adjacent (≥2 systems away when possible).
+  //   3. Within the chosen system, take the largest neutral planet.
+  const jogadorSistemaId = jogadorHome.dados.sistemaId;
+  const jogadorSistema = mundo.sistemas[jogadorSistemaId];
+
+  const distanciaEntreSistemas = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    Math.hypot(a.x - b.x, a.y - b.y);
+
+  // All candidate systems scored by distance from player & other AIs.
+  const candidatosSistema = mundo.sistemas
+    .filter((s) => s.id !== jogadorSistema?.id)
+    .filter((s) => s.planetas.some((p) => p.dados.dono === 'neutro'))
+    .map((s) => ({
+      sistema: s,
+      dJogador: jogadorSistema ? distanciaEntreSistemas(s, jogadorSistema) : 0,
+    }))
     .sort((a, b) => b.dJogador - a.dJogador);
 
+  // Per-system soft buffer: if more systems are available than AIs, the
+  // closest ~33% of systems are excluded as "player breathing room".
+  const buffer = Math.min(
+    Math.floor(candidatosSistema.length * 0.33),
+    Math.max(0, candidatosSistema.length - cfg.quantidadeIas),
+  );
+  const candidatosFiltrados = candidatosSistema.slice(0, candidatosSistema.length - buffer);
+
+  const sistemasUsados = new Set<string>();
+  if (jogadorSistema) sistemasUsados.add(jogadorSistema.id);
   const homesEscolhidos: Planeta[] = [];
+
   for (const personalidade of _personalidades) {
-    // Pick the candidate that maximizes min distance to all chosen homes + jogador
-    let melhor: Planeta | null = null;
+    // Among unused candidates, pick the one maximizing min distance to
+    // all already-chosen homes' systems (so AIs also stay spread out
+    // from each other, not just from the player).
+    let melhor: { sistema: typeof candidatosFiltrados[number]['sistema']; planeta: Planeta } | null = null;
     let melhorScore = -Infinity;
-    for (const cand of neutros) {
-      if (homesEscolhidos.includes(cand.p)) continue;
-      const minDist = Math.min(
+    for (const cand of candidatosFiltrados) {
+      if (sistemasUsados.has(cand.sistema.id)) continue;
+      const neutros = cand.sistema.planetas.filter((p) => p.dados.dono === 'neutro');
+      if (neutros.length === 0) continue;
+      const outrasHomes = homesEscolhidos
+        .map((h) => mundo.sistemas[h.dados.sistemaId])
+        .filter(Boolean);
+      const distMin = Math.min(
         cand.dJogador,
-        ...homesEscolhidos.map((h) => dist(cand.p, h)),
+        ...outrasHomes.map((h) => distanciaEntreSistemas(cand.sistema, h)),
       );
-      if (minDist > melhorScore) {
-        melhorScore = minDist;
-        melhor = cand.p;
+      if (distMin > melhorScore) {
+        melhorScore = distMin;
+        // Largest neutral planet in that system = preferred home
+        const homePlaneta = neutros.reduce((a, b) =>
+          (a.dados.tamanho >= b.dados.tamanho ? a : b),
+        );
+        melhor = { sistema: cand.sistema, planeta: homePlaneta };
       }
     }
-    if (!melhor) break;
+    // Fallback: if we ran out of system-level candidates (small galaxy,
+    // many AIs), fall back to any remaining neutro on any system not yet
+    // used — still prefers empty systems.
+    if (!melhor) {
+      const fallback = mundo.planetas.find(
+        (p) => p.dados.dono === 'neutro' && !homesEscolhidos.includes(p),
+      );
+      if (!fallback) break;
+      melhor = { sistema: mundo.sistemas[fallback.dados.sistemaId], planeta: fallback };
+    }
 
-    // Take ownership + starter loadout
-    melhor.dados.dono = personalidade.id;
-    melhor.dados.fabricas = cfg.fabricasIniciais;
-    melhor.dados.infraestrutura = 1;
-    melhor.dados.naves = 0;
-    homesEscolhidos.push(melhor);
+    melhor.planeta.dados.dono = personalidade.id;
+    melhor.planeta.dados.fabricas = cfg.fabricasIniciais;
+    melhor.planeta.dados.infraestrutura = 1;
+    melhor.planeta.dados.naves = 0;
+    homesEscolhidos.push(melhor.planeta);
+    sistemasUsados.add(melhor.sistema.id);
 
     // Starter fleet
     for (let i = 0; i < cfg.frotaInicial; i++) {
       const tipo = i === 0 ? personalidade.naveFavorita : 'fragata';
-      const nave = criarNave(mundo, melhor, tipo, 1);
+      const nave = criarNave(mundo, melhor.planeta, tipo, 1);
       nave.dono = personalidade.id;
     }
   }
@@ -283,10 +341,6 @@ function executarAcao(mundo: Mundo, ia: PersonalidadeIA, acao: any): boolean {
     }
   }
   return false;
-}
-
-function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 /** Hook for combat system to register a kill — drives revenge AI. */

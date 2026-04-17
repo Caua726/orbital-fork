@@ -101,6 +101,7 @@ function mockMundo(): Mundo {
     tipoJogador: { nome: 'Test', desc: '', cor: 0xffffff, bonus: {} },
     ultimoTickMs: 0,
     seedMusical: 12345, // deterministic for tests
+    galaxySeed: 67890,  // deterministic for tests
   } as unknown as Mundo;
 }
 
@@ -142,7 +143,7 @@ describe('serializarMundo — header/sois/sistemas', () => {
     const mundo = mockMundo();
     const dto = serializarMundo(mundo, 'meu-save');
 
-    expect(dto.schemaVersion).toBe(1);
+    expect(dto.schemaVersion).toBe(2);
     expect(dto.nome).toBe('meu-save');
     expect(dto.sois).toHaveLength(1);
     expect(dto.sois[0]).toMatchObject({

@@ -106,3 +106,35 @@ export function decairMemorias(donoIa: string): void {
 export function resetMemoriasIa(): void {
   _memorias.clear();
 }
+
+// ─── Save/load support ───────────────────────────────────────────────
+
+import type { IaMemoriaDTO } from './save/dto';
+
+/** Serialize all AI memories into plain DTOs (no Set instances). */
+export function getMemoriasIaSerializadas(): IaMemoriaDTO[] {
+  const out: IaMemoriaDTO[] = [];
+  for (const [donoIa, m] of _memorias) {
+    out.push({
+      donoIa,
+      rancor: { ...m.rancor },
+      forcaPercebida: { ...m.forcaPercebida },
+      ultimoAtaque: { ...m.ultimoAtaque },
+      planetasVistos: Array.from(m.planetasVistos),
+    });
+  }
+  return out;
+}
+
+/** Restore AI memories from DTOs — wipes current state first. */
+export function restaurarMemoriasIa(dtos: IaMemoriaDTO[]): void {
+  _memorias.clear();
+  for (const dto of dtos) {
+    _memorias.set(dto.donoIa, {
+      rancor: { ...dto.rancor },
+      forcaPercebida: { ...dto.forcaPercebida },
+      ultimoAtaque: { ...dto.ultimoAtaque },
+      planetasVistos: new Set(dto.planetasVistos),
+    });
+  }
+}

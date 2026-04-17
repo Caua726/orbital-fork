@@ -5,6 +5,12 @@ import { registerPlanetPanel, unregisterPlanetPanel } from './hud-layout';
 import { marcarInteracaoUi } from './interacao-ui';
 import { calcularTempoRestantePlaneta, getPesquisaAtual, getTierMax, limparSelecoes, nomeTipoPlaneta, obterProducaoNaturalCiclo } from '../world/mundo';
 import { t } from '../core/i18n/t';
+import { getPersonalidades } from '../world/ia-decisao';
+import { formatarLore } from '../world/lore-faccao';
+import { comTooltipHover } from './tooltip';
+import { gerarPlanetaLore } from '../world/lore/planeta-lore';
+import { gerarImperioLore } from '../world/lore/imperio-lore';
+import { abrirImperioLore, abrirPlanetaLore } from './lore-modal';
 
 const THUMB_REFRESH_MS = 1200;
 const THUMB_SCALE = 0.45;
@@ -629,10 +635,79 @@ export function criarPlanetPanel(): HTMLDivElement {
   meta.appendChild(name);
   _nameEl = name;
 
+  // Hover on the planet name shows a brief cultural + geological lore
+  // tooltip. Clicking opens the full archive in the save-modal.
+  name.style.cursor = 'pointer';
+  comTooltipHover(name, () => {
+    const p = _selectedPlanet;
+    if (!p || !_mundoRef) return '';
+    const ia = getPersonalidades().find((x) => x.id === p.dados.dono);
+    const lore = gerarPlanetaLore({
+      planetaId: p.id,
+      galaxySeed: _mundoRef.galaxySeed,
+      tipo: p.dados.tipoPlaneta,
+      dono: p.dados.dono,
+      nomePlaneta: p.dados.nome,
+      donoNome: ia?.nome,
+      donoArquetipo: ia?.arquetipo,
+      tamanho: p.dados.tamanho,
+    });
+    return `${lore.slogan}\n\n${lore.biomas}\n\n(clique pra arquivo completo)`;
+  });
+  name.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const p = _selectedPlanet;
+    if (!p || !_mundoRef) return;
+    const ia = getPersonalidades().find((x) => x.id === p.dados.dono);
+    const lore = gerarPlanetaLore({
+      planetaId: p.id,
+      galaxySeed: _mundoRef.galaxySeed,
+      tipo: p.dados.tipoPlaneta,
+      dono: p.dados.dono,
+      nomePlaneta: p.dados.nome,
+      donoNome: ia?.nome,
+      donoArquetipo: ia?.arquetipo,
+      tamanho: p.dados.tamanho,
+    });
+    void abrirPlanetaLore(lore, p.dados.nome);
+  });
+
   const status = document.createElement('div');
   status.className = 'planet-panel-owner';
   meta.appendChild(status);
   _statusEl = status;
+
+  // Hovering the owner label for enemy planets shows that faction's lore
+  // (archetype + backstory + motto). Player/neutro hover returns empty →
+  // tooltip stays hidden.
+  comTooltipHover(status, () => {
+    const p = _selectedPlanet;
+    if (!p || ownerKind(p.dados.dono) !== 'enemy') return '';
+    const ia = getPersonalidades().find((x) => x.id === p.dados.dono);
+    if (!ia) return '';
+    const header = `${ia.nome}  —  ${ia.arquetipo}\n(clique pra arquivo completo)`;
+    return ia.lore ? `${header}\n\n${formatarLore(ia.lore)}` : header;
+  });
+
+  // Clicking the owner label opens the full empire archive modal.
+  status.style.cursor = 'pointer';
+  status.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const p = _selectedPlanet;
+    if (!p || ownerKind(p.dados.dono) !== 'enemy') return;
+    const ia = getPersonalidades().find((x) => x.id === p.dados.dono);
+    if (!ia) return;
+    const seed = _mundoRef?.galaxySeed ?? 0;
+    const lore = gerarImperioLore({
+      empireId: ia.id,
+      galaxySeed: seed,
+      personalidade: ia,
+      nomeImperio: ia.nome,
+    });
+    void abrirImperioLore(lore);
+  });
 
   summary.append(portraitWrap, meta);
 

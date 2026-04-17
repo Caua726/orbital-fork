@@ -55,6 +55,33 @@ function ensureTip(): HTMLDivElement {
   return t;
 }
 
+/**
+ * Attach a hover tooltip to any element. Unlike comHelp, this does NOT
+ * add a help icon — the element itself is the hover target. Useful for
+ * labels on enemy planets / NPC tags where adding a "?" would look off.
+ */
+export function comTooltipHover(target: HTMLElement, getText: () => string): void {
+  injectStyles();
+  target.addEventListener('mouseenter', () => {
+    const text = getText();
+    if (!text) return;
+    const tip = ensureTip();
+    tip.textContent = text;
+    tip.classList.add('show');
+    const rect = target.getBoundingClientRect();
+    tip.style.left = `${rect.right + 8}px`;
+    tip.style.top = `${rect.top}px`;
+  });
+  target.addEventListener('mouseleave', () => {
+    _tip?.classList.remove('show');
+  });
+  target.addEventListener('mousemove', (e: MouseEvent) => {
+    if (!_tip?.classList.contains('show')) return;
+    _tip.style.left = `${e.clientX + 12}px`;
+    _tip.style.top = `${e.clientY + 12}px`;
+  });
+}
+
 export function comHelp(label: HTMLElement, text: string): void {
   injectStyles();
   const icon = document.createElement('span');

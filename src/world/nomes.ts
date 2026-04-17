@@ -1,4 +1,5 @@
 import { TIPO_PLANETA } from './planeta';
+import { registrarNomeUsado, foiUsado } from './proc-names';
 
 interface PaletaFonemas {
   onsets: string[];
@@ -68,6 +69,12 @@ export function resetarNomesPlanetas(): void {
   _nomesUsados.clear();
 }
 
+function registrar(nome: string): string {
+  _nomesUsados.add(nome);
+  registrarNomeUsado(nome);
+  return nome;
+}
+
 export function gerarNomePlaneta(tipoPlaneta: string): string {
   const paleta = PALETAS[tipoPlaneta] ?? PALETA_COMUM;
   const range = paleta.silabasMax - paleta.silabasMin + 1;
@@ -77,9 +84,11 @@ export function gerarNomePlaneta(tipoPlaneta: string): string {
     let nome = '';
     for (let i = 0; i < silabas; i++) nome += gerarSilaba(paleta);
     nome = capitalizar(nome);
-    if (!_nomesUsados.has(nome)) {
-      _nomesUsados.add(nome);
-      return nome;
+    // Check both in-memory + persisted (proc-names) registry — a loaded
+    // save preloads the persisted set so new names avoid collisions
+    // with those from the prior session.
+    if (!_nomesUsados.has(nome) && !foiUsado(nome)) {
+      return registrar(nome);
     }
   }
 
@@ -88,6 +97,5 @@ export function gerarNomePlaneta(tipoPlaneta: string): string {
   const silabas = paleta.silabasMin + Math.floor(Math.random() * range);
   for (let i = 0; i < silabas; i++) nome += gerarSilaba(paleta);
   nome = `${capitalizar(nome)}-${_nomesUsados.size}`;
-  _nomesUsados.add(nome);
-  return nome;
+  return registrar(nome);
 }

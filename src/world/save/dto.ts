@@ -1,6 +1,7 @@
 import type { Recursos, DadosPlaneta, OrbitaPlaneta, OrbitaNave, FonteVisao } from '../../types';
+import type { Dificuldade } from '../personalidade-ia';
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 // Root
 
@@ -21,6 +22,35 @@ export interface MundoDTO {
   seedMusical?: number;
   /** Saved AI personality genomes — restored verbatim on load so name/color/archetype persist. */
   personalidadesIa?: PersonalidadeIaDTO[];
+
+  // ─── v2 additions ───────────────────────────────────────────────────
+
+  /** Difficulty preset the world was created under. Determines AI tick rate/forca after load. */
+  dificuldade?: Dificuldade;
+  /** Last camera position and zoom. */
+  camera?: { x: number; y: number; zoom: number };
+  /** Game speed (0 = paused, 1/2/4 = regular). */
+  gameSpeed?: number;
+  /** Selected entity for UI restoration. */
+  selecaoUI?: { planetaId?: string; naveId?: string };
+  /** AI decision tick accumulator — preserves cadence across load. */
+  iaTickState?: { accumMs: number; ticksDecorridos: number };
+  /** Per-AI memory: rancor, observed strength, last attack, seen planets. */
+  iaMemoria?: IaMemoriaDTO[];
+  /** Circular log of recent world events (combats, conquests, etc). Cap ~200. */
+  eventosHistorico?: EventoHistoricoDTO[];
+  /** Periodic stat samples (fleet, planets, resources). Cap ~100 samples. */
+  statsAmostragem?: StatsAmostraDTO[];
+  /** tempoJogadoMs at which the player first observed each enemy. */
+  firstContact?: Record<string, number>;
+  /** Recent battle summaries. Cap ~50. */
+  battleHistory?: BattleDTO[];
+  /** Last-known enemy ship positions with decay timestamp. */
+  lastSeenInimigos?: LastSeenDTO[];
+  /** Procedural names already used this world (anti-collision). */
+  procNamesUsados?: string[];
+  /** Deterministic seed for all lore generation — same seed → same history. */
+  galaxySeed?: number;
 }
 
 /**
@@ -46,6 +76,16 @@ export interface PersonalidadeIaDTO {
   paciencia: number;
   frotaMax: number;
   forca: number;
+  /** Optional faction backstory — shown in tooltips. */
+  lore?: LoreFaccaoDTO;
+}
+
+export interface LoreFaccaoDTO {
+  anoFundacao: number;
+  homeworldDescricao: string;
+  ideologia: string;
+  eventoMarcante: string;
+  citacao: string;
 }
 
 // Entities
@@ -112,6 +152,10 @@ export interface NaveDTO {
   alvo: AlvoDTO | null;
   rotaManual: AlvoPontoDTO[];
   rotaCargueira: RotaCargueiraDTO | null;
+  /** Combat HP — omitted = ship is at STATS_COMBATE max for its type. */
+  hp?: number;
+  /** Last performance.now() at which the ship fired (cooldown gate). */
+  ultimoTiroMs?: number;
 }
 
 export type AlvoDTO =
@@ -140,4 +184,62 @@ export interface TipoJogadorDTO {
     fabricasIniciais?: number;
     infraestruturaInicial?: number;
   };
+}
+
+// ─── v2 sub-DTOs ─────────────────────────────────────────────────────
+
+export interface IaMemoriaDTO {
+  /** AI id this memory belongs to. */
+  donoIa: string;
+  /** Per-enemy rancor scores. */
+  rancor: Record<string, number>;
+  /** Per-enemy perceived military strength. */
+  forcaPercebida: Record<string, number>;
+  /** Last attack Date.now() timestamps per enemy. */
+  ultimoAtaque: Record<string, number>;
+  /** Set of planet ids this AI has ever seen. */
+  planetasVistos: string[];
+}
+
+export type EventoTipo =
+  | 'combate'
+  | 'conquista'
+  | 'nave_destruida'
+  | 'pesquisa_completa'
+  | 'ia_despertou'
+  | 'primeiro_contato';
+
+export interface EventoHistoricoDTO {
+  tempoMs: number;
+  tipo: EventoTipo;
+  /** Display string (localized at save time). */
+  texto: string;
+  /** Optional structured payload. */
+  payload?: Record<string, string | number>;
+}
+
+export interface StatsAmostraDTO {
+  tempoMs: number;
+  /** Player snapshot. */
+  jogador: { planetas: number; naves: number; comum: number; raro: number };
+  /** Per-AI stats. Missing entries = AI is extinct or not yet born. */
+  ias: Record<string, { planetas: number; naves: number }>;
+}
+
+export interface BattleDTO {
+  tempoMs: number;
+  atacante: string;
+  defensor: string;
+  localPlanetaId: string | null;
+  perdasAtacante: number;
+  perdasDefensor: number;
+  vencedor: 'atacante' | 'defensor' | 'empate';
+}
+
+export interface LastSeenDTO {
+  naveId: string;
+  dono: string;
+  x: number;
+  y: number;
+  tempoMs: number;
 }

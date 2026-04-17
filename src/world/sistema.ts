@@ -11,7 +11,17 @@ function sortearTipoPlaneta(): string {
   return tipos[Math.floor(Math.random() * tipos.length)];
 }
 
-export function criarSistemaSolar(container: Container, orbitasContainer: Container, centroX: number, centroY: number, indiceSistema: number): Sistema {
+export interface OpcoesSistema {
+  /**
+   * When set, forces the first planet of this system to use this tipo
+   * instead of a random pick. Used by criarMundo to guarantee at least
+   * one COMUM planet exists at worldgen time (so the player has a valid
+   * starter) without having to re-create a sprite afterward.
+   */
+  forcarTipoPrimeiro?: string;
+}
+
+export function criarSistemaSolar(container: Container, orbitasContainer: Container, centroX: number, centroY: number, indiceSistema: number, opts: OpcoesSistema = {}): Sistema {
   const corSol = [0xffd166, 0xffb703, 0xfff1a8, 0xf4a261][indiceSistema % 4];
   const quantidadePlanetas = 1 + Math.floor(Math.random() * 5);
   const tamanhosPlaneta = Array.from({ length: quantidadePlanetas }, () => 140 + Math.random() * 170);
@@ -43,7 +53,9 @@ export function criarSistemaSolar(container: Container, orbitasContainer: Contai
     const raioOrbita = baseOrbita + Math.random() * 70;
     const anguloInicial = Math.random() * Math.PI * 2;
     const velocidade = 0.00003 + Math.random() * 0.000025;
-    const tipoPlaneta = sortearTipoPlaneta();
+    const tipoPlaneta = (i === 0 && opts.forcarTipoPrimeiro)
+      ? opts.forcarTipoPrimeiro
+      : sortearTipoPlaneta();
     const linhaOrbita = new Graphics();
     linhaOrbita.visible = false;
     linhaOrbita.circle(centroX, centroY, raioOrbita).stroke({

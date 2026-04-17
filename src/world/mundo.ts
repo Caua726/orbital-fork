@@ -10,6 +10,13 @@ import { calcularBoundsViewport } from './viewport-bounds';
 import { resetarNomesPlanetas } from './nomes';
 import { atualizarNaves, atualizarSelecaoNave, carregarSpritesheetNaves } from './naves';
 import { inicializarIas, atualizarIasV2, resetIasV2 } from './ia-decisao';
+import { buildDistanceMatrix, resetDistanceMatrix } from './distance-matrix';
+import { acumularStats, resetStats } from './stats';
+import { resetEventos, registrarEvento } from './eventos';
+import { resetBattles } from './battle-log';
+import { resetFirstContact, marcarPrimeiroContato } from './first-contact';
+import { resetLastSeen } from './last-seen';
+import { resetNomesUsados } from './proc-names';
 import type { Dificuldade } from './personalidade-ia';
 import { atualizarCombate, resetCombateVisuals } from './combate-resolucao';
 import { gerarSeedMusical } from '../audio/musica-ambiente';
@@ -154,7 +161,10 @@ export async function criarMundo(
   // ─── Fase 1: Inicializando galáxia ──
   await onFase('Inicializando galáxia');
   resetarNomesPlanetas();
-  void carregarSpritesheetNaves();
+  // Start spritesheet load immediately but keep the handle — we await
+  // it before IAs spawn their starter fleets so those ships have valid
+  // sprites instead of racing against the asset loader.
+  const shipsheetPromise = carregarSpritesheetNaves();
   const tamanho = Math.max(window.innerWidth, window.innerHeight) * 30;
 
   const mv = criarMundoVazio(tamanho);
@@ -174,40 +184,69 @@ export async function criarMundo(
   const sois: Sol[] = [];
   const frotas: unknown[] = [];
 
-  // ─── Fase 2: Gerando 18 sistemas estelares ──
+  // ─── Fase 2: Gerando sistemas estelares ──
+  // Progressive placement: start with an ideal spacing and, if the RNG
+  // can't place all systems within a few hundred attempts, shrink the
+  // minimum distance and retry the remaining slots. Guarantees the final
+  // system count at the cost of a slightly denser galaxy on bad seeds.
   await onFase('Gerando sistemas estelares');
   const totalSistemas = 18;
-  let tentativasSistema = 0;
-  const DIST_MIN = 4500;
-  while (sistemas.length < totalSistemas && tentativasSistema < totalSistemas * 20) {
-    tentativasSistema++;
+  const DIST_MIN_IDEAL = 4500;
+  const DIST_MIN_FALLBACK = 3200; // hard floor — still larger than DIST_MIN_SISTEMA (2800)
+  const MAX_TENTATIVAS_POR_SISTEMA = 40;
+  let distMinAtual = DIST_MIN_IDEAL;
+  let tentativasNoPatamar = 0;
+
+  while (sistemas.length < totalSistemas) {
+    if (tentativasNoPatamar > MAX_TENTATIVAS_POR_SISTEMA * (totalSistemas - sistemas.length)) {
+      if (distMinAtual <= DIST_MIN_FALLBACK) {
+        console.warn(`[worldgen] parou com ${sistemas.length}/${totalSistemas} sistemas — seed inviável`);
+        break;
+      }
+      distMinAtual = Math.max(DIST_MIN_FALLBACK, distMinAtual - 400);
+      tentativasNoPatamar = 0;
+      console.info(`[worldgen] reduzindo DIST_MIN pra ${distMinAtual} (${sistemas.length}/${totalSistemas})`);
+    }
+    tentativasNoPatamar++;
     const x = 1600 + Math.random() * (tamanho - 3200);
     const y = 1600 + Math.random() * (tamanho - 3200);
 
     let muitoPerto = false;
+    const distMin2 = distMinAtual * distMinAtual;
     for (const sistema of sistemas) {
       const dx = sistema.x - x;
       const dy = sistema.y - y;
-      if (dx * dx + dy * dy < DIST_MIN * DIST_MIN) {
+      if (dx * dx + dy * dy < distMin2) {
         muitoPerto = true;
         break;
       }
     }
     if (muitoPerto) continue;
 
-    const sistema = criarSistemaSolar(container, orbitasContainer, x, y, sistemas.length);
+    // First system gets a guaranteed COMUM planet so the player always
+    // has a valid starter — avoids a post-creation sprite swap later.
+    const opts = sistemas.length === 0 ? { forcarTipoPrimeiro: TIPO_PLANETA.COMUM } : {};
+    const sistema = criarSistemaSolar(container, orbitasContainer, x, y, sistemas.length, opts);
     sistemas.push(sistema);
     sois.push(sistema.sol);
     planetas.push(...sistema.planetas);
   }
 
+  // Hard validation: if the galaxy ended up empty, abort with a clear
+  // error rather than letting the loader crash on an undefined planet.
+  if (planetas.length === 0 || sistemas.length === 0) {
+    throw new Error(
+      `[worldgen] mundo vazio — ${sistemas.length} sistemas, ${planetas.length} planetas. ` +
+      `Tamanho=${tamanho}. Aumente a resolução da janela ou reduza totalSistemas.`
+    );
+  }
+
   // ─── Fase 3: Calculando órbitas ──
   await onFase('Calculando órbitas planetárias');
   aplicarZOrderMundo(mv);
-
-  if (!planetas.some((p) => p.dados.tipoPlaneta === TIPO_PLANETA.COMUM) && planetas.length > 0) {
-    planetas[0].dados.tipoPlaneta = TIPO_PLANETA.COMUM;
-  }
+  // Note: the old "patch first planet to COMUM if none exists" hack is
+  // gone — the first system now constructs one by design, so the sprite
+  // always matches dados.tipoPlaneta.
 
   const mundo = {
     container, tamanho, planetas, sistemas, sois,
@@ -217,6 +256,7 @@ export async function criarMundo(
     visaoContainer, orbitasContainer, memoriaPlanetasContainer,
     fontesVisao: [] as import('../types').FonteVisao[],
     seedMusical: gerarSeedMusical(),
+    galaxySeed: Math.floor(Math.random() * 0xffffffff),
   } as Mundo;
 
   // ─── Fase 4: Cartografando memória de fog-of-war ──
@@ -246,15 +286,61 @@ export async function criarMundo(
   estadoJogo = 'jogando';
   resetIasV2();
   resetCombateVisuals();
+  resetStats();
+  resetEventos();
+  resetBattles();
+  resetFirstContact();
+  resetLastSeen();
+  resetNomesUsados();
   await onFase('Despertando civilizações alienígenas');
+  // Ensure ship textures are loaded before AI fleets spawn — otherwise
+  // their starter naves render as empty containers for the first few
+  // frames of gameplay.
+  await shipsheetPromise.catch((err) => {
+    console.warn('[worldgen] spritesheet de naves falhou:', err);
+  });
   const ias = inicializarIas(mundo, _dificuldadeAtual);
+
+  // ─── Fase 6.5: Build distance matrix cache ──
+  buildDistanceMatrix(mundo);
 
   // ─── Fase 7: Anunciar nomes das IAs (cosmético) ──
   for (const ia of ias) {
     await onFase(`Despertando: ${ia.nome}`);
+    registrarEvento('ia_despertou', `${ia.nome} desperta entre as estrelas.`, 0);
   }
 
-  // ─── Fase 8: Pronto ──
+  // ─── Fase 8: Sanity check via reconciler ──
+  // Runs the same healers the load path uses, but on a freshly-built
+  // world. If worldgen drifts (someone changes criarSistemaSolar and
+  // forgets to set a field), this catches it immediately instead of
+  // waiting for the next save/load roundtrip.
+  await onFase('Validando galáxia');
+  try {
+    // Lazy import to avoid circular dep mundo → save → reconstruir → mundo.
+    const { reconciliarMundo } = await import('./save/reconciler');
+    // Build a minimal DTO stub — the reconciler only reads a handful of
+    // top-level fields, and none that don't exist on a fresh world.
+    const dtoStub = {
+      schemaVersion: 2,
+      nome: '', criadoEm: 0, salvoEm: 0, tempoJogadoMs: 0,
+      tamanho: mundo.tamanho,
+      tipoJogador: mundo.tipoJogador,
+      sistemas: [], sois: [], planetas: [], naves: [], fontesVisao: [],
+    } as any;
+    const diag = reconciliarMundo(mundo, dtoStub);
+    const problemas = diag.filter((d) => d.severidade !== 'info');
+    if (problemas.length > 0) {
+      console.warn('[worldgen] sanity check encontrou problemas:');
+      for (const d of problemas) {
+        console.warn(`  [${d.severidade}][${d.categoria}] ${d.detalhe}`);
+      }
+    }
+  } catch (err) {
+    console.warn('[worldgen] reconciler pós-criação falhou:', err);
+  }
+
+  // ─── Fase 9: Pronto ──
   await onFase('Galáxia pronta');
   return mundo;
 }
@@ -263,6 +349,7 @@ export function destruirMundo(mundo: Mundo, app: Application): void {
   app.stage.removeChild(mundo.container);
   mundo.container.destroy({ children: true });
   estadoJogo = 'jogando';
+  resetDistanceMatrix();
 }
 
 // === Game loop ===
@@ -298,6 +385,11 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   atualizarNaves(mundo, deltaMs);
   atualizarIasV2(mundo, deltaMs);
   atualizarCombate(mundo, deltaMs);
+  // Periodic stat sample (approx every 60s of sim time). We use the
+  // mundo's ultimoTickMs as a proxy for tempoJogadoMs since this lives
+  // outside main.ts; the sample timestamp only needs to be monotonic.
+  acumularStats(mundo, deltaMs, mundo.ultimoTickMs);
+  atualizarPrimeiroContato(mundo);
   profileAcumular('logica', t);
 
   const zoom = camera.zoom || 1;
@@ -406,6 +498,18 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   }
 
   verificarEstadoJogo(mundo);
+}
+
+// === First-contact detection ===
+// When any planet belonging to an AI becomes visible for the first time,
+// record the moment so tooltips can show "primeiro contato há X min".
+function atualizarPrimeiroContato(mundo: Mundo): void {
+  for (const p of mundo.planetas) {
+    if (!p._visivelAoJogador) continue;
+    const d = p.dados.dono;
+    if (!d.startsWith('inimigo')) continue;
+    marcarPrimeiroContato(d, mundo.ultimoTickMs);
+  }
 }
 
 // === Estado do jogo ===

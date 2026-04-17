@@ -12,7 +12,42 @@ import type {
 } from './dto';
 import { CURRENT_SCHEMA_VERSION } from './dto';
 import { getMemoria } from '../nevoa';
-import { getPersonalidades } from '../ia-decisao';
+import { getPersonalidades, getIaTickState } from '../ia-decisao';
+import { getMemoriasIaSerializadas } from '../ia-memoria';
+import { getEventosSerializaveis } from '../eventos';
+import { getStatsSerializaveis } from '../stats';
+import { getBattlesSerializaveis } from '../battle-log';
+import { getFirstContactMap } from '../first-contact';
+import { getLastSeenSerializavel } from '../last-seen';
+import { getNomesUsadosSerializavel } from '../proc-names';
+
+/**
+ * Optional runtime state captured by main.ts when triggering an autosave —
+ * things like camera position and current game speed that live outside the
+ * Mundo struct. Passed through to the DTO for round-trip preservation.
+ */
+export interface SnapshotRuntimeExtras {
+  dificuldade?: import('../personalidade-ia').Dificuldade;
+  camera?: { x: number; y: number; zoom: number };
+  gameSpeed?: number;
+  selecaoUI?: { planetaId?: string; naveId?: string };
+}
+
+let _extrasSnapshot: SnapshotRuntimeExtras = {};
+
+/**
+ * Install a callback that lets the save layer pull the latest runtime
+ * extras (camera, speed, selection) at serialize time without creating a
+ * circular import to main.ts. Call once at boot.
+ */
+let _extrasProvider: (() => SnapshotRuntimeExtras) | null = null;
+export function instalarProviderRuntimeExtras(fn: () => SnapshotRuntimeExtras): void {
+  _extrasProvider = fn;
+}
+
+export function setRuntimeExtras(extras: SnapshotRuntimeExtras): void {
+  _extrasSnapshot = { ..._extrasSnapshot, ...extras };
+}
 
 export function serializarMundo(
   mundo: Mundo,
@@ -48,6 +83,8 @@ export function serializarMundo(
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((n) => serializarNave(n));
 
+  const extras = _extrasProvider ? _extrasProvider() : _extrasSnapshot;
+
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     nome,
@@ -62,6 +99,7 @@ export function serializarMundo(
     naves,
     fontesVisao: mundo.fontesVisao.map((f) => ({ x: f.x, y: f.y, raio: f.raio })),
     seedMusical: mundo.seedMusical,
+    galaxySeed: mundo.galaxySeed,
     personalidadesIa: getPersonalidades().map((ia) => ({
       id: ia.id,
       nome: ia.nome,
@@ -73,7 +111,21 @@ export function serializarMundo(
       paciencia: ia.paciencia,
       frotaMax: ia.frotaMax,
       forca: ia.forca,
+      lore: ia.lore ? { ...ia.lore } : undefined,
     })),
+    // v2 fields
+    dificuldade: extras.dificuldade,
+    camera: extras.camera ? { ...extras.camera } : undefined,
+    gameSpeed: extras.gameSpeed,
+    selecaoUI: extras.selecaoUI ? { ...extras.selecaoUI } : undefined,
+    iaTickState: { ...getIaTickState() },
+    iaMemoria: getMemoriasIaSerializadas(),
+    eventosHistorico: getEventosSerializaveis(),
+    statsAmostragem: getStatsSerializaveis(),
+    firstContact: getFirstContactMap(),
+    battleHistory: getBattlesSerializaveis(),
+    lastSeenInimigos: getLastSeenSerializavel(),
+    procNamesUsados: getNomesUsadosSerializavel(),
   };
 }
 
@@ -97,6 +149,8 @@ function serializarNave(nave: Nave): NaveDTO {
     alvo: serializarAlvo(nave.alvo),
     rotaManual: nave.rotaManual.map((p) => ({ x: p.x, y: p.y })),
     rotaCargueira: serializarRotaCargueira(nave.rotaCargueira),
+    hp: nave.hp,
+    ultimoTiroMs: nave._ultimoTiroMs,
   };
 }
 

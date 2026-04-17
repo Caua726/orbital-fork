@@ -4,6 +4,7 @@ import { criarMundo, atualizarMundo, getEstadoJogo, destruirMundo, setDificuldad
 import type { Dificuldade, PersonalidadeIA } from './world/personalidade-ia';
 import { gerarPersonalidades, PRESETS_DIFICULDADE } from './world/personalidade-ia';
 import { setPersonalidadesParaMundoCarregado } from './world/ia-decisao';
+import { gerarLoreFaccao } from './world/lore-faccao';
 import { criarMundoMenu, atualizarMundoMenu, destruirMundoMenu, type MundoMenu } from './world/mundo-menu';
 import { configurarCamera, destruirCamera, atualizarCamera, getCamera, setCameraPos, setTipoJogador, zoomIn, zoomOut, setZoom, instalarEdgeScroll, aplicarEdgeScrollAoCamera, cancelarComandoNaveSeAtivo } from './core/player';
 import { instalarDispatcher, onAction, onActionUp } from './core/input/dispatcher';
@@ -23,7 +24,10 @@ import { criarColonyModal, atualizarColonyModal, destruirColonyModal } from './u
 import { criarConfirmDialog, destruirConfirmDialog } from './ui/confirm-dialog';
 import { criarMainMenu, esconderMainMenu, mostrarMainMenu } from './ui/main-menu';
 import { abrirPauseMenu, isPauseMenuOpen } from './ui/pause-menu';
-import { reconstruirMundo, iniciarAutosave, instalarListenersCicloDeVida, acumularTempoJogado, lerEMigrar, recuperarEmergency, salvarAgora, getBackendAtivo, getUltimoErro } from './world/save';
+import { reconstruirMundo, iniciarAutosave, instalarListenersCicloDeVida, acumularTempoJogado, lerEMigrarComRelatorio, recuperarEmergency, salvarAgora, getBackendAtivo, getUltimoErro } from './world/save';
+import { instalarProviderRuntimeExtras } from './world/save/serializar';
+import { reconciliarMundo, resumirDiagnosticos } from './world/save/reconciler';
+import { abrirSaveModal } from './ui/save-modal';
 import type { MundoDTO } from './world/save';
 import { toast } from './ui/toast';
 import { getConfig, setConfigDuranteBoot, onConfigChange } from './core/config';
@@ -270,6 +274,23 @@ async function bootstrap(): Promise<void> {
     onLoadGame: (nome: string) => { void carregarMundo(nome); },
   });
 
+  // Provide runtime extras (camera / speed / selection / difficulty) to
+  // the save layer — called at each serialize without a circular import.
+  instalarProviderRuntimeExtras(() => {
+    const cam = getCamera();
+    const planetaSel = _mundo?.planetas.find((p) => p.dados.selecionado);
+    const naveSel = _mundo?.naves.find((n) => n.selecionado);
+    return {
+      dificuldade: getDificuldadeAtual(),
+      camera: { x: cam.x, y: cam.y, zoom: cam.zoom },
+      gameSpeed: getDebugState().gameSpeed,
+      selecaoUI: {
+        planetaId: planetaSel?.id,
+        naveId: naveSel?.id,
+      },
+    };
+  });
+
   instalarListenersCicloDeVida();
 
   window.addEventListener('orbital:voltar-ao-menu', () => {
@@ -428,20 +449,25 @@ async function iniciarJogoNovo(nome: string, tipoJogador: TipoJogador, dificulda
   await entrarNoJogo(mundo, nome, Date.now(), 0);
 }
 
-function mostrarModalSaveCorrompido(nome: string, err: unknown): void {
+async function mostrarModalSaveCorrompido(nome: string, err: unknown): Promise<void> {
   const msg = err instanceof Error ? err.message : String(err);
   console.error('[save] load failed:', err);
-  const action = prompt(
-    t('save.corrompido_prompt', { nome, msg }),
-    '',
-  );
-  if (action === 'APAGAR') {
+  const choice = await abrirSaveModal({
+    title: t('save.corrompido_titulo') || 'SAVE CORROMPIDO',
+    severity: 'erro',
+    summary: `Não foi possível carregar "${nome}". O arquivo está corrompido ou incompatível.`,
+    details: msg,
+    actions: [
+      { label: t('save.modal_fechar') || 'Fechar', value: 'cancel', variant: 'neutral' },
+      { label: t('save.modal_exportar') || 'Exportar JSON', value: 'EXPORTAR', variant: 'neutral' },
+      { label: t('save.modal_apagar') || 'Apagar save', value: 'APAGAR', variant: 'danger' },
+    ],
+  });
+  if (choice === 'APAGAR') {
     void getBackendAtivo().apagar(nome);
     toast(t('toast.save_apagado'), 'info');
-  } else if (action === 'EXPORTAR') {
+  } else if (choice === 'EXPORTAR') {
     try {
-      // Read raw string directly — carregar() swallows parse errors,
-      // which defeats the purpose of exporting corrupt data.
       const rawStr = localStorage.getItem(`orbital_save:${nome}`);
       if (!rawStr) {
         toast(t('toast.save_nada_exportar'), 'err');
@@ -504,14 +530,25 @@ async function carregarMundo(nome: string): Promise<void> {
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
   let dto: MundoDTO | null = null;
+  let versaoOriginal: number | undefined;
+  let transformsMigration: readonly string[] = [];
   try {
     dto = await recuperarEmergency(nome);
-    if (!dto) dto = await lerEMigrar(nome);
+    if (!dto) {
+      // Prefer the report-returning loader so we can show the user which
+      // legacy version was detected and which migrations ran.
+      const rel = await lerEMigrarComRelatorio(nome);
+      if (rel) {
+        dto = rel.dto;
+        versaoOriginal = rel.versaoOriginal;
+        transformsMigration = rel.transforms;
+      }
+    }
   } catch (err) {
     _transitioning = false;
     await esconderCarregando();
     mostrarMainMenu();
-    mostrarModalSaveCorrompido(nome, err);
+    void mostrarModalSaveCorrompido(nome, err);
     return;
   }
   if (!dto) {
@@ -524,17 +561,69 @@ async function carregarMundo(nome: string): Promise<void> {
 
   try {
     setTipoJogador();
+    // Difficulty restore — must happen BEFORE reconstruirMundo so
+    // inicializarIas (via restaurarOuReinicializarIas) reads the right
+    // preset and the AI tick rate matches the save.
+    if (dto.dificuldade) setDificuldadeProximoMundo(dto.dificuldade);
     const mundo = await reconstruirMundo(dto, app, undefined, async (label) => {
       await setLoadingFase(label);
     });
     await setLoadingFase('Reativando civilizações');
     restaurarOuReinicializarIas(mundo, dto);
+
+    // Diagnose and heal any drift between the loaded save and current code
+    // before gameplay starts (missing fields, orphan refs, invalid values).
+    await setLoadingFase('Reconciliando save');
+    const diag = reconciliarMundo(mundo, dto, {
+      versaoOriginal,
+      transformsAplicados: transformsMigration,
+    });
+    if (diag.length > 0) {
+      console.group('[reconciler] save reconciliado');
+      for (const d of diag) {
+        const fn = d.severidade === 'erro' ? console.error : d.severidade === 'warn' ? console.warn : console.info;
+        fn(`[${d.categoria}] ${d.detalhe}`);
+      }
+      console.groupEnd();
+      const hasWarnOrErro = diag.some((d) => d.severidade === 'warn' || d.severidade === 'erro');
+      if (hasWarnOrErro) {
+        // Non-trivial drift — show modal so the player can inspect what
+        // was auto-fixed before jumping into the game. Info-only runs
+        // get a toast (quieter, auto-dismisses).
+        void abrirSaveModal({
+          title: 'SAVE RECONCILIADO',
+          severity: diag.some((d) => d.severidade === 'erro') ? 'erro' : 'warn',
+          summary: `Ajustes automáticos foram aplicados ao carregar "${nome}".`,
+          items: diag.map((d) => ({ text: `[${d.categoria}] ${d.detalhe}`, tone: d.severidade })),
+          actions: [{ label: 'Entendi', value: 'ok', variant: 'primary' }],
+        });
+      } else {
+        const msg = resumirDiagnosticos(diag);
+        if (msg) setTimeout(() => toast(msg, 'info'), 800);
+      }
+    }
+
     await entrarNoJogo(mundo, nome, dto.criadoEm, dto.tempoJogadoMs);
+    // Restore camera / speed / selection AFTER entrarNoJogo so the
+    // HUD & camera controllers exist to receive state.
+    if (dto.camera) {
+      setCameraPos(dto.camera.x, dto.camera.y);
+      setZoom(dto.camera.zoom);
+    }
+    if (typeof dto.gameSpeed === 'number') setGameSpeed(dto.gameSpeed);
+    if (dto.selecaoUI?.planetaId) {
+      const p = mundo.planetas.find((x) => x.id === dto.selecaoUI!.planetaId);
+      if (p) p.dados.selecionado = true;
+    }
+    if (dto.selecaoUI?.naveId) {
+      const n = mundo.naves.find((x) => x.id === dto.selecaoUI!.naveId);
+      if (n) n.selecionado = true;
+    }
   } catch (err) {
     _transitioning = false;
     await esconderCarregando();
     mostrarMainMenu();
-    mostrarModalSaveCorrompido(nome, err);
+    void mostrarModalSaveCorrompido(nome, err);
   }
 }
 
@@ -560,6 +649,8 @@ function restaurarOuReinicializarIas(mundo: Mundo, dto: MundoDTO): void {
       paciencia: d.paciencia,
       frotaMax: d.frotaMax,
       forca: d.forca,
+      // Lore may be absent in v1 saves — regenerate it so tooltips work.
+      lore: d.lore ?? gerarLoreFaccao(d.id, d.arquetipo),
     }));
     setPersonalidadesParaMundoCarregado(ias, cfg.tickMs);
     return;

@@ -12,6 +12,8 @@
  * brutal pacifist defender is still a defender, just better at it.
  */
 
+import { gerarLoreFaccao } from './lore-faccao';
+
 export type Arquetipo = 'warlord' | 'trader' | 'scientist' | 'defender' | 'explorer';
 
 export interface PersonalidadeIA {
@@ -53,6 +55,9 @@ export interface PersonalidadeIA {
 
   /** Difficulty multiplier applied to production rate, fleet size, etc. */
   forca: number;
+
+  /** Cosmetic faction backstory — shown in tooltips. Generated once per personality. */
+  lore?: import('./save/dto').LoreFaccaoDTO;
 }
 
 // Procedural name generation — 100% syllable-based, zero fixed lists.
@@ -277,6 +282,7 @@ export function gerarPersonalidade(id: string, forca: number, coresUsadas: Set<n
     paciencia: Math.round(jitter(base.paciencia, 0.3)),
     frotaMax: Math.round(jitter(base.frotaMax, 0.2)),
     forca,
+    lore: gerarLoreFaccao(id, arquetipo),
   };
 }
 

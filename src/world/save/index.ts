@@ -5,7 +5,7 @@ import { PeriodicBackend } from './periodic-save';
 import { ExperimentalBackend } from './experimental-save';
 import { serializarMundo } from './serializar';
 import { reconstruirMundo } from './reconstruir';
-import { migrarDto } from './migrations';
+import { migrarDto, migrarDtoComRelatorio, type MigrationResult } from './migrations';
 import { getConfig } from '../../core/config';
 
 export type { SaveMetadata } from './storage-backend';
@@ -285,4 +285,14 @@ export async function lerEMigrar(nome: string): Promise<MundoDTO | null> {
   const raw = await _backend.carregar(nome);
   if (!raw) return null;
   return migrarDto(raw);
+}
+
+/**
+ * Like lerEMigrar but returns the full migration report so callers can
+ * log which legacy version was loaded and which transforms ran.
+ */
+export async function lerEMigrarComRelatorio(nome: string): Promise<MigrationResult | null> {
+  const raw = await _backend.carregar(nome);
+  if (!raw) return null;
+  return migrarDtoComRelatorio(raw);
 }
