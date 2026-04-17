@@ -26,7 +26,7 @@ import type { MundoDTO } from './world/save';
 import { toast } from './ui/toast';
 import { getConfig, setConfigDuranteBoot, onConfigChange } from './core/config';
 import { abrirNewWorldModal } from './ui/new-world-modal';
-import { criarLoadingScreen, mostrarCarregando, esconderCarregando } from './ui/loading-screen';
+import { criarLoadingScreen, mostrarCarregando, esconderCarregando, setLoadingFase } from './ui/loading-screen';
 import { t } from './core/i18n/t';
 import { somVitoria, somDerrota } from './audio/som';
 import { iniciarMusicaAmbiente, pararMusicaAmbiente } from './audio/musica-ambiente';
@@ -420,7 +420,9 @@ async function iniciarJogoNovo(nome: string, tipoJogador: TipoJogador, dificulda
 
   setTipoJogador();
   setDificuldadeProximoMundo(dificuldade);
-  const mundo = await criarMundo(app, tipoJogador) as unknown as Mundo;
+  const mundo = await criarMundo(app, tipoJogador, async (label) => {
+    await setLoadingFase(label);
+  }) as unknown as Mundo;
   await entrarNoJogo(mundo, nome, Date.now(), 0);
 }
 

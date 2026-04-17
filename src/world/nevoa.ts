@@ -44,8 +44,18 @@ const DISTANCIA_LABEL_MEMORIA = 18;
 function nomeDonoCurto(dono: string): string {
   if (dono === 'jogador') return 'Seu';
   if (dono === 'neutro') return 'Neutro';
-  if (dono === 'inimigo1') return 'Vermelhos';
-  if (dono === 'inimigo2') return 'Roxos';
+  // AI factions: use their generated name (without the title prefix to fit)
+  // Lazy-load to avoid circular import
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getPersonalidades } = require('./ia-decisao') as typeof import('./ia-decisao');
+    const ia = getPersonalidades().find((p) => p.id === dono);
+    if (ia) {
+      // Show just the proper noun part (after the title)
+      const parts = ia.nome.split(' ');
+      return parts.length > 1 ? parts.slice(1).join(' ') : ia.nome;
+    }
+  } catch { /* circular import — fall through */ }
   return dono || '?';
 }
 

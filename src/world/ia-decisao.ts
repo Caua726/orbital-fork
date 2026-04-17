@@ -153,23 +153,55 @@ export function atualizarIasV2(mundo: Mundo, deltaMs: number): void {
   }
 }
 
+// Costs for AI — scaled DOWN slightly by forca so easy AIs are cheaper
+// (won't outproduce the player) and brutal AIs pay close to player cost.
+const CUSTO_NAVE_IA = 12;     // jogador paga 20 (CUSTO_NAVE_COMUM)
+const CUSTO_PESQUISA_IA = 3;  // jogador paga 5 (CUSTO_PESQUISA_RARO)
+const CUSTO_FABRICA_IA = 15;  // jogador paga 20 × 3^tier
+const CUSTO_INFRA_IA = 12;
+const TEMPO_PESQUISA_IA_MS = 30 * 1000; // jogador leva 60s
+
+/** Defense reserve — keep at least N combat ships at home before sending attacks. */
+function calcularReservaDefesa(ia: PersonalidadeIA): number {
+  // Defenders keep more reserve, warlords keep almost none.
+  return Math.max(1, Math.round(2 * ia.pesos.defesa));
+}
+
 function executarAcao(mundo: Mundo, ia: PersonalidadeIA, acao: any): boolean {
   switch (acao.tipo) {
     case 'produzir_nave': {
       const planeta: Planeta = acao.planeta;
       if (planeta.dados.dono !== ia.id) return false;
       if (planeta.dados.fabricas < 1) return false;
-      // AI cheats — doesn't pay resources, but is gated by tick rate
+      // Pay resources (scaled by forca — weak AIs pay full price, strong AIs get a discount)
+      const custo = Math.max(4, Math.round(CUSTO_NAVE_IA / Math.max(0.5, ia.forca)));
+      if (planeta.dados.recursos.comum < custo) return false;
+      planeta.dados.recursos.comum -= custo;
       const nave = criarNave(mundo, planeta, acao.tipoNave, 1);
       nave.dono = ia.id;
       return true;
     }
     case 'enviar_frota': {
       const navesIds: string[] = acao.navesIds;
+      const todasMinhas = mundo.naves.filter((n) => n.dono === ia.id && n.estado === 'orbitando');
       const navesAReais = mundo.naves.filter((n) => navesIds.includes(n.id) && n.dono === ia.id);
       if (navesAReais.length === 0) return false;
-      for (const nave of navesAReais) {
-        enviarNaveParaAlvo(mundo, nave, acao.alvo);
+
+      // Defense reserve: don't strip ALL ships from origin — leave at least N
+      const planetaOrigem = navesAReais[0].alvo as Planeta | undefined;
+      if (planetaOrigem && _personalidades.some((p) => p.id === ia.id)) {
+        const reserva = calcularReservaDefesa(ia);
+        const navesNoMesmoLocal = todasMinhas.filter((n) => n.alvo === planetaOrigem);
+        const podeMandar = Math.max(0, navesNoMesmoLocal.length - reserva);
+        const naAtual = Math.min(navesAReais.length, podeMandar);
+        if (naAtual === 0) return false;
+        for (let i = 0; i < naAtual; i++) {
+          enviarNaveParaAlvo(mundo, navesAReais[i], acao.alvo);
+        }
+      } else {
+        for (const nave of navesAReais) {
+          enviarNaveParaAlvo(mundo, nave, acao.alvo);
+        }
       }
       return true;
     }
@@ -178,19 +210,34 @@ function executarAcao(mundo: Mundo, ia: PersonalidadeIA, acao: any): boolean {
       if (planeta.dados.pesquisaAtual) return false;
       const arr = planeta.dados.pesquisas[acao.categoria];
       if (!arr) return false;
-      // AI cheats — instantly unlocks (would otherwise need raro + 60s wait)
-      arr[acao.tier - 1] = true;
+      // Pay raro + start a timed research (NOT instant anymore)
+      const custo = Math.max(1, Math.round(CUSTO_PESQUISA_IA / Math.max(0.5, ia.forca)));
+      if (planeta.dados.recursos.raro < custo) return false;
+      planeta.dados.recursos.raro -= custo;
+      const tempo = TEMPO_PESQUISA_IA_MS / Math.max(0.5, ia.forca);
+      planeta.dados.pesquisaAtual = {
+        categoria: acao.categoria,
+        tier: acao.tier,
+        tempoRestanteMs: tempo,
+        tempoTotalMs: tempo,
+      };
       return true;
     }
     case 'subir_fabrica': {
       const planeta: Planeta = acao.planeta;
       if (planeta.dados.fabricas >= 5) return false;
+      const custo = Math.max(5, Math.round(CUSTO_FABRICA_IA / Math.max(0.5, ia.forca)));
+      if (planeta.dados.recursos.comum < custo) return false;
+      planeta.dados.recursos.comum -= custo;
       planeta.dados.fabricas++;
       return true;
     }
     case 'subir_infra': {
       const planeta: Planeta = acao.planeta;
       if (planeta.dados.infraestrutura >= 5) return false;
+      const custo = Math.max(4, Math.round(CUSTO_INFRA_IA / Math.max(0.5, ia.forca)));
+      if (planeta.dados.recursos.comum < custo) return false;
+      planeta.dados.recursos.comum -= custo;
       planeta.dados.infraestrutura++;
       return true;
     }

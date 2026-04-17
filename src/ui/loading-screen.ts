@@ -226,6 +226,20 @@ export function mostrarCarregando(label?: string): void {
 }
 
 /**
+ * Update the label shown on the loading screen mid-flight (e.g. to
+ * communicate the current generation phase). Yields to the browser via
+ * rAF so the new text actually paints before the next sync block runs.
+ */
+export function setLoadingFase(label: string): Promise<void> {
+  if (_labelEl) _labelEl.textContent = label;
+  // Yield twice — once to let the textContent change paint, once to
+  // give the browser a chance to actually render the frame.
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
+/**
  * Hides the loader. If it hasn't been visible for at least MIN_VISIBLE_MS,
  * waits before hiding so the player actually perceives the transition.
  */

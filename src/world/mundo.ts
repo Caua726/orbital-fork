@@ -15,7 +15,7 @@ import { atualizarCombate, resetCombateVisuals } from './combate-resolucao';
 import { gerarSeedMusical } from '../audio/musica-ambiente';
 import { atualizarPesquisaPlaneta } from './pesquisa';
 import { atualizarCampoDeVisao } from './visao';
-import { atualizarFilasPlaneta, desenharConstrucoesPlaneta } from './construcao';
+import { atualizarFilasPlaneta, desenharConstrucoesPlaneta, atualizarRecursosPlaneta } from './construcao';
 import { profileMark, profileAcumular, profileFlush } from './profiling';
 import { getConfig } from '../core/config';
 
@@ -141,7 +141,18 @@ export function aplicarZOrderMundo(mv: MundoVazio): void {
   mv.container.addChild(mv.memoriaPlanetasContainer);
 }
 
-export async function criarMundo(app: Application, tipoJogador: TipoJogador): Promise<Mundo> {
+/** Async fase callback — receives a label and yields back to event loop. */
+export type FaseCallback = (label: string) => Promise<void>;
+
+const noopFase: FaseCallback = async () => {};
+
+export async function criarMundo(
+  app: Application,
+  tipoJogador: TipoJogador,
+  onFase: FaseCallback = noopFase,
+): Promise<Mundo> {
+  // ─── Fase 1: Inicializando galáxia ──
+  await onFase('Inicializando galáxia');
   resetarNomesPlanetas();
   void carregarSpritesheetNaves();
   const tamanho = Math.max(window.innerWidth, window.innerHeight) * 30;
@@ -163,9 +174,8 @@ export async function criarMundo(app: Application, tipoJogador: TipoJogador): Pr
   const sois: Sol[] = [];
   const frotas: unknown[] = [];
 
-  // Build the system objects first — `criarSistemaSolar` appends each sun
-  // and planet directly onto `container`, so they need to exist before
-  // we stack the ship / route / fog / memory layers on top.
+  // ─── Fase 2: Gerando 18 sistemas estelares ──
+  await onFase('Gerando sistemas estelares');
   const totalSistemas = 18;
   let tentativasSistema = 0;
   const DIST_MIN = 4500;
@@ -191,11 +201,8 @@ export async function criarMundo(app: Application, tipoJogador: TipoJogador): Pr
     planetas.push(...sistema.planetas);
   }
 
-  // Correct z-order (bottom → top):
-  //   fundo → planets (added via criarSistemaSolar) → orbit rings →
-  //   fleets → ships → ship routes → fog → memory ghosts.
-  // Fog has transparent holes where vision sources sit, so ships in
-  // visible territory remain visible through them.
+  // ─── Fase 3: Calculando órbitas ──
+  await onFase('Calculando órbitas planetárias');
   aplicarZOrderMundo(mv);
 
   if (!planetas.some((p) => p.dados.tipoPlaneta === TIPO_PLANETA.COMUM) && planetas.length > 0) {
@@ -212,10 +219,14 @@ export async function criarMundo(app: Application, tipoJogador: TipoJogador): Pr
     seedMusical: gerarSeedMusical(),
   } as Mundo;
 
+  // ─── Fase 4: Cartografando memória de fog-of-war ──
+  await onFase('Cartografando névoa de guerra');
   for (const planeta of planetas) {
     criarMemoriaVisualPlaneta(mundo, planeta);
   }
 
+  // ─── Fase 5: Estabelecendo colônia inicial ──
+  await onFase('Estabelecendo colônia inicial');
   const planetasComuns = planetas.filter((p) => p.dados.tipoPlaneta === TIPO_PLANETA.COMUM);
   const planetaInicial = planetasComuns[Math.floor(Math.random() * planetasComuns.length)];
   planetaInicial.dados.dono = 'jogador';
@@ -231,10 +242,20 @@ export async function criarMundo(app: Application, tipoJogador: TipoJogador): Pr
     sistemaInicial.sol._descobertoAoJogador = true;
   }
 
+  // ─── Fase 6: Despertando civilizações ──
   estadoJogo = 'jogando';
   resetIasV2();
   resetCombateVisuals();
-  inicializarIas(mundo, _dificuldadeAtual);
+  await onFase('Despertando civilizações alienígenas');
+  const ias = inicializarIas(mundo, _dificuldadeAtual);
+
+  // ─── Fase 7: Anunciar nomes das IAs (cosmético) ──
+  for (const ia of ias) {
+    await onFase(`Despertando: ${ia.nome}`);
+  }
+
+  // ─── Fase 8: Pronto ──
+  await onFase('Galáxia pronta');
   return mundo;
 }
 
@@ -256,6 +277,7 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   let t = profileMark();
 
   for (const planeta of mundo.planetas) {
+    atualizarRecursosPlaneta(planeta, deltaMs);  // produces resources for all owners (jogador + AI)
     atualizarPesquisaPlaneta(planeta, deltaMs);
     atualizarOrbitaPlaneta(planeta, deltaMs);
     atualizarFilasPlaneta(mundo, planeta, deltaMs);

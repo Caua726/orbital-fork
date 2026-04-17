@@ -4,6 +4,40 @@ import { saoHostis } from './constantes';
 import { getStatsCombate, podeAtacar } from './combate';
 import { somExplosao } from '../audio/som';
 
+// ─── Hit-flash tracking ──────────────────────────────────────────────
+// When a ship takes damage, briefly tint its sprite white then fade back.
+// Stored on the ship as _hitFlashRemainingMs (number).
+const FLASH_DURATION_MS = 120;
+function aplicarFlashDeImpacto(nave: Nave, deltaMs: number): void {
+  const restante = (nave as any)._hitFlashRemainingMs as number | undefined;
+  if (restante === undefined) return;
+  const novo = Math.max(0, restante - deltaMs);
+  (nave as any)._hitFlashRemainingMs = novo;
+  if (nave._sprite) {
+    if (novo > 0) {
+      const t = novo / FLASH_DURATION_MS;
+      // Lerp normal tint → white based on remaining flash time
+      // White = 0xffffff. Saturate sprite tint by mixing.
+      const intensity = t;
+      // Build a light tint that brightens the sprite without changing hue
+      const r = 255;
+      const g = 255 - Math.floor((1 - intensity) * 80);
+      const b = 255 - Math.floor((1 - intensity) * 80);
+      nave._sprite.tint = (r << 16) | (g << 8) | b;
+    } else {
+      // Restore default tint
+      const SHIP_TINT_RESET: Record<string, number> = {
+        fragata: 0xff7070,
+      };
+      nave._sprite.tint = SHIP_TINT_RESET[nave.tipo] ?? 0xffffff;
+    }
+  }
+}
+
+function disparouFlash(nave: Nave): void {
+  (nave as any)._hitFlashRemainingMs = FLASH_DURATION_MS;
+}
+
 /**
  * Combat resolution: each frame, every armed ship looks for enemy ships
  * within its weapon range and fires at the closest one. Damage is
@@ -89,6 +123,8 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
     const danoPorTiro = stats.dano * (cooldown / 1000);
     melhor.hp = (melhor.hp ?? getStatsCombate(melhor).hp) - danoPorTiro;
     atacante._ultimoTiroMs = now;
+    // Trigger hit-flash on the target (briefly tints sprite white)
+    disparouFlash(melhor);
 
     // Spawn beam visual
     _beams.push({
@@ -99,6 +135,11 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
       color: stats.corBeam,
       age: 0,
     });
+  }
+
+  // Tick hit-flashes for every ship (cheap — only does work for ships with active flash)
+  for (const n of mundo.naves) {
+    aplicarFlashDeImpacto(n, deltaMs);
   }
 
   // Age beams + redraw

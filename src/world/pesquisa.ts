@@ -21,8 +21,11 @@ export function atualizarPesquisaPlaneta(planeta: Planeta, deltaMs: number): voi
   if (p.tempoRestanteMs <= 0) {
     const arr: boolean[] | undefined = planeta.dados.pesquisas[p.categoria];
     if (arr) arr[p.tier - 1] = true;
-    notifPesquisaCompleta(p.categoria, p.tier);
-    somPesquisaCompleta();
+    // Only notify player about THEIR research completing, not AI research
+    if (planeta.dados.dono === 'jogador') {
+      notifPesquisaCompleta(p.categoria, p.tier);
+      somPesquisaCompleta();
+    }
     planeta.dados.pesquisaAtual = null;
   }
 }

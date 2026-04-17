@@ -39,14 +39,22 @@ export function desenharConstrucoesPlaneta(planeta: Planeta): void {
   }
 }
 
-export function atualizarFilasPlaneta(mundo: Mundo, planeta: Planeta, deltaMs: number): void {
-  if (planeta.dados.dono !== 'jogador') return;
-
+/**
+ * Resource production cycle — runs for ALL owned planets (including AI).
+ * Without this, AI planets never accumulate resources and the AI fairness
+ * fix would lock them out of building anything.
+ */
+export function atualizarRecursosPlaneta(planeta: Planeta, deltaMs: number): void {
+  if (planeta.dados.dono === 'neutro') return;
   planeta.dados.acumuladorRecursosMs += deltaMs;
   while (planeta.dados.acumuladorRecursosMs >= CICLO_RECURSO_MS) {
     planeta.dados.acumuladorRecursosMs -= CICLO_RECURSO_MS;
     aplicarProducaoCicloAoPlaneta(planeta);
   }
+}
+
+export function atualizarFilasPlaneta(mundo: Mundo, planeta: Planeta, deltaMs: number): void {
+  if (planeta.dados.dono !== 'jogador') return;
 
   const construcao = planeta.dados.construcaoAtual;
   if (construcao) {

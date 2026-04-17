@@ -55,15 +55,61 @@ export interface PersonalidadeIA {
   forca: number;
 }
 
-const NOMES_PREFIXO = [
-  'Imperium', 'Ordem', 'Coletivo', 'Federação', 'Aliança', 'Dominação',
-  'Sindicato', 'Conclave', 'Hegemonia', 'Domínio', 'Reino', 'Khanate',
+// Procedural name generation via syllable concatenation.
+//
+// Empire titles are picked from a pool that varies per archetype (a
+// warlord is "Império", a trader is "Federação", etc), and the proper
+// noun is built from random syllables for true variety.
+
+const TITULOS_POR_ARQUETIPO: Record<Arquetipo, string[]> = {
+  warlord:   ['Império', 'Domínio', 'Khanate', 'Horda', 'Legião'],
+  trader:    ['Federação', 'Coletivo', 'Sindicato', 'Mercado', 'Aliança'],
+  scientist: ['Conclave', 'Academia', 'Concílio', 'Ordem', 'Universidade'],
+  defender:  ['Reino', 'Bastião', 'Fortaleza', 'Custódia', 'Sentinela'],
+  explorer:  ['Frota', 'Caravana', 'Errantes', 'Nômades', 'Expedição'],
+};
+
+// Onset clusters (start of syllable) — mix of soft and hard consonants
+const ONSETS = [
+  'k', 'kr', 'v', 'vr', 'z', 'zh', 'th', 'x', 'q', 'qu', 'sh',
+  'kh', 'dr', 'tr', 'sk', 'st', 'br', 'cl', 'gn', 'm', 'n',
+  'r', 'l', 'b', 'd', 'g', 'p', 's', 'mr', 'sr',
 ];
 
-const NOMES_SUFIXO = [
-  'Krax', 'Vorr', 'Sigma', 'Solaris', 'Nyxis', 'Drax', 'Voryn', 'Kessar',
-  'Tharos', 'Veynar', 'Zerex', 'Quor', 'Atrius', 'Belox', 'Mirax', 'Nokar',
-];
+// Nucleus (vowel patterns)
+const VOGAIS = ['a', 'e', 'i', 'o', 'u', 'ae', 'ei', 'oa', 'ia', 'yu', 'ar', 'or', 'er', 'ix', 'ax'];
+
+// Coda (end of syllable)
+const CODAS = ['', '', '', 'n', 'r', 's', 'x', 'l', 'th', 'sh', 'rk', 'st', 'm', 'k'];
+
+function gerarSilaba(rng: () => number): string {
+  return pickRng(ONSETS, rng) + pickRng(VOGAIS, rng) + pickRng(CODAS, rng);
+}
+
+function gerarNomeProprio(rng: () => number): string {
+  // 1-3 syllables, biased toward 2
+  const numSilabas = rng() < 0.15 ? 1 : (rng() < 0.7 ? 2 : 3);
+  let nome = '';
+  for (let i = 0; i < numSilabas; i++) {
+    nome += gerarSilaba(rng);
+  }
+  return nome.charAt(0).toUpperCase() + nome.slice(1);
+}
+
+function pickRng<T>(arr: T[], rng: () => number): T {
+  return arr[Math.floor(rng() * arr.length)];
+}
+
+function makeRng(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 const PALETA_INIMIGO: number[] = [
   0xff5555, // hot red
@@ -144,9 +190,15 @@ export function gerarPersonalidade(id: string, forca: number, coresUsadas: Set<n
   }
   coresUsadas.add(cor);
 
+  // Use a per-personality seed so the name is stable for a given id
+  const seed = id.split('').reduce((s, c) => s + c.charCodeAt(0), 0) + Math.floor(Math.random() * 0xFFFF);
+  const rng = makeRng(seed);
+  const titulo = pickRng(TITULOS_POR_ARQUETIPO[arquetipo], rng);
+  const nomeProprio = gerarNomeProprio(rng);
+
   return {
     id,
-    nome: `${pick(NOMES_PREFIXO)} ${pick(NOMES_SUFIXO)}`,
+    nome: `${titulo} ${nomeProprio}`,
     cor,
     arquetipo,
     pesos: {
