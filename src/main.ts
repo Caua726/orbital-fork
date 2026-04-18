@@ -153,15 +153,10 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // Apply initial FPS cap
-  if (gfx.fpsCap > 0) {
-    app.ticker.maxFPS = gfx.fpsCap;
-  }
-
-  // React to config changes for FPS cap
-  onConfigChange((cfg) => {
-    app.ticker.maxFPS = cfg.graphics.fpsCap > 0 ? cfg.graphics.fpsCap : 0;
-  });
+  // FPS cap setting removed at user request — the browser's rAF vsyncs
+  // to monitor refresh anyway, so our cap was a second clamp on top of
+  // that. maxFPS=0 lets the ticker run as often as rAF delivers frames.
+  app.ticker.maxFPS = 0;
 
   // ── FPS counter ──
   const fpsEl = document.createElement('div');
@@ -190,6 +185,23 @@ async function bootstrap(): Promise<void> {
   `;
   document.body.appendChild(ramEl);
 
+  // Sample performance.memory once and write into ramEl. Factored out so
+  // we can fire it immediately on toggle-on instead of making the user
+  // stare at an empty box for up to a second until the periodic tick.
+  const sampleRam = (): void => {
+    const mem = (performance as any).memory;
+    if (mem && typeof mem.usedJSHeapSize === 'number') {
+      const usedMB = mem.usedJSHeapSize / (1024 * 1024);
+      const totalMB = mem.jsHeapSizeLimit / (1024 * 1024);
+      ramEl.textContent = `${usedMB.toFixed(0)} / ${totalMB.toFixed(0)} MB`;
+    } else {
+      // Firefox + Safari don't expose performance.memory at all.
+      ramEl.textContent = 'RAM n/a';
+    }
+  };
+  // Prime the label so the first toggle-on shows content right away.
+  sampleRam();
+
   let _fpsAccum = 0;
   let _fpsFrames = 0;
   let _ramAccum = 0;
@@ -206,19 +218,15 @@ async function bootstrap(): Promise<void> {
     _ramAccum += app.ticker.deltaMS;
     if (_ramAccum >= 1000 && ramEl.style.display !== 'none') {
       _ramAccum = 0;
-      const mem = (performance as any).memory;
-      if (mem && typeof mem.usedJSHeapSize === 'number') {
-        const usedMB = mem.usedJSHeapSize / (1024 * 1024);
-        const totalMB = mem.jsHeapSizeLimit / (1024 * 1024);
-        ramEl.textContent = `${usedMB.toFixed(0)} / ${totalMB.toFixed(0)} MB`;
-      } else {
-        ramEl.textContent = 'RAM --';
-      }
+      sampleRam();
     }
   });
   onConfigChange((cfg) => {
     fpsEl.style.display = cfg.graphics.mostrarFps ? 'block' : 'none';
-    ramEl.style.display = cfg.graphics.mostrarRam ? 'block' : 'none';
+    const showRam = cfg.graphics.mostrarRam;
+    ramEl.style.display = showRam ? 'block' : 'none';
+    // Re-sample immediately on toggle-on so the value is fresh.
+    if (showRam) sampleRam();
   });
 
   // ── Scanlines CRT overlay ──
