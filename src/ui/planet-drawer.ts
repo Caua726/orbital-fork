@@ -17,9 +17,8 @@ import type { Mundo, Planeta } from '../types';
 import { marcarInteracaoUi } from './interacao-ui';
 import { nomeTipoPlaneta, getTierMax } from '../world/mundo';
 import { getPersonalidades } from '../world/ia-decisao';
-import { gerarPlanetaLore } from '../world/lore/planeta-lore';
 import { gerarImperioLore } from '../world/lore/imperio-lore';
-import { abrirImperioLore, abrirPlanetaLore } from './lore-modal';
+import { abrirImperioLore } from './lore-modal';
 import { oreIcon, alloyIcon, fuelIcon } from './resource-bar';
 
 let _modal: HTMLDivElement | null = null;
@@ -484,35 +483,12 @@ function tipoPlanetaCor(tipo: string): string {
   return '#4a9e6a';
 }
 
-function buildActions(p: Planeta, mundo: Mundo): HTMLDivElement {
-  const actions = document.createElement('div');
-  actions.className = 'planeta-drawer-actions';
-
-  const archiveBtn = document.createElement('button');
-  archiveBtn.type = 'button';
-  archiveBtn.className = 'planeta-drawer-btn';
-  archiveBtn.textContent = 'Ver arquivo planetário';
-  archiveBtn.addEventListener('click', (ev) => {
-    ev.preventDefault(); ev.stopPropagation();
-    marcarInteracaoUi();
-    const ia = getPersonalidades().find((x) => x.id === p.dados.dono);
-    const lore = gerarPlanetaLore({
-      planetaId: p.id,
-      galaxySeed: mundo.galaxySeed,
-      tipo: p.dados.tipoPlaneta,
-      dono: p.dados.dono,
-      nomePlaneta: p.dados.nome,
-      donoNome: ia?.nome,
-      donoArquetipo: ia?.arquetipo,
-      tamanho: p.dados.tamanho,
-    });
-    void abrirPlanetaLore(lore, p.dados.nome);
-  });
-  actions.appendChild(archiveBtn);
-  // "Fechar" button intentionally omitted — the × icon in the header
-  // already closes the drawer, no need for a redundant second button.
-
-  return actions;
+function buildActions(_p: Planeta, _mundo: Mundo): HTMLDivElement | null {
+  // Action row intentionally empty for now — the planetary archive
+  // button was removed per user request. The header × still closes
+  // the drawer; empire lore is still reachable by clicking the owner
+  // row in the header. Returning null so the caller skips appending.
+  return null;
 }
 
 function rebuildBody(p: Planeta, _mundo: Mundo): void {
@@ -572,7 +548,8 @@ export function abrirPlanetaDrawer(planeta: Planeta, mundo: Mundo): Promise<void
   _bodyEl = body;
   _modal.appendChild(body);
   rebuildBody(planeta, mundo);
-  _modal.appendChild(buildActions(planeta, mundo));
+  const actions = buildActions(planeta, mundo);
+  if (actions) _modal.appendChild(actions);
 
   _modal.classList.add('visible');
 
