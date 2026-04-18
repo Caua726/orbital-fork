@@ -80,11 +80,11 @@ void main() {
 
     // Three layers — parallax factors differ for fake depth. Stars
     // move individually per layer via velocity in starLayer().
-    // Radii are expressed in cell-local [0..1] units. With a 1/4-res
-    // render target these map to ~1-2 RT pixels = 4-8 screen pixels.
-    col += starLayer(worldPos, 260.0, 0.15, 0.012, 0.55);
-    col += starLayer(worldPos, 180.0, 0.45, 0.016, 0.40);
-    col += starLayer(worldPos, 140.0, 0.90, 0.022, 0.22);
+    // Radii are in cell-local [0..1] units. At zoom 1 these map to
+    // ~2 screen pixels per star — visibly a dot, not a blob.
+    col += starLayer(worldPos, 260.0, 0.15, 0.006, 0.55);
+    col += starLayer(worldPos, 180.0, 0.45, 0.008, 0.40);
+    col += starLayer(worldPos, 140.0, 0.90, 0.011, 0.22);
 
     finalColor = vec4(col, 1.0);
 }

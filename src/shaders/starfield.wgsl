@@ -94,9 +94,9 @@ fn mainFragment(@location(0) vUV: vec2<f32>) -> @location(0) vec4<f32> {
 
     var col = vec3<f32>(0.0);
 
-    col = col + starLayer(worldPos, 260.0, 0.15, 0.025, 0.55, t, dens);
-    col = col + starLayer(worldPos, 180.0, 0.45, 0.035, 0.40, t, dens);
-    col = col + starLayer(worldPos, 140.0, 0.90, 0.050, 0.22, t, dens);
+    col = col + starLayer(worldPos, 260.0, 0.15, 0.006, 0.55, t, dens);
+    col = col + starLayer(worldPos, 180.0, 0.45, 0.008, 0.40, t, dens);
+    col = col + starLayer(worldPos, 140.0, 0.90, 0.011, 0.22, t, dens);
 
     return vec4<f32>(col, 1.0);
 }
