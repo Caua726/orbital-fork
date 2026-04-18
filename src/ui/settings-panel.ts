@@ -552,11 +552,26 @@ function renderGraphicsTab(body: HTMLDivElement): void {
       status.style.display = 'block';
 
       // Hide the settings modal itself so the user can see the Pixi
-      // stage where the stress scene is rendering. Reopening after
-      // the benchmark finishes restores their place.
+      // stage where the stress scene is rendering. The setProperty
+      // with `important` guards against any CSS rule overriding a
+      // plain inline display change.
       const settingsOverlay = document.querySelector('.settings-overlay') as HTMLElement | null;
-      const prevDisplay = settingsOverlay?.style.display ?? '';
-      if (settingsOverlay) settingsOverlay.style.display = 'none';
+      const prevDisplay = settingsOverlay?.style.getPropertyValue('display') ?? '';
+      const prevPriority = settingsOverlay?.style.getPropertyPriority('display') ?? '';
+      if (settingsOverlay) {
+        settingsOverlay.style.setProperty('display', 'none', 'important');
+      }
+      // Also hide any HUD panels that might be covering the canvas.
+      const hiddenHud: HTMLElement[] = [];
+      document.querySelectorAll<HTMLElement>('[data-ui="true"]').forEach((el) => {
+        if (el === settingsOverlay) return;
+        const prev = el.style.getPropertyValue('visibility');
+        if (prev !== 'hidden') {
+          el.dataset._benchPrevVis = prev;
+          el.style.setProperty('visibility', 'hidden', 'important');
+          hiddenHud.push(el);
+        }
+      });
 
       // Fullscreen overlay with live stats while the benchmark runs.
       // Sits on top of the Pixi canvas so the user can see the stress
@@ -564,18 +579,20 @@ function renderGraphicsTab(body: HTMLDivElement): void {
       const overlay = document.createElement('div');
       overlay.style.cssText = [
         'position: fixed', 'inset: 0', 'z-index: 2147483000',
-        'pointer-events: none', // lets the stress scene render normally beneath
+        'pointer-events: none',
         'display: flex', 'flex-direction: column',
-        'justify-content: flex-start', 'align-items: center',
-        'padding-top: 4vh',
+        'justify-content: flex-end',  // card anchored to bottom so
+        'align-items: center',        // the scene fills the rest
+        'padding-bottom: 3vh',
         'font-family: var(--hud-font, monospace)',
       ].join(';');
 
       const card = document.createElement('div');
       card.style.cssText = [
-        'background: rgba(0,0,0,0.82)',
-        'border: 1px solid rgba(255,255,255,0.18)',
-        'padding: 12px 18px', 'min-width: 280px',
+        'background: rgba(0,0,0,0.55)',  // more transparent — scene shows through
+        'backdrop-filter: blur(4px)',
+        'border: 1px solid rgba(255,255,255,0.25)',
+        'padding: 8px 14px', 'min-width: 300px',
         'border-radius: 4px',
         'color: #fff', 'text-align: center',
       ].join(';');
@@ -616,7 +633,13 @@ function renderGraphicsTab(body: HTMLDivElement): void {
         benchBtn.disabled = false;
         benchBtn.textContent = t('settings.benchmark.btn');
         try { overlay.remove(); } catch { /* noop */ }
-        if (settingsOverlay) settingsOverlay.style.display = prevDisplay;
+        if (settingsOverlay) {
+          settingsOverlay.style.setProperty('display', prevDisplay, prevPriority);
+        }
+        for (const el of hiddenHud) {
+          el.style.setProperty('visibility', el.dataset._benchPrevVis ?? '');
+          delete el.dataset._benchPrevVis;
+        }
       }
     });
     row.appendChild(benchBtn);

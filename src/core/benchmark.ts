@@ -65,16 +65,15 @@ function classificar(avgMs: number): {
   preset: OrbitalConfig['graphics']['qualidadeEfeitos'];
   scale: number;
 } {
-  // Thresholds are for the REAL post-gl.finish frame cost (GPU work
-  // only, no vsync wait baked in). The stress scene renders 3× per
-  // sample with 30 max-octave planets + a star, so live gameplay is
-  // ~10-15× lighter than what we measure here — recommended preset
-  // has a lot of headroom.
-  if (avgMs < 12)     return { preset: 'alto',   scale: 1.0 };
-  if (avgMs < 30)     return { preset: 'medio',  scale: 1.0 };
-  if (avgMs < 55)     return { preset: 'medio',  scale: 0.85 };
-  if (avgMs < 90)     return { preset: 'baixo',  scale: 0.75 };
-  if (avgMs < 160)    return { preset: 'baixo',  scale: 0.5 };
+  // Thresholds are for the REAL post-gl.finish frame cost. Scene
+  // now renders 10× per sample with 48 max-octave planets + star —
+  // live gameplay is ~30× lighter than this measurement, so a fast
+  // GPU has enormous headroom on the recommended preset.
+  if (avgMs < 30)     return { preset: 'alto',   scale: 1.0 };
+  if (avgMs < 70)     return { preset: 'medio',  scale: 1.0 };
+  if (avgMs < 130)    return { preset: 'medio',  scale: 0.85 };
+  if (avgMs < 220)    return { preset: 'baixo',  scale: 0.75 };
+  if (avgMs < 400)    return { preset: 'baixo',  scale: 0.5 };
   return               { preset: 'minimo', scale: 0.35 };
 }
 
@@ -82,12 +81,11 @@ async function construirCenaTeste(screenW: number, screenH: number): Promise<Con
   const root = new PxContainer();
 
   const tiposArray = Object.values(TIPO_PLANETA);
-  // Denser grid than gameplay ever produces so fragment cost is
-  // dominated by planet surface shading — 30 planets on screen,
-  // each at the largest size that fits, each forced to the maximum
-  // octave count so the fbm loop runs its worst case every pixel.
-  const cols = 6;
-  const rows = 5;
+  // 48-planet grid (8 cols × 6 rows) — denser than any gameplay
+  // configuration. Each mesh forced to 6 FBM octaves so every pixel
+  // runs the maximum-cost fragment path.
+  const cols = 8;
+  const rows = 6;
   const cellW = screenW * 0.98 / cols;
   const cellH = screenH * 0.98 / rows;
   const cell = Math.min(cellW, cellH);
@@ -156,14 +154,26 @@ export async function rodarBenchmark(
       const now = performance.now();
       const elapsed = now - start;
 
-      // Render the scene 3× per sample. Tripling the per-sample
-      // workload smooths measurement noise and pushes fast GPUs into
-      // a measurable range (a single render on a beefy card can come
-      // back in well under 1ms and get lost in timer resolution).
+      // Heavy inner loop: advance uTime for every planet between
+      // renders (so the visible result is motion, not a frozen
+      // frame) and render the full scene many times. 50 renders per
+      // sample takes a fast desktop GPU ~50-90 ms — enough that the
+      // measurement is dominated by real GPU cost, not timer noise.
+      // The screen only paints the LAST render of each sample (one
+      // paint per rAF), which the user perceives as smooth
+      // animation because each paint is uTime-advanced.
+      const INNER_RENDERS = 50;
       const renderStart = performance.now();
-      app.renderer.render({ container: scene });
-      app.renderer.render({ container: scene });
-      app.renderer.render({ container: scene });
+      for (let i = 0; i < INNER_RENDERS; i++) {
+        for (const child of scene.children) {
+          const u = (child as any)?._planetShader?.resources?.planetUniforms?.uniforms;
+          if (u) {
+            u.uTime += 0.02;
+            u.uRotation += 0.01;
+          }
+        }
+        app.renderer.render({ container: scene });
+      }
       await syncGpu(app.renderer);
       const renderEnd = performance.now();
       const workMs = renderEnd - renderStart;
