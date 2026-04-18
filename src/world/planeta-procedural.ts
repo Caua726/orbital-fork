@@ -1,4 +1,5 @@
-import { Mesh, Shader, GlProgram, GpuProgram, UniformGroup, Geometry, Buffer, State, Sprite, Container, Rectangle, RenderTexture } from 'pixi.js';
+import { Mesh, Shader, GlProgram, GpuProgram, UniformGroup, Geometry, Buffer, State, Sprite, Container, Rectangle, RenderTexture, Texture } from 'pixi.js';
+import { renderPlanetParaImageData, type PlanetRenderState } from './planeta-canvas';
 import type { Application } from 'pixi.js';
 import vertexSrc from '../shaders/planeta.vert?raw';
 import fragmentSrc from '../shaders/planeta.frag?raw';
@@ -25,6 +26,8 @@ export function setAppReferenceForBake(app: Application): void {
  * Safe to call multiple times — the GPU driver caches the linked program.
  */
 export async function precompilarShadersPlaneta(app: Application): Promise<void> {
+  // Canvas2D mode has no GLSL/WGSL program to compile.
+  if (isCanvas2dRenderer()) return;
   let warmup: Container | null = null;
   let target: RenderTexture | null = null;
   try {
@@ -54,7 +57,7 @@ export async function precompilarShadersPlaneta(app: Application): Promise<void>
   }
 }
 
-interface PaletaPlaneta {
+export interface PaletaPlaneta {
   planetType: number;
   colors: [number, number, number, number][];
   riverCutoff: number;
@@ -134,7 +137,7 @@ const GAS_PALETTES: RGBA[][] = [
   [[0.45, 0.72, 0.75, 1], [0.30, 0.55, 0.60, 1], [0.18, 0.38, 0.42, 1], [0.10, 0.22, 0.28, 1], [0, 0, 0, 1], [0, 0, 0, 1]],
 ];
 
-function gerarPaletaAleatoria(tipo: string): PaletaPlaneta {
+export function gerarPaletaAleatoria(tipo: string): PaletaPlaneta {
   switch (tipo) {
     case TIPO_PLANETA.COMUM: {
       const colors = variarPaleta(pick(TERRAN_PALETTES));
@@ -286,6 +289,90 @@ function criarShaderPlaneta(tipoPlaneta: string, seed: number): Shader {
   });
 }
 
+// Canvas2D planet state stashed on the display object when running
+// in software mode. Each frame atualizarTempoPlanetas re-renders the
+// procedural shader on the CPU into `data`, puts it back into the
+// canvas, and triggers a texture upload on the Pixi source.
+export interface CanvasPlanetState {
+  paleta: PaletaPlaneta;
+  seed: number;
+  uPixels: number;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  imageData: ImageData;
+  state: PlanetRenderState;
+  // Force a re-render on next tick even if time didn't advance (e.g.
+  // when light source moves). Cheap micro-optim; setting this to
+  // false on static frames skips the ImageData loop.
+  dirty: boolean;
+}
+
+function criarPlanetaCanvasSprite(
+  x: number, y: number, tamanho: number,
+  paleta: PaletaPlaneta, seed: number,
+): Sprite {
+  // Internal resolution matches the pixelization grid the shader
+  // uses (uPixels=64). Each pixel then maps to tamanho/64 world units
+  // after the Sprite scale is applied. Nearest-neighbor upscale
+  // preserves the pixel-art edges.
+  const uPixels = 64;
+  const W = uPixels;
+  const H = uPixels;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx2d = canvas.getContext('2d', { alpha: true });
+  if (!ctx2d) throw new Error('[planeta-canvas] 2D context unavailable');
+  const imageData = ctx2d.createImageData(W, H);
+
+  const renderState: PlanetRenderState = {
+    uTime: 0,
+    uRotation: Math.random() * 6.28,
+    uLightOriginX: 0.39,
+    uLightOriginY: 0.39,
+  };
+
+  // Initial frame so the Sprite has something sensible before the
+  // first atualizarTempoPlanetas tick.
+  renderPlanetParaImageData(imageData.data, W, H, paleta, renderState, uPixels, seed);
+  ctx2d.putImageData(imageData, 0, 0);
+
+  const sprite = new Sprite(Texture.from(canvas));
+  sprite.texture.source.scaleMode = 'nearest';
+  sprite.anchor.set(0.5);
+  sprite.x = x;
+  sprite.y = y;
+  // Match the Mesh scale semantics: unit quad → tamanho world units.
+  // Sprite uses pixel-sized texture, so scale = tamanho / W.
+  sprite.scale.set(tamanho / W);
+  sprite.eventMode = 'none';
+
+  const rotSpeed = (0.02 + Math.random() * 0.06) * (Math.random() > 0.5 ? 1 : -1);
+  const canvasState: CanvasPlanetState = {
+    paleta, seed, uPixels, canvas, ctx: ctx2d, imageData,
+    state: renderState, dirty: true,
+  };
+  (sprite as any)._canvasRender = canvasState;
+  (sprite as any)._rotSpeed = rotSpeed;
+  // Used by atualizarTempoPlanetas to know this uses the CPU path.
+  (sprite as any)._isCanvasPlanet = true;
+
+  return sprite;
+}
+
+/**
+ * Detect whether we're running in the Canvas2D renderer mode. In
+ * that mode we cannot create Mesh+Shader — the GPU path simply
+ * doesn't exist — so criarPlanetaProceduralSprite routes to the
+ * CPU JS-port path instead.
+ */
+function isCanvas2dRenderer(): boolean {
+  if (!_appRef) return false;
+  const anyR = _appRef.renderer as any;
+  const name = anyR.name ?? anyR.type ?? '';
+  return typeof name === 'string' && name.toLowerCase().includes('canvas');
+}
+
 export function criarPlanetaProceduralSprite(
   x: number,
   y: number,
@@ -294,6 +381,12 @@ export function criarPlanetaProceduralSprite(
   seed?: number,
 ): Mesh<Geometry, Shader> {
   const planetSeed = seed ?? (1.0 + Math.random() * 9.0);
+
+  if (isCanvas2dRenderer()) {
+    const paleta = gerarPaletaAleatoria(tipoPlaneta);
+    return criarPlanetaCanvasSprite(x, y, tamanho, paleta, planetSeed) as unknown as Mesh<Geometry, Shader>;
+  }
+
   const shader = criarShaderPlaneta(tipoPlaneta, planetSeed);
 
   const state = State.for2d();
@@ -473,19 +566,35 @@ export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
   // shaderLive is ON — per-planet auto-bake: when a planet's on-
   // screen footprint is small, the live shader's detail is below the
   // perceivable threshold anyway, so we bake it to a static sprite
-  // and skip the ALU-heavy per-pixel shader entirely. As soon as the
-  // camera zooms in past the threshold, unbake and resume live
-  // shader updates. The bake/unbake pair is already used by the
-  // global shaderLive=false path, so we reuse it here.
-  const AUTO_BAKE_PX = 40;   // Below this many screen pixels, bake.
-  const AUTO_UNBAKE_PX = 55; // Above this, go back to live.
-                             // Hysteresis prevents thrashing at the
-                             // threshold boundary.
+  // and skip the ALU-heavy per-pixel shader entirely.
+  const AUTO_BAKE_PX = 40;
+  const AUTO_UNBAKE_PX = 55;
   const zoom = getZoom() || 1;
   const deltaSec = deltaMs / 1000;
+
   for (const planeta of planetas) {
     if (!planeta.visible) {
       if ((planeta as any)._bakedSprite) unbakePlaneta(planeta);
+      continue;
+    }
+
+    // Canvas2D mode: re-render the JS-port shader each frame.
+    if ((planeta as any)._isCanvasPlanet) {
+      const cs = (planeta as any)._canvasRender as CanvasPlanetState | undefined;
+      if (!cs) continue;
+      cs.state.uTime += deltaSec;
+      const rotSpeed = (planeta as any)._rotSpeed ?? 0;
+      cs.state.uRotation += rotSpeed * deltaSec;
+      renderPlanetParaImageData(
+        cs.imageData.data,
+        cs.canvas.width, cs.canvas.height,
+        cs.paleta, cs.state, cs.uPixels, cs.seed,
+      );
+      cs.ctx.putImageData(cs.imageData, 0, 0);
+      // Tell Pixi the texture source changed so it re-uploads. Safe
+      // to call every frame — upload cost on a 64×64 canvas is tiny.
+      const src = (planeta as any).texture?.source;
+      if (src && typeof src.update === 'function') src.update();
       continue;
     }
 
@@ -499,8 +608,6 @@ export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
       bakePlaneta(planeta);
     }
 
-    // If now baked, keep the sprite in sync with the planet's world
-    // position and skip the shader time advance — it isn't rendering.
     if ((planeta as any)._bakedSprite) {
       const sprite = (planeta as any)._bakedSprite as Sprite;
       sprite.x = planeta.x;
@@ -558,6 +665,30 @@ export function criarEstrelaProcedural(
     cloudAlpha: 0.0,
   };
 
+  const tamanho = raio * 2.9;
+
+  // Canvas2D mode: same JS-port path as planets. uPixels=128 matches
+  // what the shader path uses for stars so the pixelization grid is
+  // the same density.
+  if (isCanvas2dRenderer()) {
+    const sprite = criarPlanetaCanvasSprite(x, y, tamanho, paleta, seed);
+    // Stars use a higher internal resolution than planets (128 vs 64
+    // for the GLSL uPixels default). Re-init the canvas at the right
+    // size so detail matches.
+    const cs = (sprite as any)._canvasRender as CanvasPlanetState;
+    if (cs.canvas.width !== 128) {
+      cs.canvas.width = 128;
+      cs.canvas.height = 128;
+      cs.uPixels = 128;
+      cs.imageData = cs.ctx.createImageData(128, 128);
+      sprite.scale.set(tamanho / 128);
+      cs.dirty = true;
+    }
+    // Stars rotate slower than planets.
+    (sprite as any)._rotSpeed = 0.005 + Math.random() * 0.01;
+    return sprite as unknown as Mesh<Geometry, Shader>;
+  }
+
   const planetUniforms = criarUniformsPlaneta(paleta, seed, 128.0, Math.random() * 100);
 
   const shader = new Shader({
@@ -566,7 +697,6 @@ export function criarEstrelaProcedural(
     resources: { planetUniforms },
   });
 
-  const tamanho = raio * 2.9;
   const state = State.for2d();
   state.blend = true;
 
@@ -587,18 +717,23 @@ export function criarEstrelaProcedural(
 }
 
 export function atualizarLuzPlaneta(planeta: any, solX: number, solY: number): void {
-  const shader = (planeta as any)._planetShader as Shader | undefined;
-  if (!shader) return;
-
-  // light_origin in UV space: the point ON the planet surface closest to the sun
-  // dx > 0 means sun is to the right → light comes from right → light_origin.x < 0.5
-  // The shader darkens pixels far from light_origin, so light_origin = illuminated side
+  // Same direction math for both paths — sun → UV position on the disc.
   const dx = solX - planeta.x;
   const dy = solY - planeta.y;
   const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-  // Normalize and map: sun direction → UV position (0.2-0.8 range to keep light on the sphere)
   const lx = 0.5 + (dx / dist) * 0.25;
   const ly = 0.5 + (dy / dist) * 0.25;
+
+  if ((planeta as any)._isCanvasPlanet) {
+    const cs = (planeta as any)._canvasRender as CanvasPlanetState | undefined;
+    if (!cs) return;
+    cs.state.uLightOriginX = lx;
+    cs.state.uLightOriginY = ly;
+    return;
+  }
+
+  const shader = (planeta as any)._planetShader as Shader | undefined;
+  if (!shader) return;
   const uniforms = (shader.resources as any).planetUniforms.uniforms;
   uniforms.uLightOrigin[0] = lx;
   uniforms.uLightOrigin[1] = ly;

@@ -1,11 +1,15 @@
 import {
   Buffer, Container, Geometry, GlProgram, GpuProgram, Mesh,
   RenderTexture, Shader, State, UniformGroup,
+  type Application,
 } from 'pixi.js';
 import vertexSrc from '../shaders/starfield.vert?raw';
 import fragmentSrc from '../shaders/starfield.frag?raw';
 import wgslSrc from '../shaders/starfield.wgsl?raw';
 import { getConfig } from '../core/config';
+import {
+  criarFundoCanvas, atualizarFundoCanvas, getStarfieldCanvasMemoryBytes,
+} from './fundo-canvas';
 
 /**
  * Starfield renderer — one fullscreen Mesh running a procedural
@@ -24,17 +28,25 @@ interface FundoContainer extends Container {
 }
 
 /**
- * Approximate bytes held by the starfield renderer — trivially tiny
- * now that the canvas tile cache is gone.
+ * Approximate bytes held by the starfield renderer. Shader path is
+ * ~10 KB; Canvas2D path adds the ImageData + uploaded texture.
  */
-export function getStarfieldMemoryBytes(_fundo: Container): number {
+export function getStarfieldMemoryBytes(fundo: Container): number {
+  if ((fundo as any)._isCanvasFundo) return getStarfieldCanvasMemoryBytes(fundo);
   return 10 * 1024;
 }
 
-// No longer needed — kept as a no-op so main.ts doesn't break while
-// the app-ref wiring gets cleaned up over follow-up commits.
-export function setAppReferenceForFundo(_app: unknown): void {
-  /* intentional no-op */
+// Boot wires this so criarFundo can detect Canvas2D mode at creation.
+let _appRef: Application | null = null;
+export function setAppReferenceForFundo(app: Application): void {
+  _appRef = app;
+}
+
+function isCanvas2dRenderer(): boolean {
+  if (!_appRef) return false;
+  const anyR = _appRef.renderer as any;
+  const name = anyR.name ?? anyR.type ?? '';
+  return typeof name === 'string' && name.toLowerCase().includes('canvas');
 }
 
 // ─── Shared GPU resources ─────────────────────────────────────────
@@ -95,6 +107,8 @@ function criarStarfieldMesh(): { mesh: Mesh<Geometry, Shader>; uniforms: Uniform
 export async function precompilarShaderStarfield(
   app: { renderer: { render: (opts: { container: Container; target: any }) => void } },
 ): Promise<void> {
+  // Canvas2D mode has no GLSL/WGSL program to compile.
+  if (isCanvas2dRenderer()) return;
   let mesh: Mesh<Geometry, Shader> | null = null;
   let target: RenderTexture | null = null;
   try {
@@ -112,7 +126,12 @@ export async function precompilarShaderStarfield(
   }
 }
 
-export function criarFundo(_tamanhoMundo: number): FundoContainer {
+export function criarFundo(tamanhoMundo: number): FundoContainer {
+  if (isCanvas2dRenderer()) {
+    const canvasFundo = criarFundoCanvas(tamanhoMundo) as unknown as FundoContainer;
+    (canvasFundo as any)._isCanvasFundo = true;
+    return canvasFundo;
+  }
   const container = new Container() as FundoContainer;
   const { mesh, uniforms } = criarStarfieldMesh();
   container.addChild(mesh);
@@ -140,6 +159,10 @@ export function atualizarFundo(
   telaW: number,
   telaH: number,
 ): void {
+  if ((fundo as any)._isCanvasFundo) {
+    atualizarFundoCanvas(fundo as any, jogadorX, jogadorY, telaW, telaH);
+    return;
+  }
   const mesh = fundo._mesh;
   mesh.x = jogadorX - telaW / 2;
   mesh.y = jogadorY - telaH / 2;
