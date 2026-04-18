@@ -550,13 +550,50 @@ function renderGraphicsTab(body: HTMLDivElement): void {
       benchBtn.disabled = true;
       benchBtn.textContent = t('settings.benchmark.running');
       status.style.display = 'block';
-      status.textContent = '0%';
+
+      // Fullscreen overlay with live stats while the benchmark runs.
+      // Sits on top of the Pixi canvas so the user can see the stress
+      // scene and the frame time ticker at the same time.
+      const overlay = document.createElement('div');
+      overlay.style.cssText = [
+        'position: fixed', 'inset: 0', 'z-index: 9999',
+        'pointer-events: none', // lets the stress scene render normally beneath
+        'display: flex', 'flex-direction: column',
+        'justify-content: flex-start', 'align-items: center',
+        'padding-top: 4vh',
+        'font-family: var(--hud-font, monospace)',
+      ].join(';');
+
+      const card = document.createElement('div');
+      card.style.cssText = [
+        'background: rgba(0,0,0,0.82)',
+        'border: 1px solid rgba(255,255,255,0.18)',
+        'padding: 12px 18px', 'min-width: 280px',
+        'border-radius: 4px',
+        'color: #fff', 'text-align: center',
+      ].join(';');
+      const title = document.createElement('div');
+      title.style.cssText = 'font-size: 1.05em; margin-bottom: 8px;';
+      title.textContent = t('settings.benchmark.running');
+      const progressWrap = document.createElement('div');
+      progressWrap.style.cssText = 'width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; margin-bottom: 6px;';
+      const progressBar = document.createElement('div');
+      progressBar.style.cssText = 'height: 100%; width: 0%; background: #6ec1ff; transition: width 80ms linear;';
+      progressWrap.appendChild(progressBar);
+      const liveStats = document.createElement('div');
+      liveStats.style.cssText = 'font-size: 0.85em; color: rgba(255,255,255,0.7); font-variant-numeric: tabular-nums;';
+      liveStats.textContent = '—';
+      card.append(title, progressWrap, liveStats);
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+
       try {
-        const result = await rodarBenchmark(app, (p) => {
+        const result = await rodarBenchmark(app, (p, liveMs) => {
+          progressBar.style.width = `${(p * 100).toFixed(1)}%`;
+          const fps = liveMs > 0 ? Math.round(1000 / liveMs) : 0;
+          liveStats.textContent = `${liveMs.toFixed(1)} ms · ${fps} FPS · ${Math.round(p * 100)}%`;
           status.textContent = `${Math.round(p * 100)}%`;
         });
-        // Apply the recommendation — preset first, then renderScale
-        // on top (the preset mapping may or may not touch it).
         aplicarPreset(result.recommendedPreset);
         setConfig({ graphics: { ...getConfig().graphics, renderScale: result.recommendedRenderScale } });
         status.textContent = t('settings.benchmark.done', {
@@ -571,6 +608,7 @@ function renderGraphicsTab(body: HTMLDivElement): void {
       } finally {
         benchBtn.disabled = false;
         benchBtn.textContent = t('settings.benchmark.btn');
+        try { overlay.remove(); } catch { /* noop */ }
       }
     });
     row.appendChild(benchBtn);
