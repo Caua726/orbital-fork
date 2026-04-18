@@ -82,6 +82,10 @@ export function resetIasV2(): void {
   _accum = 0;
   _ticksDecorridos = 0;
   _tickMs = 4000;
+  // Also zero the round-robin pointer — otherwise a load that
+  // replaces the personality list with a shorter one can index past
+  // the end and dereference undefined on the first AI tick.
+  _iaNextIdx = 0;
   resetMemoriasIa();
   resetReconCache();
 }

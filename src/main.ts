@@ -32,7 +32,7 @@ import { criarColonyModal, atualizarColonyModal, destruirColonyModal } from './u
 import { criarConfirmDialog, destruirConfirmDialog } from './ui/confirm-dialog';
 import { criarMainMenu, esconderMainMenu, mostrarMainMenu } from './ui/main-menu';
 import { abrirPauseMenu, isPauseMenuOpen } from './ui/pause-menu';
-import { reconstruirMundo, iniciarAutosave, instalarListenersCicloDeVida, acumularTempoJogado, lerEMigrarComRelatorio, recuperarEmergency, salvarAgora, getBackendAtivo, getUltimoErro } from './world/save';
+import { reconstruirMundo, iniciarAutosave, pararAutosave, instalarListenersCicloDeVida, acumularTempoJogado, lerEMigrarComRelatorio, recuperarEmergency, salvarAgora, getBackendAtivo, getUltimoErro } from './world/save';
 import { instalarProviderRuntimeExtras } from './world/save/serializar';
 import { reconciliarMundo, resumirDiagnosticos } from './world/save/reconciler';
 import { abrirSaveModal } from './ui/save-modal';
@@ -927,7 +927,13 @@ async function voltarAoMenu(): Promise<void> {
   //    since listeners close over the mundo reference)
   destruirCamera();
 
-  // 3. Tear down game world
+  // 3. Stop the autosave timer — it holds a reference to the (soon to
+  //    be destroyed) mundo and would keep ticking + serializing dead
+  //    Pixi containers otherwise. Only pause-menu was calling this
+  //    before; other voltar-ao-menu entry points slipped through.
+  pararAutosave();
+
+  // 4. Tear down game world
   if (_mundo) {
     destruirMundo(_mundo, app);
     _mundo = null;

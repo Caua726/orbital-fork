@@ -103,6 +103,14 @@ export function getCombateMemoryBytes(): number {
 export function resetCombateVisuals(): void {
   _beams.length = 0;
   _particles.length = 0;
+  // Also clear the spatial-hash pool + combat accumulator. Without
+  // this, module-level caches leak Nave references from the old
+  // world across a world-boundary, and the first frame of the new
+  // world fires combat resolution with stale accumulated time.
+  _spatialGrid.clear();
+  _spatialCellPool.length = 0;
+  _spatialPoolUsed = 0;
+  _combatAccumMs = 0;
   if (_beamGfx) {
     try { _beamGfx.destroy(); } catch { /* noop */ }
   }

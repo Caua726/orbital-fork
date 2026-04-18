@@ -360,6 +360,10 @@ export function destruirMundo(mundo: Mundo, app: Application): void {
   // image source, backing canvas) that outlive a world otherwise.
   destruirFog();
   _primeiroContatoCompleto = false;
+  // Reset the wall-clock frame timer so the first frame of the next
+  // world doesn't report a huge 'Frame wall' delta covering the time
+  // the player spent in the menu.
+  _lastFrameMark = 0;
 }
 
 // Wall-clock delta between consecutive atualizarMundo calls. Captures

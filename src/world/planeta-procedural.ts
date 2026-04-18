@@ -581,6 +581,38 @@ function unbakePlaneta(planeta: any): void {
 }
 
 export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
+  const deltaSec = deltaMs / 1000;
+
+  // Canvas2D planets MUST animate every frame regardless of any other
+  // flag — they're our equivalent of the live shader, rendered on the
+  // CPU. Previously this branch sat inside the !shaderLive guard, so
+  // in Canvas2D mode (which forces shaderLive=false during boot), the
+  // animation loop for canvas planets never ran: every sun/planet was
+  // frozen at the construction-time frame.
+  let anyCanvas = false;
+  for (const planeta of planetas) {
+    if (!(planeta as any)._isCanvasPlanet) continue;
+    anyCanvas = true;
+    if (!planeta.visible) continue;
+    const cs = (planeta as any)._canvasRender as CanvasPlanetState | undefined;
+    if (!cs) continue;
+    cs.state.uTime += deltaSec;
+    const rotSpeed = (planeta as any)._rotSpeed ?? 0;
+    cs.state.uRotation += rotSpeed * deltaSec;
+    renderPlanetParaImageData(
+      cs.imageData.data,
+      cs.canvas.width, cs.canvas.height,
+      cs.paleta, cs.state, cs.uPixels, cs.seed,
+    );
+    cs.ctx.putImageData(cs.imageData, 0, 0);
+    const src = (planeta as any).texture?.source;
+    if (src && typeof src.update === 'function') src.update();
+  }
+  // If we're in the canvas dispatcher's world (any canvas planet seen),
+  // the shader-mode bake/unbake logic below doesn't apply — skip it so
+  // we don't run generateTexture on non-existent Meshes.
+  if (anyCanvas) return;
+
   if (!_shaderLive) {
     // Lazily bake visible planets on first frame after toggle
     for (const planeta of planetas) {
@@ -602,33 +634,14 @@ export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
   const AUTO_BAKE_PX = 40;
   const AUTO_UNBAKE_PX = 55;
   const zoom = getZoom() || 1;
-  const deltaSec = deltaMs / 1000;
 
   for (const planeta of planetas) {
     if (!planeta.visible) {
       if ((planeta as any)._bakedSprite) unbakePlaneta(planeta);
       continue;
     }
-
-    // Canvas2D mode: re-render the JS-port shader each frame.
-    if ((planeta as any)._isCanvasPlanet) {
-      const cs = (planeta as any)._canvasRender as CanvasPlanetState | undefined;
-      if (!cs) continue;
-      cs.state.uTime += deltaSec;
-      const rotSpeed = (planeta as any)._rotSpeed ?? 0;
-      cs.state.uRotation += rotSpeed * deltaSec;
-      renderPlanetParaImageData(
-        cs.imageData.data,
-        cs.canvas.width, cs.canvas.height,
-        cs.paleta, cs.state, cs.uPixels, cs.seed,
-      );
-      cs.ctx.putImageData(cs.imageData, 0, 0);
-      // Tell Pixi the texture source changed so it re-uploads. Safe
-      // to call every frame — upload cost on a 64×64 canvas is tiny.
-      const src = (planeta as any).texture?.source;
-      if (src && typeof src.update === 'function') src.update();
-      continue;
-    }
+    // Canvas planets already animated at the top of this function.
+    if ((planeta as any)._isCanvasPlanet) continue;
 
     const tamWorld = (planeta as any).scale?.x ?? 1;
     const tamPx = tamWorld * zoom;
