@@ -33,7 +33,7 @@ let _styleInjected = false;
 // ─── Tooltip keys (resolved via t() at render time) ──────────────────
 
 type TooltipKey =
-  | 'qualidade' | 'fullscreen' | 'scanlines' | 'fps' | 'ram' | 'fpsCap'
+  | 'qualidade' | 'fullscreen' | 'scanlines' | 'fps' | 'ram' | 'fpsCap' | 'vsync'
   | 'renderer' | 'webglVersion' | 'gpuPref' | 'verInfo' | 'orbitas'
   | 'starfield' | 'fantasmas' | 'shaderLive' | 'autosave' | 'saveMode'
   | 'confirmar' | 'edge';
@@ -598,12 +598,26 @@ function renderGraphicsTab(body: HTMLDivElement): void {
     body.appendChild(row);
   }
 
-  // FPS cap
+  // Vsync — its own checkbox. Off drives the game loop via setTimeout
+  // so the FPS counter reads the raw processing rate (past the monitor
+  // refresh lock).
+  {
+    const [row] = rowWithLabel(t('settings.row.vsync'), 'vsync');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = gfx.vsync;
+    cb.addEventListener('change', () => {
+      setConfig({ graphics: { ...getConfig().graphics, vsync: cb.checked } });
+    });
+    row.appendChild(cb);
+    body.appendChild(row);
+  }
+
+  // FPS cap — plain numeric cap, 0 = no cap. Applies on top of vsync.
   {
     const [row] = rowWithLabel(t('settings.row.limite_fps'), 'fpsCap');
     const select = criarSelect([
-      ['-1', t('settings.opt.desbloqueado')],
-      ['0', t('settings.opt.vsync')],
+      ['0', t('settings.opt.sem_limite')],
       ['30', '30'],
       ['60', '60'],
       ['120', '120'],

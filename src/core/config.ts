@@ -20,6 +20,7 @@ export interface OrbitalConfig {
     scanlines: boolean;
     mostrarFps: boolean;
     mostrarRam: boolean;
+    vsync: boolean;
     fpsCap: number;
     renderer: 'webgl' | 'webgpu' | 'software';
     webglVersion: 'auto' | '1' | '2';
@@ -61,6 +62,7 @@ export const DEFAULTS: OrbitalConfig = {
     scanlines: true,
     mostrarFps: false,
     mostrarRam: false,
+    vsync: true,
     fpsCap: 0,
     renderer: 'webgl',
     webglVersion: 'auto',
@@ -124,6 +126,12 @@ function migrarChavesLegadas(cfg: OrbitalConfig): void {
   const q = cfg.graphics.qualidadeEfeitos;
   if (q !== 'minimo' && cfg.graphics.shaderLive === false) {
     cfg.graphics.shaderLive = true;
+  }
+  // Migrate the old fpsCap=-1 sentinel ("Sem vsync") to the new split
+  // where vsync is its own boolean and fpsCap is just a number.
+  if (cfg.graphics.fpsCap as number === -1) {
+    cfg.graphics.vsync = false;
+    cfg.graphics.fpsCap = 0;
   }
 }
 

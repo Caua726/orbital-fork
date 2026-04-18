@@ -34,46 +34,40 @@ vec2 hash22(vec2 p) {
  * factor (0 = infinitely far, 1 = same as camera), drift speed, star
  * radius range, and tint. Combining 3 layers produces depth.
  */
-vec3 starLayer(vec2 worldPos, float cellSize, float parallax, float drift,
-               float baseRadius, vec3 tint, float densityThreshold) {
-    // Apply parallax: far layers see a "scaled-down" camera movement.
-    // Also add slow drift in world space so stars move even when the
-    // camera is still.
-    vec2 pp = worldPos * parallax + vec2(uTime * drift, uTime * drift * 0.6);
+vec3 starLayer(vec2 worldPos, float cellSize, float parallax,
+               float baseRadius, float densityThreshold) {
+    // Parallax only — no shared layer drift. Per-star motion below.
+    vec2 pp = worldPos * parallax;
     vec2 cellID = floor(pp / cellSize);
     vec2 inCell = fract(pp / cellSize);
 
-    // Density gate: only roughly densityThreshold% of cells contain a
-    // star. Uses the cell id as the lottery seed.
     float lottery = hash12(cellID);
     if (lottery > densityThreshold * uDensidade) return vec3(0.0);
 
-    // Star position inside the cell (random but stable per cellID).
-    vec2 starPos = hash22(cellID + 13.0);
+    // Each star has its own velocity vector derived from cell hash.
+    // Centered [-0.5, 0.5] × speed scalar, so different stars drift in
+    // genuinely different directions at different speeds.
+    vec2 velDir = hash22(cellID + 23.0) - 0.5;
+    float speed = 0.015 + hash12(cellID + 43.0) * 0.025;
+    vec2 drift = velDir * uTime * speed;
 
-    // Distance from this pixel to the star center (in cell-local units).
+    // Home position in the cell, then apply drift. fract() wraps the
+    // star around inside the cell so it never leaves its slot — the
+    // wrap is invisible because stars are sub-pixel at the boundary.
+    vec2 starPos = fract(hash22(cellID + 13.0) + drift);
+
     vec2 d = inCell - starPos;
     float dist = length(d);
 
-    // Star size varies — some stars are big, most small. Cube curve to
-    // make big stars rare.
     float sizeRand = hash12(cellID + 97.0);
     float radius = baseRadius * (0.35 + 0.65 * sizeRand * sizeRand * sizeRand);
 
-    // Hard-ish disc, no halo/glow. Narrow edge fade for anti-aliasing.
-    float intensity = smoothstep(radius, radius * 0.6, dist);
+    // Flat intensity — no twinkle, no halo. smoothstep kept only as
+    // a 1-pixel anti-alias edge so small dots don't aliase while
+    // panning. Intensity is 1.0 or 0.0 with a thin fade.
+    float intensity = smoothstep(radius, radius * 0.75, dist);
 
-    // Twinkle: sinusoidal brightness per-star with random phase.
-    float twinklePhase = hash12(cellID + 5.0) * 6.2831853;
-    float twinkleFreq = 0.5 + hash12(cellID + 11.0) * 1.5;
-    float twinkle = 0.65 + 0.35 * sin(uTime * twinkleFreq + twinklePhase);
-    intensity *= twinkle;
-
-    // Slight color variation — most stars white, some tinted.
-    float colorRand = hash12(cellID + 31.0);
-    vec3 color = mix(vec3(1.0), tint, colorRand * 0.6);
-
-    return color * intensity;
+    return vec3(1.0) * intensity;
 }
 
 void main() {
@@ -83,41 +77,11 @@ void main() {
 
     vec3 col = vec3(0.0);
 
-    // ── Far layer: tiny, sparse, slowest parallax, almost white.
-    col += starLayer(
-        worldPos,
-        /*cellSize*/     260.0,
-        /*parallax*/     0.15,
-        /*drift*/        1.2,
-        /*baseRadius*/   0.025,
-        /*tint*/         vec3(0.85, 0.92, 1.0),
-        /*threshold*/    0.55
-    );
-
-    // ── Mid layer: medium density + size, blue-ish tint.
-    col += starLayer(
-        worldPos,
-        180.0,
-        0.45,
-        3.5,
-        0.035,
-        vec3(0.85, 0.9, 1.0),
-        0.40
-    ) * 0.9;
-
-    // ── Near layer: sparser but bigger, warm tint, fastest drift.
-    col += starLayer(
-        worldPos,
-        140.0,
-        0.9,
-        7.0,
-        0.05,
-        vec3(1.0, 0.85, 0.75),
-        0.22
-    ) * 0.85;
-
-    // Subtle background tint (deep-space blue) so it's not pure black.
-    col += vec3(0.012, 0.014, 0.028);
+    // Three layers — parallax factors differ for fake depth. Stars
+    // move individually per layer via velocity in starLayer().
+    col += starLayer(worldPos, 260.0, 0.15, 0.025, 0.55);
+    col += starLayer(worldPos, 180.0, 0.45, 0.035, 0.40);
+    col += starLayer(worldPos, 140.0, 0.90, 0.050, 0.22);
 
     finalColor = vec4(col, 1.0);
 }

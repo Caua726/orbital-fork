@@ -58,39 +58,31 @@ fn starLayer(
     worldPos: vec2<f32>,
     cellSize: f32,
     parallax: f32,
-    drift: f32,
     baseRadius: f32,
-    tint: vec3<f32>,
     densityThreshold: f32,
     uTime: f32,
     uDensidade: f32,
 ) -> vec3<f32> {
-    let pp = worldPos * parallax + vec2<f32>(uTime * drift, uTime * drift * 0.6);
+    let pp = worldPos * parallax;
     let cellID = floor(pp / cellSize);
     let inCell = fract(pp / cellSize);
 
     let lottery = hash12(cellID);
     if (lottery > densityThreshold * uDensidade) { return vec3<f32>(0.0); }
 
-    let starPos = hash22(cellID + vec2<f32>(13.0));
+    let velDir = hash22(cellID + vec2<f32>(23.0)) - vec2<f32>(0.5);
+    let speed = 0.015 + hash12(cellID + vec2<f32>(43.0)) * 0.025;
+    let drift = velDir * uTime * speed;
+
+    let starPos = fract(hash22(cellID + vec2<f32>(13.0)) + drift);
     let d = inCell - starPos;
     let dist = length(d);
 
     let sizeRand = hash12(cellID + vec2<f32>(97.0));
     let radius = baseRadius * (0.35 + 0.65 * sizeRand * sizeRand * sizeRand);
 
-    // Hard-ish disc, no halo. Narrow fade for anti-aliasing only.
-    var intensity = smoothstep(radius, radius * 0.6, dist);
-
-    let twinklePhase = hash12(cellID + vec2<f32>(5.0)) * 6.2831853;
-    let twinkleFreq = 0.5 + hash12(cellID + vec2<f32>(11.0)) * 1.5;
-    let twinkle = 0.65 + 0.35 * sin(uTime * twinkleFreq + twinklePhase);
-    intensity = intensity * twinkle;
-
-    let colorRand = hash12(cellID + vec2<f32>(31.0));
-    let color = mix(vec3<f32>(1.0), tint, colorRand * 0.6);
-
-    return color * intensity;
+    let intensity = smoothstep(radius, radius * 0.75, dist);
+    return vec3<f32>(1.0) * intensity;
 }
 
 @fragment
@@ -101,22 +93,9 @@ fn mainFragment(@location(0) vUV: vec2<f32>) -> @location(0) vec4<f32> {
 
     var col = vec3<f32>(0.0);
 
-    col = col + starLayer(
-        worldPos, 260.0, 0.15, 1.2, 0.025,
-        vec3<f32>(0.85, 0.92, 1.0), 0.55, t, dens,
-    );
-
-    col = col + starLayer(
-        worldPos, 180.0, 0.45, 3.5, 0.035,
-        vec3<f32>(0.85, 0.9, 1.0), 0.40, t, dens,
-    ) * 0.9;
-
-    col = col + starLayer(
-        worldPos, 140.0, 0.9, 7.0, 0.05,
-        vec3<f32>(1.0, 0.85, 0.75), 0.22, t, dens,
-    ) * 0.85;
-
-    col = col + vec3<f32>(0.012, 0.014, 0.028);
+    col = col + starLayer(worldPos, 260.0, 0.15, 0.025, 0.55, t, dens);
+    col = col + starLayer(worldPos, 180.0, 0.45, 0.035, 0.40, t, dens);
+    col = col + starLayer(worldPos, 140.0, 0.90, 0.050, 0.22, t, dens);
 
     return vec4<f32>(col, 1.0);
 }
