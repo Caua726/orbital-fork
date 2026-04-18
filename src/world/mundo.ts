@@ -372,36 +372,42 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   const deltaMs = app.ticker.deltaMS;
   mundo.ultimoTickMs = performance.now();
 
+  // Per-system gameplay logic, now split into fine buckets so the
+  // debug HUD can show exactly which system is burning frame budget.
   let t = profileMark();
-
   for (const planeta of mundo.planetas) {
-    atualizarRecursosPlaneta(planeta, deltaMs);  // produces resources for all owners (jogador + AI)
+    atualizarRecursosPlaneta(planeta, deltaMs);
     atualizarPesquisaPlaneta(planeta, deltaMs);
     atualizarOrbitaPlaneta(planeta, deltaMs);
     atualizarFilasPlaneta(mundo, planeta, deltaMs);
   }
-
-  // Pass all objects for time update (skips invisible ones internally)
+  // Time integration for all celestial bodies — cheap enough to keep
+  // bundled with the planet-logic bucket since it's the same domain.
   atualizarTempoPlanetas(mundo.planetas, deltaMs);
   atualizarTempoPlanetas(mundo.sois, deltaMs);
-  // Light update only for visible planets
   for (const planeta of mundo.planetas) {
     if (!planeta.visible) continue;
     const sistema = mundo.sistemas[planeta.dados.sistemaId];
-    if (sistema?.sol) {
-      atualizarLuzPlaneta(planeta, sistema.sol.x, sistema.sol.y);
-    }
+    if (sistema?.sol) atualizarLuzPlaneta(planeta, sistema.sol.x, sistema.sol.y);
   }
+  profileAcumular('planetasLogic', t);
 
+  t = profileMark();
   atualizarNaves(mundo, deltaMs);
+  profileAcumular('naves', t);
+
+  t = profileMark();
   atualizarIasV2(mundo, deltaMs);
+  profileAcumular('ia', t);
+
+  t = profileMark();
   atualizarCombate(mundo, deltaMs);
-  // Periodic stat sample (approx every 60s of sim time). We use the
-  // mundo's ultimoTickMs as a proxy for tempoJogadoMs since this lives
-  // outside main.ts; the sample timestamp only needs to be monotonic.
+  profileAcumular('combate', t);
+
+  t = profileMark();
   acumularStats(mundo, deltaMs, mundo.ultimoTickMs);
   atualizarPrimeiroContato(mundo);
-  profileAcumular('logica', t);
+  profileAcumular('stats', t);
 
   const zoom = camera.zoom || 1;
 

@@ -5,6 +5,9 @@ import { getCamera } from '../core/player';
 // Flipping these here affects the game live, no wiring needed.
 import { cheats, config } from './debug';
 import { profiling } from '../world/mundo';
+import {
+  getProfilingHistory, getProfilingHistoryCursor, getProfilingHistoryLen,
+} from '../world/profiling';
 
 interface DebugState {
   gameSpeed: number;
@@ -33,9 +36,16 @@ let _cameraEl: HTMLSpanElement | null = null;
 let _zoomEl: HTMLSpanElement | null = null;
 let _rendererEl: HTMLSpanElement | null = null;
 
-// Profiling readouts
-const _profEls: Partial<Record<keyof ProfilingData, HTMLSpanElement>> = {};
-let _profBarEl: HTMLDivElement | null = null;
+// Profiling readouts — each row has a current-ms label, a rolling-max
+// label, and a mini sparkline canvas fed from the 120-frame history
+// ring exposed by world/profiling.ts.
+interface ProfRow {
+  value: HTMLSpanElement;  // "1.23 ms"
+  max: HTMLSpanElement;    // "/ 2.45 peak"
+  canvas: HTMLCanvasElement;
+  color: string;
+}
+const _profRows: Partial<Record<keyof ProfilingData, ProfRow>> = {};
 
 // FPS tracking
 let _frameCount = 0;
@@ -328,19 +338,29 @@ function injectStyles(): void {
       color: #fff;
     }
 
-    .debug-prof-bar {
-      display: flex;
-      height: calc(var(--hud-unit) * 1.2);
-      border: 1px solid rgba(255,255,255,0.3);
-      border-radius: 3px;
-      overflow: hidden;
-      margin: calc(var(--hud-unit) * 0.4) 0;
+    .debug-prof-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: calc(var(--hud-unit) * 0.4);
+      padding: calc(var(--hud-unit) * 0.15) 0;
+      font-size: clamp(10px, 1vmin, 12px);
     }
-
-    .debug-prof-bar > div {
-      height: 100%;
-      min-width: 2px;
-      transition: width 200ms ease;
+    .debug-prof-row .label { color: rgba(255,255,255,0.78); }
+    .debug-prof-row .cur { color: #fff; font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
+    .debug-prof-row .max { color: rgba(255,255,255,0.45); font-variant-numeric: tabular-nums; min-width: 4.5em; text-align: right; }
+    .debug-prof-row canvas {
+      grid-column: 1 / -1;
+      width: 100%;
+      height: calc(var(--hud-unit) * 0.9);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 2px;
+      image-rendering: pixelated;
+    }
+    .debug-prof-divider {
+      border-top: 1px dashed rgba(255,255,255,0.15);
+      margin: calc(var(--hud-unit) * 0.4) 0;
     }
 
     .debug-slider-row {
@@ -448,23 +468,44 @@ function createSlider(label: string, min: number, max: number, step: number, ini
   return row;
 }
 
-function createProfRow(label: string, key: keyof ProfilingData, indent: boolean = false): HTMLDivElement {
+function createProfRow(label: string, key: keyof ProfilingData, color: string): HTMLDivElement {
   const row = document.createElement('div');
-  row.className = 'debug-row';
-  if (indent) row.style.paddingLeft = 'calc(var(--hud-unit) * 0.8)';
+  row.className = 'debug-prof-row';
 
   const lbl = document.createElement('span');
-  lbl.className = 'debug-label';
+  lbl.className = 'label';
   lbl.textContent = label;
   row.appendChild(lbl);
 
-  const value = document.createElement('span');
-  value.className = 'debug-value';
-  value.textContent = '0.00';
-  _profEls[key] = value;
-  row.appendChild(value);
+  const cur = document.createElement('span');
+  cur.className = 'cur';
+  cur.textContent = '0.00 ms';
+  row.appendChild(cur);
 
+  const mx = document.createElement('span');
+  mx.className = 'max';
+  mx.textContent = '/ 0.00';
+  row.appendChild(mx);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 120;
+  canvas.height = 16;
+  row.appendChild(canvas);
+
+  _profRows[key] = { value: cur, max: mx, canvas, color };
   return row;
+}
+
+function createProfDivider(label: string): HTMLDivElement {
+  const div = document.createElement('div');
+  div.className = 'debug-prof-divider';
+  if (label) {
+    const span = document.createElement('div');
+    span.style.cssText = 'font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.08em; margin-top: calc(var(--hud-unit) * 0.4); margin-bottom: calc(var(--hud-unit) * 0.1);';
+    span.textContent = label;
+    div.appendChild(span);
+  }
+  return div;
 }
 
 function createSpeedSlider(): HTMLDivElement {
@@ -636,21 +677,27 @@ export function criarDebugMenu(app: Application, mundo: Mundo): HTMLDivElement {
   profSec.className = 'debug-section';
   const profTitle = document.createElement('div');
   profTitle.className = 'debug-section-title';
-  profTitle.textContent = 'Profiling  (ms / frame)';
+  profTitle.textContent = 'Profiling  (ms / frame, avg over 30f · peak over 120f)';
   profSec.appendChild(profTitle);
 
-  profSec.appendChild(createProfRow('Logic', 'logica'));
-  profSec.appendChild(createProfRow('Background', 'fundo'));
-  profSec.appendChild(createProfRow('Fog', 'fog'));
-  profSec.appendChild(createProfRow('Planets', 'planetas'));
-  profSec.appendChild(createProfRow('Render', 'render'));
-  profSec.appendChild(createProfRow('Total', 'total'));
+  // Gameplay logic sub-buckets — these used to be collapsed into one
+  // opaque "logica" number. Splitting them is the whole point of this
+  // panel: immediately see which system is eating the frame.
+  profSec.appendChild(createProfDivider('Gameplay'));
+  profSec.appendChild(createProfRow('Planetas (recursos/orbit)', 'planetasLogic', '#4488cc'));
+  profSec.appendChild(createProfRow('Naves (movimento)',         'naves',         '#66aadd'));
+  profSec.appendChild(createProfRow('IA (decisões)',             'ia',            '#cc8844'));
+  profSec.appendChild(createProfRow('Combate',                   'combate',       '#dd6666'));
+  profSec.appendChild(createProfRow('Stats / primeiro-contato',  'stats',         '#888888'));
 
-  // Stacked bar
-  const bar = document.createElement('div');
-  bar.className = 'debug-prof-bar';
-  _profBarEl = bar;
-  profSec.appendChild(bar);
+  profSec.appendChild(createProfDivider('Render'));
+  profSec.appendChild(createProfRow('Fundo (starfield)',         'fundo',    '#44aa88'));
+  profSec.appendChild(createProfRow('Fog of war',                'fog',      '#ff6060'));
+  profSec.appendChild(createProfRow('Planetas (sprite update)',  'planetas', '#ffcc40'));
+  profSec.appendChild(createProfRow('Resto do render',           'render',   '#aa66ff'));
+
+  profSec.appendChild(createProfDivider('Total'));
+  profSec.appendChild(createProfRow('TOTAL (frame)',             'total',    '#ffffff'));
 
   panel.appendChild(profSec);
 
@@ -707,14 +754,6 @@ function togglePopup(force?: boolean): void {
   _toggleBtn.classList.toggle('active', _fastVisible || _popupVisible);
 }
 
-const PROF_COLORS: Partial<Record<keyof ProfilingData, string>> = {
-  logica: '#4488cc',
-  fundo: '#44aa88',
-  fog: '#ff6060',
-  planetas: '#ffcc40',
-  render: '#aa66ff',
-};
-
 function colorForFps(fps: number): string {
   if (fps >= 50) return 'debug-value-ok';
   if (fps >= 30) return 'debug-value-warn';
@@ -767,28 +806,66 @@ export function atualizarDebugMenu(): void {
   if (_cameraEl) _cameraEl.textContent = `${Math.round(cam.x)}, ${Math.round(cam.y)}`;
   if (_zoomEl) _zoomEl.textContent = `${cam.zoom.toFixed(2)}x`;
 
-  // Profiling numbers + color
-  for (const key of Object.keys(_profEls) as Array<keyof ProfilingData>) {
-    const el = _profEls[key];
-    if (!el) continue;
-    const val = profiling[key];
-    el.textContent = val.toFixed(2);
-    setValueClass(el, colorForMs(val));
+  // Profiling: update text + redraw sparklines. Only redraw canvases
+  // for buckets whose row actually exists in the DOM (defensive — the
+  // popup can be rebuilt without the rows).
+  const history = getProfilingHistory();
+  const histLen = getProfilingHistoryLen();
+  const cursor = getProfilingHistoryCursor();
+  for (const key of Object.keys(_profRows) as Array<keyof ProfilingData>) {
+    const row = _profRows[key];
+    if (!row) continue;
+    const avg = profiling[key];
+
+    // Peak is the max sample across the whole 120f history for this bucket.
+    const hist = history[key];
+    let peak = 0;
+    if (hist) for (let i = 0; i < histLen; i++) if (hist[i] > peak) peak = hist[i];
+
+    row.value.textContent = `${avg.toFixed(2)} ms`;
+    row.max.textContent = `/ ${peak.toFixed(2)} peak`;
+    setValueClass(row.value, colorForMs(avg));
+
+    // Draw sparkline. Scale the Y axis so small buckets still show
+    // variance, but a 16ms frame doesn't compress everything into a
+    // sliver. Lower bound 1.5ms so idle bars aren't flat-line.
+    if (hist) desenharSparkline(row.canvas, hist, cursor, Math.max(1.5, peak), row.color);
+  }
+}
+
+function desenharSparkline(
+  canvas: HTMLCanvasElement,
+  samples: Float32Array,
+  cursor: number,
+  maxMs: number,
+  color: string,
+): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const n = samples.length;
+  // Samples are in ring-buffer order — cursor is the next-write slot,
+  // so cursor-1 is newest, cursor is oldest. We unroll left (oldest)
+  // → right (newest) so the reader sees time flowing rightward.
+  ctx.fillStyle = color;
+  for (let i = 0; i < n; i++) {
+    const idx = (cursor + i) % n;
+    const v = samples[idx];
+    const barH = Math.min(h, (v / maxMs) * h);
+    const x = (i / n) * w;
+    const barW = w / n;
+    ctx.fillRect(x, h - barH, Math.max(1, barW), barH);
   }
 
-  // Profiling stacked bar
-  if (_profBarEl) {
-    while (_profBarEl.firstChild) _profBarEl.removeChild(_profBarEl.firstChild);
-    const total = Math.max(profiling.total, 0.01);
-    for (const [key, color] of Object.entries(PROF_COLORS) as [keyof ProfilingData, string][]) {
-      const val = profiling[key] ?? 0;
-      const pct = Math.max((val / total) * 100, 0.5);
-      const seg = document.createElement('div');
-      seg.style.width = `${pct}%`;
-      seg.style.background = color;
-      seg.title = `${key}: ${val.toFixed(2)}ms`;
-      _profBarEl.appendChild(seg);
-    }
+  // Reference line at the frame budget (16.67ms) — if bars touch it,
+  // you've blown the 60Hz budget on that frame.
+  const budgetY = h - (16.67 / maxMs) * h;
+  if (budgetY > 0 && budgetY < h) {
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillRect(0, budgetY, w, 1);
   }
 }
 

@@ -207,13 +207,28 @@ export interface TipoJogador {
 }
 
 // === Profiling ===
+// Each field is milliseconds per frame, averaged over a rolling window.
+// Fine-grained buckets so the profiler HUD can show exactly where the
+// frame budget went — "logica" used to be one bucket encompassing AI,
+// combat, ship movement, and resource ticks, which was useless for
+// diagnosis. Kept as a legacy alias (sum of gameplay buckets).
 export interface ProfilingData {
-  logica: number;
-  fundo: number;
-  fog: number;
-  planetas: number;
-  render: number;
-  total: number;
+  // Gameplay sub-buckets (summed they replace what "logica" used to be).
+  planetasLogic: number;   // Resource/research/orbit/queue ticks across all planets.
+  naves: number;           // Ship movement + state updates.
+  ia: number;              // AI decision-making + memory decay.
+  combate: number;         // Combat resolution + spatial hash + damage.
+  stats: number;           // Periodic stats sampling + first-contact + primeiro-contato.
+
+  // Rendering / per-frame visual buckets.
+  fundo: number;           // Starfield RT render + sprite placement.
+  fog: number;             // Fog-of-war canvas draw + GPU upload.
+  planetas: number;        // Per-planet sprite/uniform updates (light, shader rotation).
+  render: number;          // Remaining render path: selection, trails, combat visuals, HUD.
+
+  // Aggregates — computed from the above each flush.
+  logica: number;          // Legacy = planetasLogic + naves + ia + combate + stats.
+  total: number;           // Measured from frame start to end.
 }
 
 // === Ação Nave Parsed ===
