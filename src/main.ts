@@ -209,8 +209,24 @@ async function bootstrap(): Promise<void> {
   // The canvas CSS size stays the same; browser bilinear-upscales when
   // renderScale < 1.
   let _lastRenderScale = renderScale;
+  // Clamp renderScale so the backing canvas never exceeds the GPU's
+  // max texture size. WebGPU's default limit is 8192 and WebGL2 is
+  // typically 16384; requesting larger causes the canvas to render
+  // blank (WebGPU) or fall back to 0×0 (some WebGL drivers). Query
+  // Pixi's reported limit; default to 8192 if unavailable.
+  const getMaxRenderScale = (): number => {
+    const r = app.renderer as any;
+    const maxTex = r?.limits?.maxTextureSize
+      ?? r?.maxTextureSize
+      ?? 8192;
+    const needed = Math.max(window.innerWidth, window.innerHeight) * baselineDpr;
+    return needed > 0 ? maxTex / needed : 4;
+  };
+
   onConfigChange((cfg) => {
-    const next = cfg.graphics.renderScale ?? 1;
+    const requested = cfg.graphics.renderScale ?? 1;
+    const safeMax = getMaxRenderScale();
+    const next = Math.min(requested, safeMax);
     if (next === _lastRenderScale) return;
     _lastRenderScale = next;
     (app.renderer as any).resolution = baselineDpr * next;
