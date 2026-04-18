@@ -1,19 +1,20 @@
+#version 300 es
 // Universal-compatibility starfield. Hash is integer PCG so the
 // star lattice is bit-exact across Chrome/ANGLE, Firefox/native,
 // and SwiftShader. Animation model matches the original: each
 // star has its OWN velocity vector derived from the cell hash, so
 // stars drift linearly at their own speeds, never re-rolling when
-// the camera moves. Aesthetic is the pixel-art bitmap look: lots
-// of tiny 1-px dots + occasional 2×2 brights.
+// the camera moves.
 //
-// IMPORTANT: in/out MUST be the first non-comment lines so Pixi's
-// GLSL-version detector promotes us to `#version 300 es`. Otherwise
-// uint/uvec2 fail to parse in GLSL 1.00 (the unchanged default).
-in vec2 vUV;
-out vec4 finalColor;
-
+// #version 300 es is REQUIRED (not just relying on Pixi's auto-
+// detection) because we use uint/uvec2 which are GLSL ES 3.00-only
+// types. The directive must be the very first line of the source,
+// otherwise GLSL spec says compilation fails.
 precision highp float;
 precision highp int;
+
+in vec2 vUV;
+out vec4 finalColor;
 
 uniform vec2 uCamera;
 uniform vec2 uViewport;
