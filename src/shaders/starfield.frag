@@ -60,10 +60,8 @@ vec3 starLayer(vec2 worldPos, float cellSize, float parallax, float drift,
     float sizeRand = hash12(cellID + 97.0);
     float radius = baseRadius * (0.35 + 0.65 * sizeRand * sizeRand * sizeRand);
 
-    // Soft disc with glow: core + halo.
-    float intensity = smoothstep(radius, 0.0, dist);
-    // Halo — wider, dimmer.
-    intensity += smoothstep(radius * 4.0, radius * 0.5, dist) * 0.25;
+    // Hard-ish disc, no halo/glow. Narrow edge fade for anti-aliasing.
+    float intensity = smoothstep(radius, radius * 0.6, dist);
 
     // Twinkle: sinusoidal brightness per-star with random phase.
     float twinklePhase = hash12(cellID + 5.0) * 6.2831853;
@@ -91,7 +89,7 @@ void main() {
         /*cellSize*/     260.0,
         /*parallax*/     0.15,
         /*drift*/        1.2,
-        /*baseRadius*/   0.06,
+        /*baseRadius*/   0.025,
         /*tint*/         vec3(0.85, 0.92, 1.0),
         /*threshold*/    0.55
     );
@@ -102,7 +100,7 @@ void main() {
         180.0,
         0.45,
         3.5,
-        0.09,
+        0.035,
         vec3(0.85, 0.9, 1.0),
         0.40
     ) * 0.9;
@@ -113,7 +111,7 @@ void main() {
         140.0,
         0.9,
         7.0,
-        0.14,
+        0.05,
         vec3(1.0, 0.85, 0.75),
         0.22
     ) * 0.85;

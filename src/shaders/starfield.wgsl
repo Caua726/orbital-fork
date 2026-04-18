@@ -79,8 +79,8 @@ fn starLayer(
     let sizeRand = hash12(cellID + vec2<f32>(97.0));
     let radius = baseRadius * (0.35 + 0.65 * sizeRand * sizeRand * sizeRand);
 
-    var intensity = smoothstep(radius, 0.0, dist);
-    intensity = intensity + smoothstep(radius * 4.0, radius * 0.5, dist) * 0.25;
+    // Hard-ish disc, no halo. Narrow fade for anti-aliasing only.
+    var intensity = smoothstep(radius, radius * 0.6, dist);
 
     let twinklePhase = hash12(cellID + vec2<f32>(5.0)) * 6.2831853;
     let twinkleFreq = 0.5 + hash12(cellID + vec2<f32>(11.0)) * 1.5;
@@ -102,17 +102,17 @@ fn mainFragment(@location(0) vUV: vec2<f32>) -> @location(0) vec4<f32> {
     var col = vec3<f32>(0.0);
 
     col = col + starLayer(
-        worldPos, 260.0, 0.15, 1.2, 0.06,
+        worldPos, 260.0, 0.15, 1.2, 0.025,
         vec3<f32>(0.85, 0.92, 1.0), 0.55, t, dens,
     );
 
     col = col + starLayer(
-        worldPos, 180.0, 0.45, 3.5, 0.09,
+        worldPos, 180.0, 0.45, 3.5, 0.035,
         vec3<f32>(0.85, 0.9, 1.0), 0.40, t, dens,
     ) * 0.9;
 
     col = col + starLayer(
-        worldPos, 140.0, 0.9, 7.0, 0.14,
+        worldPos, 140.0, 0.9, 7.0, 0.05,
         vec3<f32>(1.0, 0.85, 0.75), 0.22, t, dens,
     ) * 0.85;
 
