@@ -9,6 +9,7 @@ import { confirmarAcao } from '../ui/confirmar-acao';
 import { carregarSpritesheet, getSpritesheetTexture, onSpritesheetReady } from './spritesheets';
 import { t } from '../core/i18n/t';
 import { instalarTrail, atualizarTrail, destruirTrail } from './engine-trails';
+import { esquecerLastSeen } from './last-seen';
 
 // ─── Spritesheet loading ────────────────────────────────────────────────────
 
@@ -404,6 +405,9 @@ export function removerNave(mundo: Mundo, nave: Nave): void {
   if (nave.origem?.dados && nave.tipo === 'colonizadora') {
     nave.origem.dados.naves = Math.max(0, nave.origem.dados.naves - 1);
   }
+  // Drop any stale last-seen ghost entry — these accumulated forever
+  // otherwise (one per AI ship that ever entered and left player vision).
+  esquecerLastSeen(nave.id);
   const idx = mundo.naves.indexOf(nave);
   if (idx >= 0) mundo.naves.splice(idx, 1);
   // Also drop any pending sprite swap so the eventual spritesheet load

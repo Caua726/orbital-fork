@@ -22,6 +22,11 @@ export interface ViewportBounds {
  *                          à margem efetiva. Usado pelo fog canvas que
  *                          precisa de buffer que cresce com o zoom-out.
  */
+/**
+ * Callers that hit this per frame should own a persistent ViewportBounds
+ * and pass it as `out` to reuse the allocation. Omitting `out` falls back
+ * to allocating a fresh object (OK for tests and one-off calls).
+ */
 export function calcularBoundsViewport(
   camX: number,
   camY: number,
@@ -30,6 +35,7 @@ export function calcularBoundsViewport(
   screenH: number,
   margemMin: number = 600,
   margemMultiplier: number = 0,
+  out?: ViewportBounds,
 ): ViewportBounds {
   const z = zoom || 1;
   const halfW = screenW / (2 * z);
@@ -39,13 +45,13 @@ export function calcularBoundsViewport(
     halfW * 0.5,
     margemMultiplier > 0 ? margemMultiplier / z : 0,
   );
-  return {
-    halfW,
-    halfH,
-    margem,
-    esq: camX - halfW - margem,
-    dir: camX + halfW + margem,
-    cima: camY - halfH - margem,
-    baixo: camY + halfH + margem,
-  };
+  const b = out ?? ({} as ViewportBounds);
+  b.halfW = halfW;
+  b.halfH = halfH;
+  b.margem = margem;
+  b.esq = camX - halfW - margem;
+  b.dir = camX + halfW + margem;
+  b.cima = camY - halfH - margem;
+  b.baixo = camY + halfH + margem;
+  return b;
 }

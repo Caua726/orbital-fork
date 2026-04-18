@@ -6,15 +6,22 @@ import { TIPO_PLANETA } from './planeta';
 import { atualizarTempoPlanetas, atualizarLuzPlaneta } from './planeta-procedural';
 import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria, aplicarLimiteFantasmas, destruirFog } from './nevoa';
 import { criarSistemaSolar } from './sistema';
-import { calcularBoundsViewport } from './viewport-bounds';
+import { calcularBoundsViewport, type ViewportBounds } from './viewport-bounds';
+
+// Persistent scratch buffer for atualizarMundo's viewport-bounds call.
+// Previously allocated a fresh object every frame (2.16M allocations
+// over a 10-hour session); now the same object is mutated in place.
+const _boundsScratch: ViewportBounds = {
+  esq: 0, dir: 0, cima: 0, baixo: 0, halfW: 0, halfH: 0, margem: 0,
+};
 import { resetarNomesPlanetas } from './nomes';
 import { atualizarNaves, atualizarSelecaoNave, carregarSpritesheetNaves } from './naves';
-import { inicializarIas, atualizarIasV2, resetIasV2 } from './ia-decisao';
+import { inicializarIas, atualizarIasV2, resetIasV2, getPersonalidades } from './ia-decisao';
 import { buildDistanceMatrix, resetDistanceMatrix } from './distance-matrix';
 import { acumularStats, resetStats } from './stats';
 import { resetEventos, registrarEvento } from './eventos';
 import { resetBattles } from './battle-log';
-import { resetFirstContact, marcarPrimeiroContato } from './first-contact';
+import { resetFirstContact, marcarPrimeiroContato, getFirstContactCount } from './first-contact';
 import { resetLastSeen } from './last-seen';
 import { resetNomesUsados } from './proc-names';
 import type { Dificuldade } from './personalidade-ia';
@@ -414,6 +421,9 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     camera.zoom,
     app.screen.width,
     app.screen.height,
+    600,
+    0,
+    _boundsScratch,
   );
   const { esq, dir, cima, baixo } = bounds;
 
@@ -517,6 +527,14 @@ function atualizarPrimeiroContato(mundo: Mundo): void {
     const d = p.dados.dono;
     if (!d.startsWith('inimigo')) continue;
     marcarPrimeiroContato(d, mundo.ultimoTickMs);
+  }
+  // Once we've logged first contact with every AI currently in the
+  // world, stop scanning. Without this the loop walked every planet
+  // every frame forever — my previous "early exit" commit added the
+  // flag but never flipped it, so the check was a no-op.
+  const ias = getPersonalidades();
+  if (ias.length > 0 && getFirstContactCount() >= ias.length) {
+    _primeiroContatoCompleto = true;
   }
 }
 /** Reset by callers when a new world / fresh game begins. */

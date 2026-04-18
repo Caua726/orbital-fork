@@ -202,51 +202,59 @@ export function inicializarIas(mundo: Mundo, dificuldade: Dificuldade): Personal
   return _personalidades;
 }
 
+// Round-robin pointer into _personalidades. Only ONE AI is ticked per
+// step to spread decision-making across frames — previously all 8
+// personalidades fired in the same frame every _tickMs, producing a
+// guaranteed ~3-6ms spike every ~2 s (visible as 60→40 FPS dips).
+let _iaNextIdx = 0;
+
 export function atualizarIasV2(mundo: Mundo, deltaMs: number): void {
   if (_personalidades.length === 0) return;
 
   _accum += deltaMs;
-  if (_accum < _tickMs) return;
-  _accum = 0;
-  _ticksDecorridos++;
+  // Step length: each AI still gets _tickMs between its own ticks, but
+  // neighbors are offset so only one fires per step.
+  const stepMs = _tickMs / _personalidades.length;
+  if (_accum < stepMs) return;
+  _accum -= stepMs;
 
-  for (const ia of _personalidades) {
-    decairMemorias(ia.id);
+  const ia = _personalidades[_iaNextIdx];
+  _iaNextIdx = (_iaNextIdx + 1) % _personalidades.length;
+  // When the wheel wraps, a full "AI round" has elapsed — count it so
+  // patience gating still progresses at the same real-world rate.
+  if (_iaNextIdx === 0) _ticksDecorridos++;
 
-    // Patience gate — early game, AI doesn't act aggressively
-    const aindaPaciente = _ticksDecorridos < ia.paciencia;
-
-    const acoes = gerarAcoesCandidatas(ia, mundo);
-    const orcamento = { ...ACTIONS_BUDGET };
-
-    for (const { acao, score: _score } of acoes) {
-      // Skip aggressive actions while patient
-      if (aindaPaciente && acao.tipo === 'enviar_frota' && (acao as any).alvo.dados.dono === 'jogador') continue;
-
-      if (orcamento[acao.tipo] <= 0) continue;
-      const ok = executarAcao(mundo, ia, acao);
-      if (ok) orcamento[acao.tipo]--;
-    }
+  decairMemorias(ia.id);
+  const aindaPaciente = _ticksDecorridos < ia.paciencia;
+  const acoes = gerarAcoesCandidatas(ia, mundo);
+  const orcamento = { ...ACTIONS_BUDGET };
+  for (const { acao, score: _score } of acoes) {
+    if (aindaPaciente && acao.tipo === 'enviar_frota' && (acao as any).alvo.dados.dono === 'jogador') continue;
+    if (orcamento[acao.tipo] <= 0) continue;
+    const ok = executarAcao(mundo, ia, acao);
+    if (ok) orcamento[acao.tipo]--;
   }
 
-  // Conquest mechanic: AI ships orbiting a neutro flip ownership.
-  // Pre-build a Set of AI ids so the per-ship predicate is O(1)
-  // instead of an O(AI) .some() scan nested inside .filter().
-  const iaIds = new Set<string>();
-  for (const p of _personalidades) iaIds.add(p.id);
-  for (const planeta of mundo.planetas) {
-    if (planeta.dados.dono !== 'neutro') continue;
-    const orbitantes = mundo.naves.filter(
-      (n) => n.estado === 'orbitando' && n.alvo === planeta && iaIds.has(n.dono),
-    );
-    if (orbitantes.length === 0) continue;
-    const counts: Record<string, number> = {};
-    for (const n of orbitantes) counts[n.dono] = (counts[n.dono] ?? 0) + 1;
-    const winner = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
-    if (winner && counts[winner] > 0) {
-      planeta.dados.dono = winner;
-      planeta.dados.fabricas = 1;
-      planeta.dados.infraestrutura = 0;
+  // Conquest mechanic only needs to run once per full wheel rotation —
+  // it's a world-wide pass, not per-AI. Folding it into the wrap step
+  // keeps the per-frame cost flat.
+  if (_iaNextIdx === 0) {
+    const iaIds = new Set<string>();
+    for (const p of _personalidades) iaIds.add(p.id);
+    for (const planeta of mundo.planetas) {
+      if (planeta.dados.dono !== 'neutro') continue;
+      const orbitantes = mundo.naves.filter(
+        (n) => n.estado === 'orbitando' && n.alvo === planeta && iaIds.has(n.dono),
+      );
+      if (orbitantes.length === 0) continue;
+      const counts: Record<string, number> = {};
+      for (const n of orbitantes) counts[n.dono] = (counts[n.dono] ?? 0) + 1;
+      const winner = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (winner && counts[winner] > 0) {
+        planeta.dados.dono = winner;
+        planeta.dados.fabricas = 1;
+        planeta.dados.infraestrutura = 0;
+      }
     }
   }
 }
@@ -283,8 +291,9 @@ function executarAcao(mundo: Mundo, ia: PersonalidadeIA, acao: any): boolean {
     }
     case 'enviar_frota': {
       const navesIds: string[] = acao.navesIds;
+      const navesIdsSet = new Set(navesIds);
       const todasMinhas = mundo.naves.filter((n) => n.dono === ia.id && n.estado === 'orbitando');
-      const navesAReais = mundo.naves.filter((n) => navesIds.includes(n.id) && n.dono === ia.id);
+      const navesAReais = mundo.naves.filter((n) => navesIdsSet.has(n.id) && n.dono === ia.id);
       if (navesAReais.length === 0) return false;
 
       // Group by origin planet, apply defense reserve per origin.
@@ -314,7 +323,8 @@ function executarAcao(mundo: Mundo, ia: PersonalidadeIA, acao: any): boolean {
       // Skips defense reserve check — emergency response can strip
       // origin planets bare.
       const navesIds: string[] = acao.navesIds;
-      const navesAReais = mundo.naves.filter((n) => navesIds.includes(n.id) && n.dono === ia.id);
+      const navesIdsSet = new Set(navesIds);
+      const navesAReais = mundo.naves.filter((n) => navesIdsSet.has(n.id) && n.dono === ia.id);
       if (navesAReais.length === 0) return false;
       const alvo: Planeta = acao.planeta_ameacado;
       for (const nave of navesAReais) {

@@ -71,6 +71,11 @@ const BEAM_LIFETIME_MS = 150;
 const PARTICLE_LIFETIME_MS = 320;
 const _beams: BeamVisual[] = [];
 const _particles: ImpactParticle[] = [];
+// Object pools — reuse BeamVisual/ImpactParticle instances instead of
+// allocating per shot. At 30Hz with a few dozen active attackers that
+// was ~5k short-lived objects per second of combat.
+const _beamPool: BeamVisual[] = [];
+const _particlePool: ImpactParticle[] = [];
 let _beamGfx: Graphics | null = null;
 
 function ensureBeamGfx(mundo: Mundo): Graphics {
@@ -112,20 +117,23 @@ function ensureHp(nave: Nave): void {
 
 const CELL_SIZE = 600;
 
-function cellKey(x: number, y: number): string {
-  return `${Math.floor(x / CELL_SIZE)},${Math.floor(y / CELL_SIZE)}`;
+// Integer cell-key encoding: pack (cx, cy) into a single number so the
+// spatial-hash Map is keyed by int rather than a per-lookup template
+// literal string. World coords fit in ±32k cells comfortably; we bias
+// by 0x8000 to keep cx/cy positive in the bit-packing. Eliminates ~3k
+// string allocations per combat tick at 30Hz.
+const CELL_BIAS = 0x8000;
+function cellKeyInt(x: number, y: number): number {
+  const cx = Math.floor(x / CELL_SIZE) + CELL_BIAS;
+  const cy = Math.floor(y / CELL_SIZE) + CELL_BIAS;
+  return (cx << 16) | cy;
 }
 
-// Persistent spatial-hash grid + cell pool. Cleared+refilled per combat
-// tick instead of allocating a fresh Map + Array-per-cell every call.
-// At 30 Hz × long sessions the old churn produced hundreds of thousands
-// of short-lived objects per minute.
-const _spatialGrid = new Map<string, Nave[]>();
+const _spatialGrid = new Map<number, Nave[]>();
 const _spatialCellPool: Nave[][] = [];
 let _spatialPoolUsed = 0;
 
-function buildSpatialHash(naves: Nave[]): Map<string, Nave[]> {
-  // Recycle every cell array back into the pool; clear the grid itself.
+function buildSpatialHash(naves: Nave[]): Map<number, Nave[]> {
   for (const cell of _spatialGrid.values()) {
     cell.length = 0;
     _spatialCellPool.push(cell);
@@ -134,11 +142,9 @@ function buildSpatialHash(naves: Nave[]): Map<string, Nave[]> {
   _spatialPoolUsed = 0;
 
   for (const n of naves) {
-    const key = cellKey(n.x, n.y);
+    const key = cellKeyInt(n.x, n.y);
     let cell = _spatialGrid.get(key);
     if (!cell) {
-      // Either pull from the pool or grow it (rare after the first
-      // few frames — pool size stabilizes at peak occupied cell count).
       if (_spatialPoolUsed < _spatialCellPool.length) {
         cell = _spatialCellPool[_spatialPoolUsed++];
         cell.length = 0;
@@ -154,12 +160,13 @@ function buildSpatialHash(naves: Nave[]): Map<string, Nave[]> {
   return _spatialGrid;
 }
 
-function* iterNeighbors(grid: Map<string, Nave[]>, x: number, y: number): Generator<Nave> {
-  const cx = Math.floor(x / CELL_SIZE);
-  const cy = Math.floor(y / CELL_SIZE);
+function* iterNeighbors(grid: Map<number, Nave[]>, x: number, y: number): Generator<Nave> {
+  const cx = Math.floor(x / CELL_SIZE) + CELL_BIAS;
+  const cy = Math.floor(y / CELL_SIZE) + CELL_BIAS;
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
-      const cell = grid.get(`${cx + dx},${cy + dy}`);
+      const key = ((cx + dx) << 16) | (cy + dy);
+      const cell = grid.get(key);
       if (!cell) continue;
       for (const n of cell) yield n;
     }
@@ -237,29 +244,29 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
     (melhor as any)._lastX = melhor.x;
     (melhor as any)._lastY = melhor.y;
 
-    // Spawn beam visual aimed at predicted position
-    _beams.push({
-      fromX: atacante.x,
-      fromY: atacante.y,
-      toX: predictedX,
-      toY: predictedY,
-      color: stats.corBeam,
-      age: 0,
-    });
+    // Spawn beam visual aimed at predicted position — pull from pool.
+    const beam = _beamPool.pop() ?? { fromX: 0, fromY: 0, toX: 0, toY: 0, color: 0, age: 0 };
+    beam.fromX = atacante.x;
+    beam.fromY = atacante.y;
+    beam.toX = predictedX;
+    beam.toY = predictedY;
+    beam.color = stats.corBeam;
+    beam.age = 0;
+    _beams.push(beam);
 
-    // Spawn 4-6 impact particles spreading from the hit point
+    // Spawn 4-6 impact particles spreading from the hit point — pooled.
     const numParticles = 4 + Math.floor(Math.random() * 3);
     for (let i = 0; i < numParticles; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 0.04 + Math.random() * 0.06;
-      _particles.push({
-        x: melhor.x,
-        y: melhor.y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        color: stats.corBeam,
-        age: 0,
-      });
+      const part = _particlePool.pop() ?? { x: 0, y: 0, vx: 0, vy: 0, color: 0, age: 0 };
+      part.x = melhor.x;
+      part.y = melhor.y;
+      part.vx = Math.cos(angle) * speed;
+      part.vy = Math.sin(angle) * speed;
+      part.color = stats.corBeam;
+      part.age = 0;
+      _particles.push(part);
     }
 
     // Tiny recoil on the attacker — push it back along firing direction
@@ -284,6 +291,7 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
     const b = _beams[i];
     b.age += deltaMs;
     if (b.age >= BEAM_LIFETIME_MS) {
+      _beamPool.push(b);
       _beams.splice(i, 1);
       continue;
     }
@@ -302,6 +310,7 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
     const p = _particles[i];
     p.age += deltaMs;
     if (p.age >= PARTICLE_LIFETIME_MS) {
+      _particlePool.push(p);
       _particles.splice(i, 1);
       continue;
     }

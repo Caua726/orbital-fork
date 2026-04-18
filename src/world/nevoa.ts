@@ -2,7 +2,11 @@ import { Container, Graphics, Text } from 'pixi.js';
 import type { Planeta, Mundo, FonteVisao, Camera } from '../types';
 import { nomeTipoPlaneta } from './planeta';
 import { criarPlanetaProceduralSprite } from './planeta-procedural';
-import { calcularBoundsViewport } from './viewport-bounds';
+import { calcularBoundsViewport, type ViewportBounds } from './viewport-bounds';
+
+const _fogBoundsScratch: ViewportBounds = {
+  esq: 0, dir: 0, cima: 0, baixo: 0, halfW: 0, halfH: 0, margem: 0,
+};
 import { getConfig } from '../core/config';
 import { t } from '../core/i18n/t';
 
@@ -401,7 +405,7 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
 
   // margemMin=0 (sem piso constante), margemMultiplier=1500 (replica
   // exatamente o comportamento original margem=1500*invZoom).
-  const bounds = calcularBoundsViewport(camera.x, camera.y, zoom, screenW, screenH, 0, 1500);
+  const bounds = calcularBoundsViewport(camera.x, camera.y, zoom, screenW, screenH, 0, 1500, _fogBoundsScratch);
   const worldX = bounds.esq;
   const worldY = bounds.cima;
   const worldW = bounds.dir - bounds.esq;

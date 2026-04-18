@@ -30,16 +30,28 @@ function tocar(
   };
 }
 
+// Reuse decoded noise buffers across calls — each `somExplosao` during
+// combat previously allocated a fresh Float32Array + AudioBuffer, and
+// with several explosions per second that produced noticeable GC and
+// decoder-thread pressure. Keyed by `${sampleRate}-${dur}` since the
+// sample data is stateless and only read during playback.
+const _ruidoBufferCache = new Map<string, AudioBuffer>();
+
 function tocarRuido(categoria: AudioCategoria, dur: number, volume = 0.2): void {
   const m = getMixer();
   if (!m) return;
   const catNode = getCategoriaNode(categoria);
   if (!catNode) return;
-  const bufferSize = m.ctx.sampleRate * dur;
-  const buffer = m.ctx.createBuffer(1, bufferSize, m.ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < bufferSize; i++) {
-    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+  const cacheKey = `${m.ctx.sampleRate}-${dur}`;
+  let buffer = _ruidoBufferCache.get(cacheKey);
+  if (!buffer) {
+    const bufferSize = m.ctx.sampleRate * dur;
+    buffer = m.ctx.createBuffer(1, bufferSize, m.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+    }
+    _ruidoBufferCache.set(cacheKey, buffer);
   }
   const src = m.ctx.createBufferSource();
   src.buffer = buffer;

@@ -10,8 +10,15 @@ export function t(key: string, params?: Record<string, string | number>): string
   const lang = getConfig().language ?? 'pt';
   let text = entry[lang] ?? entry.pt;
   if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+    // String.split+join is faster than RegExp for simple placeholder
+    // substitution and — critically — allocates no regex, no JIT path.
+    // t() is called per-frame from the fog / memory layer for dozens
+    // of ghost planets; a fresh `new RegExp(...)` every call was one
+    // of the jank sources flagged by profiling.
+    for (const k in params) {
+      const needle = `{${k}}`;
+      if (text.indexOf(needle) === -1) continue;
+      text = text.split(needle).join(String(params[k]));
     }
   }
   return text;

@@ -64,7 +64,7 @@ export const DEFAULTS: OrbitalConfig = {
     webglVersion: 'auto',
     gpuPreference: 'auto',
     mostrarOrbitas: true,
-    fogThrottle: 1,
+    fogThrottle: 3,
     maxFantasmas: -1,
     densidadeStarfield: 1.0,
     shaderLive: true,

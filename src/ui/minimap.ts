@@ -17,6 +17,7 @@ let _app: Application | null = null;
 let _onClick: ((worldX: number, worldY: number) => void) | null = null;
 let _onZoomIn: (() => void) | null = null;
 let _onZoomOut: (() => void) | null = null;
+let _resizeHandler: (() => void) | null = null;
 
 export function onMinimapClick(cb: (worldX: number, worldY: number) => void): void {
   _onClick = cb;
@@ -297,7 +298,10 @@ export function criarMinimap(app: Application, mundo: Mundo): HTMLDivElement {
   registerMinimap(panel);
 
   requestAnimationFrame(drawMinimap);
-  window.addEventListener('resize', () => requestAnimationFrame(drawMinimap));
+  // Hold the handler in a slot so destruirMinimap can remove it —
+  // previously the anonymous listener accumulated across world reloads.
+  _resizeHandler = () => requestAnimationFrame(drawMinimap);
+  window.addEventListener('resize', _resizeHandler);
 
   return panel;
 }
@@ -308,6 +312,10 @@ export function atualizarMinimap(camera: Camera): void {
 }
 
 export function destruirMinimap(): void {
+  if (_resizeHandler) {
+    window.removeEventListener('resize', _resizeHandler);
+    _resizeHandler = null;
+  }
   if (_container) {
     unregisterMinimap();
     _container.remove();

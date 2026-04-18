@@ -344,6 +344,14 @@ export function gerarAcoesCandidatas(ia: PersonalidadeIA, mundo: Mundo): AcaoCom
       && (n.tipo === 'fragata' || n.tipo === 'batedora'),
   );
 
+  // Pre-compute "which of MY planets have at least one of my ships
+  // orbiting" as a Set — avoids re-scanning the ship list for every
+  // target × planet combo inside the loop below.
+  const planetasOcupadas = new Set<Planeta>();
+  for (const n of todasMinhasOrbitando) {
+    if (n.alvo) planetasOcupadas.add(n.alvo as Planeta);
+  }
+
   // For each visible target, compute the best mass-attack score
   for (const alvo of mundo.planetas) {
     if (alvo.dados.dono === ia.id) continue;
@@ -351,13 +359,14 @@ export function gerarAcoesCandidatas(ia: PersonalidadeIA, mundo: Mundo): AcaoCom
 
     // Find all my planets within reach of this target + their orbiting ships
     const planetasComFrota = meusPlanetas.filter(
-      (p) => dist(p, alvo) <= 8000 && todasMinhasOrbitando.some((n) => n.alvo === p),
+      (p) => dist(p, alvo) <= 8000 && planetasOcupadas.has(p),
     );
     if (planetasComFrota.length === 0) continue;
 
     // Pool ships across all those planets (combat ships only)
+    const planetasComFrotaSet = new Set(planetasComFrota);
     const frotaPool = todasMinhasOrbitando.filter(
-      (n) => planetasComFrota.includes(n.alvo as Planeta),
+      (n) => planetasComFrotaSet.has(n.alvo as Planeta),
     );
     if (frotaPool.length === 0) continue;
 
