@@ -114,6 +114,15 @@ function migrarChavesLegadas(cfg: OrbitalConfig): void {
     cfg.graphics.renderer = legacyRenderer;
     localStorage.removeItem('renderer');
   }
+  // Old 'baixo' preset persisted shaderLive: false, which freezes the
+  // procedural planets into a static baked sprite ('mostrando um
+  // background ao invés do shader em tempo quase real'). We moved
+  // shaderLive to true for 'baixo' — force-realign any saved config
+  // that still has the old combination.
+  const q = cfg.graphics.qualidadeEfeitos;
+  if (q !== 'minimo' && cfg.graphics.shaderLive === false) {
+    cfg.graphics.shaderLive = true;
+  }
 }
 
 function load(): OrbitalConfig {

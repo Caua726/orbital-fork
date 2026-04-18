@@ -27,7 +27,10 @@ const PRESETS: Record<Nivel, FlagsDerivadas> = {
     fogThrottle: 3,
     maxFantasmas: 15,
     densidadeStarfield: 0.4,
-    shaderLive: false,
+    // Keep the procedural shader live even on low preset — baking
+    // freezes the planet to a static snapshot which reads as broken;
+    // only the truly-minimum preset trades live shading for perf.
+    shaderLive: true,
     mostrarOrbitas: true,
   },
   minimo: {
