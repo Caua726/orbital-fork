@@ -79,9 +79,10 @@ fn starLayer(
     let dist = length(d);
 
     let sizeRand = hash12(cellID + vec2<f32>(97.0));
-    let radius = baseRadius * (0.35 + 0.65 * sizeRand * sizeRand * sizeRand);
+    let radius = baseRadius * (0.6 + 0.4 * sizeRand);
 
-    let intensity = smoothstep(radius, radius * 0.75, dist);
+    // Pixel-perfect hard edge. step(dist, radius) = 1.0 if dist <= radius.
+    let intensity = step(dist, radius);
     return vec3<f32>(1.0) * intensity;
 }
 

@@ -60,12 +60,13 @@ vec3 starLayer(vec2 worldPos, float cellSize, float parallax,
     float dist = length(d);
 
     float sizeRand = hash12(cellID + 97.0);
-    float radius = baseRadius * (0.35 + 0.65 * sizeRand * sizeRand * sizeRand);
+    float radius = baseRadius * (0.6 + 0.4 * sizeRand);
 
-    // Flat intensity — no twinkle, no halo. smoothstep kept only as
-    // a 1-pixel anti-alias edge so small dots don't aliase while
-    // panning. Intensity is 1.0 or 0.0 with a thin fade.
-    float intensity = smoothstep(radius, radius * 0.75, dist);
+    // Pixel-perfect: step() = 1.0 if inside the radius, 0.0 if outside.
+    // No partial coverage, no fade. Combined with the low-res RT +
+    // nearest-neighbor upscale downstream, this produces crisp retro
+    // pixel-art stars — each one a hard 1×1 or 2×2 cluster.
+    float intensity = step(dist, radius);
 
     return vec3(1.0) * intensity;
 }
@@ -79,9 +80,11 @@ void main() {
 
     // Three layers — parallax factors differ for fake depth. Stars
     // move individually per layer via velocity in starLayer().
-    col += starLayer(worldPos, 260.0, 0.15, 0.025, 0.55);
-    col += starLayer(worldPos, 180.0, 0.45, 0.035, 0.40);
-    col += starLayer(worldPos, 140.0, 0.90, 0.050, 0.22);
+    // Radii are expressed in cell-local [0..1] units. With a 1/4-res
+    // render target these map to ~1-2 RT pixels = 4-8 screen pixels.
+    col += starLayer(worldPos, 260.0, 0.15, 0.012, 0.55);
+    col += starLayer(worldPos, 180.0, 0.45, 0.016, 0.40);
+    col += starLayer(worldPos, 140.0, 0.90, 0.022, 0.22);
 
     finalColor = vec4(col, 1.0);
 }
