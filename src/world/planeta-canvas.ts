@@ -271,7 +271,13 @@ function terranPixel(ctx: RenderCtx, uvx: number, uvy: number, uvRawX: number, u
       cUVx * ctx.uSize + cNoiseSum + cTime,
       cUVy * ctx.uSize + cNoiseSum,
     );
-    if (cloudFbm >= ctx.uCloudCover) {
+    // The GLSL shader gates the cloud on step(uCloudAlpha, cloudFbm)
+    // using the uCloudAlpha uniform (the per-terran cloud threshold).
+    // Earlier port mistakenly read uCloudCover here, which is a gas-
+    // planet field — on terran it's zero, so the check always passed
+    // and every terran pixel was rewritten to the cloud color,
+    // turning planets into solid fully-clouded spheres.
+    if (cloudFbm >= ctx.uCloudAlpha) {
       // Cloud tiers match planeta.frag literal colors.
       const pxSnapX = Math.floor(uvRawX * ctx.uPixels) / ctx.uPixels;
       const pxSnapY = Math.floor(uvRawY * ctx.uPixels) / ctx.uPixels;
