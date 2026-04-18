@@ -26,6 +26,8 @@ import type { OrbitalConfig } from './config';
  * pipeline desync hiding cost.
  */
 
+export type GpuTier = 'topo' | 'alto' | 'medio' | 'entrada' | 'fraco' | 'muito-fraco';
+
 export interface BenchmarkResult {
   avgFrameMs: number;
   minFrameMs: number;
@@ -34,6 +36,51 @@ export interface BenchmarkResult {
   framesSampled: number;
   recommendedPreset: OrbitalConfig['graphics']['qualidadeEfeitos'];
   recommendedRenderScale: number;
+  gpuTier: GpuTier;
+  /** Short human label for the tier, e.g. "~RTX 30xx / RX 6xxx". */
+  gpuTierLabel: string;
+  /** The renderer backend string from the live Pixi renderer. */
+  rendererName: string;
+  /** Best-effort GPU identifier from debug-renderer-info. Often masked. */
+  gpuVendor: string;
+  gpuRenderer: string;
+}
+
+/**
+ * Classify the measured frame time into a rough GPU tier. These are
+ * approximations — browsers mask the actual GPU model, and the same
+ * avgMs can come from very different combinations of card + CPU.
+ * The label is deliberately vague ("equivalent to <family>") rather
+ * than naming a specific chip.
+ */
+function classificarGpu(avgMs: number): { tier: GpuTier; label: string } {
+  if (avgMs < 1.5)  return { tier: 'topo',        label: '~RTX 40xx / RX 7xxx' };
+  if (avgMs < 3)    return { tier: 'alto',        label: '~RTX 30xx / RX 6xxx' };
+  if (avgMs < 6)    return { tier: 'medio',       label: '~RTX 20xx / GTX 1660 / RX 5xxx' };
+  if (avgMs < 12)   return { tier: 'entrada',     label: '~GTX 10xx / iGPU moderna' };
+  if (avgMs < 25)   return { tier: 'fraco',       label: '~iGPU antiga / mobile fraca' };
+  return             { tier: 'muito-fraco', label: '~software / mobile muito antiga' };
+}
+
+function coletarInfoRenderer(app: Application): { name: string; vendor: string; renderer: string } {
+  const r = app.renderer as any;
+  const name = String(r?.name ?? r?.type ?? 'desconhecido');
+  let vendor = 'desconhecido';
+  let renderer = 'desconhecido';
+  const gl = r?.gl as WebGLRenderingContext | WebGL2RenderingContext | undefined;
+  if (gl) {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    if (ext) {
+      vendor = (gl.getParameter((ext as any).UNMASKED_VENDOR_WEBGL) as string) ?? vendor;
+      renderer = (gl.getParameter((ext as any).UNMASKED_RENDERER_WEBGL) as string) ?? renderer;
+    }
+  }
+  const adapter = r?.gpu?.adapter as GPUAdapter | undefined;
+  if (adapter?.info) {
+    vendor = adapter.info.vendor || vendor;
+    renderer = adapter.info.description || adapter.info.device || adapter.info.architecture || renderer;
+  }
+  return { name, vendor, renderer };
 }
 
 const DURATION_MS = 20000;
@@ -174,6 +221,8 @@ export async function rodarBenchmark(
     } catch { /* noop */ }
   }
 
+  const info = coletarInfoRenderer(app);
+
   if (samples.length === 0) {
     return {
       avgFrameMs: 999,
@@ -183,6 +232,11 @@ export async function rodarBenchmark(
       framesSampled: 0,
       recommendedPreset: 'minimo',
       recommendedRenderScale: 0.35,
+      gpuTier: 'muito-fraco',
+      gpuTierLabel: '~software / mobile muito antiga',
+      rendererName: info.name,
+      gpuVendor: info.vendor,
+      gpuRenderer: info.renderer,
     };
   }
 
@@ -191,6 +245,7 @@ export async function rodarBenchmark(
   const avg = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
   const p95 = sorted[Math.floor(sorted.length * 0.95)];
   const { preset, scale } = classificar(avg);
+  const { tier, label } = classificarGpu(avg);
 
   return {
     avgFrameMs: avg,
@@ -200,5 +255,10 @@ export async function rodarBenchmark(
     framesSampled: samples.length,
     recommendedPreset: preset,
     recommendedRenderScale: scale,
+    gpuTier: tier,
+    gpuTierLabel: label,
+    rendererName: info.name,
+    gpuVendor: info.vendor,
+    gpuRenderer: info.renderer,
   };
 }

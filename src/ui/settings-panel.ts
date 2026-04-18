@@ -628,54 +628,160 @@ function renderGraphicsTab(body: HTMLDivElement): void {
         });
         _refreshBody?.();
 
-        // Final report card — replaces the live-stats UI with a
-        // breakdown of the measurement and the applied changes.
-        // Stays on-screen until the user dismisses it so they can
-        // actually read what happened.
+        // Final report — a styled card with GPU tier, perf stats,
+        // and applied recommendations. Stays visible until the
+        // player clicks OK.
         while (card.firstChild) card.removeChild(card.firstChild);
+        card.style.cssText = [
+          'background: linear-gradient(180deg, rgba(12,16,28,0.92), rgba(4,6,12,0.92))',
+          'backdrop-filter: blur(10px)',
+          'border: 1px solid rgba(110,193,255,0.35)',
+          'box-shadow: 0 0 40px rgba(110,193,255,0.15), inset 0 0 20px rgba(110,193,255,0.05)',
+          'padding: 20px 26px 18px',
+          'min-width: 420px', 'max-width: 520px',
+          'border-radius: 6px',
+          'color: #fff',
+          'pointer-events: auto',
+          'font-family: var(--hud-font, monospace)',
+        ].join(';');
+
         const avgFps = result.avgFrameMs > 0 ? Math.round(1000 / result.avgFrameMs) : 0;
         const p95Fps = result.p95FrameMs > 0 ? Math.round(1000 / result.p95FrameMs) : 0;
-        const makeRow = (label: string, value: string, color = '#fff'): HTMLDivElement => {
-          const row = document.createElement('div');
-          row.style.cssText = 'display: flex; justify-content: space-between; gap: 16px; font-size: 0.85em; padding: 2px 0; font-variant-numeric: tabular-nums;';
-          const l = document.createElement('span');
-          l.style.color = 'rgba(255,255,255,0.65)';
+
+        const tierColor: Record<string, string> = {
+          'topo':         '#a8f0c8',
+          'alto':         '#6ec1ff',
+          'medio':        '#f5d86e',
+          'entrada':      '#f5a86e',
+          'fraco':        '#f27570',
+          'muito-fraco':  '#c8585a',
+        };
+        const tierPt: Record<string, string> = {
+          'topo':         'TOPO DE LINHA',
+          'alto':         'ALTO',
+          'medio':        'MÉDIO',
+          'entrada':      'ENTRADA',
+          'fraco':        'FRACO',
+          'muito-fraco':  'MUITO FRACO',
+        };
+        const tierIdx: Record<string, number> = {
+          'muito-fraco': 0, 'fraco': 1, 'entrada': 2, 'medio': 3, 'alto': 4, 'topo': 5,
+        };
+
+        // Header with big title + small subtitle
+        const header = document.createElement('div');
+        header.style.cssText = 'text-align: center; margin-bottom: 14px;';
+        const titleEl = document.createElement('div');
+        titleEl.style.cssText = 'font-size: 1.2em; letter-spacing: 0.1em; color: #6ec1ff;';
+        titleEl.textContent = '◆ RELATÓRIO DO BENCHMARK ◆';
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.5); margin-top: 2px;';
+        subtitle.textContent = `${result.framesSampled} amostras · ${result.rendererName.toUpperCase()}`;
+        header.append(titleEl, subtitle);
+
+        // Section: GPU tier with colored bar
+        const gpuSec = document.createElement('div');
+        gpuSec.style.cssText = 'background: rgba(255,255,255,0.04); border-radius: 4px; padding: 10px 12px; margin-bottom: 10px;';
+        const gpuLabel = document.createElement('div');
+        gpuLabel.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.55); letter-spacing: 0.1em; margin-bottom: 4px;';
+        gpuLabel.textContent = 'CLASSE DE GPU';
+        const gpuTierLine = document.createElement('div');
+        gpuTierLine.style.cssText = `font-size: 1.15em; color: ${tierColor[result.gpuTier]}; font-weight: bold;`;
+        gpuTierLine.textContent = tierPt[result.gpuTier] ?? result.gpuTier;
+        const gpuEq = document.createElement('div');
+        gpuEq.style.cssText = 'font-size: 0.75em; color: rgba(255,255,255,0.6); margin-top: 2px;';
+        gpuEq.textContent = result.gpuTierLabel;
+        // GPU tier bar — 6 segments colored by tier
+        const tierBar = document.createElement('div');
+        tierBar.style.cssText = 'display: flex; gap: 3px; margin-top: 8px;';
+        const userIdx = tierIdx[result.gpuTier] ?? 0;
+        for (let i = 0; i < 6; i++) {
+          const seg = document.createElement('div');
+          const active = i <= userIdx;
+          seg.style.cssText = `flex: 1; height: 6px; border-radius: 2px; background: ${active ? tierColor[result.gpuTier] : 'rgba(255,255,255,0.08)'}; opacity: ${active ? (0.4 + (i / 6) * 0.6).toFixed(2) : '1'};`;
+          tierBar.appendChild(seg);
+        }
+        gpuSec.append(gpuLabel, gpuTierLine, gpuEq, tierBar);
+
+        // Section: performance — two columns
+        const perfSec = document.createElement('div');
+        perfSec.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; background: rgba(255,255,255,0.04); border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; font-variant-numeric: tabular-nums;';
+        const perfTitle = document.createElement('div');
+        perfTitle.style.cssText = 'grid-column: 1 / -1; font-size: 0.7em; color: rgba(255,255,255,0.55); letter-spacing: 0.1em; margin-bottom: 4px;';
+        perfTitle.textContent = 'DESEMPENHO';
+        const makeStat = (label: string, big: string, small: string, color = '#fff'): HTMLDivElement => {
+          const box = document.createElement('div');
+          const l = document.createElement('div');
+          l.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.55);';
           l.textContent = label;
-          const v = document.createElement('span');
-          v.style.color = color;
-          v.textContent = value;
-          row.append(l, v);
-          return row;
+          const v = document.createElement('div');
+          v.style.cssText = `font-size: 1em; color: ${color}; font-weight: bold;`;
+          v.textContent = big;
+          const s = document.createElement('div');
+          s.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.45);';
+          s.textContent = small;
+          box.append(l, v, s);
+          return box;
         };
-        const makeDivider = (): HTMLDivElement => {
-          const d = document.createElement('div');
-          d.style.cssText = 'border-top: 1px dashed rgba(255,255,255,0.2); margin: 8px 0;';
-          return d;
-        };
-        const reportTitle = document.createElement('div');
-        reportTitle.style.cssText = 'font-size: 1.05em; margin-bottom: 10px; letter-spacing: 0.05em;';
-        reportTitle.textContent = 'RELATÓRIO DO BENCHMARK';
-        const closeBtn = document.createElement('button');
-        closeBtn.style.cssText = 'margin-top: 12px; padding: 4px 16px; background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 3px; cursor: pointer; pointer-events: auto; font-family: inherit;';
-        closeBtn.textContent = 'OK';
-        closeBtn.addEventListener('click', () => { try { overlay.remove(); } catch { /* noop */ } });
-        card.append(
-          reportTitle,
-          makeRow('Frame médio', `${result.avgFrameMs.toFixed(1)} ms (${avgFps} FPS)`),
-          makeRow('Frame p95',   `${result.p95FrameMs.toFixed(1)} ms (${p95Fps} FPS)`),
-          makeRow('Mais rápido', `${result.minFrameMs.toFixed(1)} ms`),
-          makeRow('Mais lento',  `${result.maxFrameMs.toFixed(1)} ms`),
-          makeRow('Amostras',    String(result.framesSampled)),
-          makeDivider(),
-          makeRow('Preset recomendado', result.recommendedPreset.toUpperCase(), '#6ec1ff'),
-          makeRow('Escala de render',   `${result.recommendedRenderScale.toFixed(2)}×`, '#6ec1ff'),
-          makeDivider(),
-          makeRow('✓ Aplicado', 'configurações atualizadas', '#5fbd6f'),
-          closeBtn,
+        perfSec.append(
+          perfTitle,
+          makeStat('Frame médio', `${result.avgFrameMs.toFixed(1)} ms`, `${avgFps} FPS`),
+          makeStat('Frame p95',   `${result.p95FrameMs.toFixed(1)} ms`, `${p95Fps} FPS`),
+          makeStat('Mais rápido', `${result.minFrameMs.toFixed(1)} ms`, ''),
+          makeStat('Mais lento',  `${result.maxFrameMs.toFixed(1)} ms`, ''),
         );
+
+        // Section: recommendation (highlighted)
+        const recSec = document.createElement('div');
+        recSec.style.cssText = 'background: linear-gradient(180deg, rgba(110,193,255,0.14), rgba(110,193,255,0.04)); border: 1px solid rgba(110,193,255,0.3); border-radius: 4px; padding: 10px 12px; margin-bottom: 10px;';
+        const recTitle = document.createElement('div');
+        recTitle.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.6); letter-spacing: 0.1em; margin-bottom: 6px;';
+        recTitle.textContent = 'RECOMENDADO';
+        const recGrid = document.createElement('div');
+        recGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px;';
+        const recPreset = document.createElement('div');
+        recPreset.innerHTML = '';
+        const presetLbl = document.createElement('div');
+        presetLbl.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.5);';
+        presetLbl.textContent = 'Preset';
+        const presetVal = document.createElement('div');
+        presetVal.style.cssText = 'font-size: 1.1em; color: #6ec1ff; font-weight: bold;';
+        presetVal.textContent = result.recommendedPreset.toUpperCase();
+        recPreset.append(presetLbl, presetVal);
+        const recScale = document.createElement('div');
+        const scaleLbl = document.createElement('div');
+        scaleLbl.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.5);';
+        scaleLbl.textContent = 'Escala de render';
+        const scaleVal = document.createElement('div');
+        scaleVal.style.cssText = 'font-size: 1.1em; color: #6ec1ff; font-weight: bold;';
+        scaleVal.textContent = `${result.recommendedRenderScale.toFixed(2)}×`;
+        recScale.append(scaleLbl, scaleVal);
+        recGrid.append(recPreset, recScale);
+        recSec.append(recTitle, recGrid);
+
+        // Applied message + OK button
+        const applied = document.createElement('div');
+        applied.style.cssText = 'text-align: center; color: #5fbd6f; font-size: 0.85em; margin-bottom: 12px;';
+        applied.textContent = '✓ configurações aplicadas automaticamente';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.style.cssText = [
+          'display: block', 'margin: 0 auto',
+          'padding: 8px 32px',
+          'background: rgba(110,193,255,0.15)', 'color: #fff',
+          'border: 1px solid rgba(110,193,255,0.5)', 'border-radius: 3px',
+          'cursor: pointer', 'pointer-events: auto',
+          'font-family: inherit', 'font-size: 0.9em', 'letter-spacing: 0.1em',
+          'transition: background 120ms ease',
+        ].join(';');
+        closeBtn.textContent = 'OK';
+        closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(110,193,255,0.3)'; });
+        closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'rgba(110,193,255,0.15)'; });
+        closeBtn.addEventListener('click', () => { try { overlay.remove(); } catch { /* noop */ } });
+
+        card.append(header, gpuSec, perfSec, recSec, applied, closeBtn);
         overlay.style.justifyContent = 'center';
         overlay.style.paddingBottom = '0';
-        card.style.pointerEvents = 'auto';
         reportShown = true;
       } catch (err) {
         console.warn('[benchmark] failed:', err);
