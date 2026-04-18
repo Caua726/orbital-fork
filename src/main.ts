@@ -2,6 +2,7 @@ import { Application } from 'pixi.js';
 import type { Mundo, TipoJogador } from './types';
 import { criarMundo, atualizarMundo, getEstadoJogo, destruirMundo, setDificuldadeProximoMundo, getDificuldadeAtual } from './world/mundo';
 import { getStarfieldMemoryBytes, precompilarShaderStarfield, setAppReferenceForFundo } from './world/fundo';
+import { getCanvasPlanetsMemoryBytes } from './world/planeta-procedural';
 import { getFogMemoryBytes } from './world/nevoa';
 import { getSpritesheetMemoryBytes } from './world/spritesheets';
 import { getAiMemoryBytes } from './world/ia-memoria';
@@ -277,7 +278,12 @@ async function bootstrap(): Promise<void> {
     const lastSeen  = getLastSeenMemoryBytes();
     const combate   = getCombateMemoryBytes();
     const world     = _mundo;
-    const planetas  = (world?.planetas.length ?? 0) * 4 * 1024;
+    // Shader-mode planets are ~4 KB each (mesh + shader uniforms).
+    // Canvas2D mode swaps that for ImageData + GPU upload of the
+    // per-planet canvas — tracked via getCanvasPlanetsMemoryBytes.
+    const planetasSprite = (world?.planetas.length ?? 0) * 4 * 1024;
+    const planetasCanvas = world ? getCanvasPlanetsMemoryBytes(world.planetas) : 0;
+    const planetas = planetasCanvas > 0 ? planetasCanvas : planetasSprite;
     const naves     = (world?.naves.length ?? 0) * 2 * 1024;
     const sistemas  = (world?.sistemas.length ?? 0) * 8 * 1024;
 

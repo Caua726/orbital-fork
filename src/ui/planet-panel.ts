@@ -557,6 +557,24 @@ function renderPortrait(app: Application, planeta: Planeta): void {
   ctx.arc(targetSize / 2, targetSize / 2, targetSize / 2 - 1, 0, Math.PI * 2);
   ctx.fill();
 
+  // Canvas2D mode: planet is a Sprite backed by a local canvas
+  // (_canvasRender.canvas). Draw that directly — the Mesh-based
+  // clone path below doesn't work without a WebGL renderer anyway.
+  if ((planeta as any)._isCanvasPlanet) {
+    const cs = (planeta as any)._canvasRender as { canvas: HTMLCanvasElement } | undefined;
+    if (!cs?.canvas) return;
+    const scale = Math.min(
+      (targetSize * 0.82) / cs.canvas.width,
+      (targetSize * 0.82) / cs.canvas.height,
+    );
+    const drawW = cs.canvas.width * scale;
+    const drawH = cs.canvas.height * scale;
+    const dx = (targetSize - drawW) / 2;
+    const dy = (targetSize - drawH) / 2;
+    ctx.drawImage(cs.canvas, dx, dy, drawW, drawH);
+    return;
+  }
+
   const cloneData = criarCloneRetrato(planeta);
   if (!cloneData) return;
 

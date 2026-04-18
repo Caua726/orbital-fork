@@ -295,14 +295,16 @@ function terranPixel(ctx: RenderCtx, uvx: number, uvy: number, uvRawX: number, u
   outRGBA[3] = col[3] * 255;
 }
 
-function dryPixel(ctx: RenderCtx, uvx: number, uvy: number, uvRawX: number, uvRawY: number, outRGBA: [number, number, number, number]): void {
+function dryPixel(ctx: RenderCtx, uvx: number, uvy: number, _uvRawX: number, uvRawY: number, outRGBA: [number, number, number, number]): void {
   const dith = dither(ctx, uvx, uvRawY);
   let d_light = Math.hypot(uvx - ctx.uLightX, uvy - ctx.uLightY);
   const dxCenter = uvx - 0.5, dyCenter = uvy - 0.5;
   const a = (dxCenter * dxCenter + dyCenter * dyCenter) <= (0.49999 * 0.49999) ? 1 : 0;
   if (a === 0) { outRGBA[3] = 0; return; }
-  spherify(uvx, uvy, _sph);
-  rotate2d(ctx, _sph[0], _sph[1], _rot);
+  // GLSL dryPlanet uses the ROTATED UV for fbm — no spherify. Previous
+  // TS port did spherify first which shifted the noise coordinate space
+  // and made dry planets look subtly wrong. Matching the shader now.
+  rotate2d(ctx, uvx, uvy, _rot);
   const rx = _rot[0], ry = _rot[1];
   const fbm1 = fbm(ctx, rx, ry);
   d_light += fbm(
@@ -403,7 +405,8 @@ function gasPixel(ctx: RenderCtx, uvx: number, uvy: number, _uvRawX: number, _uv
   outRGBA[0] = mix(bgCol[0], col[0], t) * 255;
   outRGBA[1] = mix(bgCol[1], col[1], t) * 255;
   outRGBA[2] = mix(bgCol[2], col[2], t) * 255;
-  outRGBA[3] = col[3] * 255;
+  // Multiply by `a` to honor disc boundary — GLSL returns vec4(col.rgb, a * col.a).
+  outRGBA[3] = a * col[3] * 255;
 }
 
 // ─── Star shader helpers + function ───────────────────────────────
@@ -541,10 +544,14 @@ function starPixel(ctx: RenderCtx, uvx: number, uvy: number, uvRawX: number, uvR
   }
   if (bodyA > 0) { r = bodyR; g = bodyG; b = bodyB; a = 1; }
 
-  // Shader final step is premultiplied alpha.
-  outRGBA[0] = r * a * 255;
-  outRGBA[1] = g * a * 255;
-  outRGBA[2] = b * a * 255;
+  // Write straight (non-premultiplied). The outer pixel loop applies
+  // premultiplied-alpha once at the end (matching planeta.frag's
+  // final line). Previously this function also premultiplied, so
+  // partial-alpha flare/blob pixels had their RGB squared in alpha-
+  // space and came out too dim.
+  outRGBA[0] = r * 255;
+  outRGBA[1] = g * 255;
+  outRGBA[2] = b * 255;
   outRGBA[3] = a * 255;
 }
 

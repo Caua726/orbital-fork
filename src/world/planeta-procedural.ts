@@ -495,6 +495,22 @@ function destroyPortraitCache(): void {
 }
 
 export function renderPlanetaParaCanvas(planeta: any, tamanho = 96): HTMLCanvasElement | null {
+  // Canvas2D mode: the planet already owns an HTMLCanvasElement with
+  // the current frame. Return an upscaled copy so the drawer portrait
+  // has a fresh element of the requested size.
+  if ((planeta as any)._isCanvasPlanet) {
+    const cs = (planeta as any)._canvasRender as { canvas: HTMLCanvasElement } | undefined;
+    if (!cs?.canvas) return null;
+    const out = document.createElement('canvas');
+    out.width = tamanho;
+    out.height = tamanho;
+    const octx = out.getContext('2d');
+    if (!octx) return null;
+    octx.imageSmoothingEnabled = false;
+    octx.drawImage(cs.canvas, 0, 0, tamanho, tamanho);
+    return out;
+  }
+
   if (!_appRef) return null;
   const mesh = planeta as Mesh;
   const shader = (mesh as any)._planetShader as Shader | undefined;
@@ -528,6 +544,22 @@ export function renderPlanetaParaCanvas(planeta: any, tamanho = 96): HTMLCanvasE
     destroyPortraitCache();
     return null;
   }
+}
+
+/**
+ * Rough bytes held by all canvas-backed planets. Each sprite owns
+ * a small ImageData + uploaded texture. Called by the RAM HUD so
+ * the memory readout stays accurate in Canvas2D mode.
+ */
+export function getCanvasPlanetsMemoryBytes(planetas: any[]): number {
+  let total = 0;
+  for (const p of planetas) {
+    const cs = (p as any)._canvasRender as { canvas: HTMLCanvasElement } | undefined;
+    if (!cs?.canvas) continue;
+    // ImageData + GPU upload of the same pixels.
+    total += cs.canvas.width * cs.canvas.height * 4 * 2;
+  }
+  return total;
 }
 
 /** Caller-invokable teardown for when the drawer closes. */
