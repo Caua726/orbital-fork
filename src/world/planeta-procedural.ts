@@ -5,6 +5,7 @@ import fragmentSrc from '../shaders/planeta.frag?raw';
 import wgslSrc from '../shaders/planeta.wgsl?raw';
 import { TIPO_PLANETA } from './planeta';
 import { getConfig, onConfigChange } from '../core/config';
+import { getZoom } from '../core/player';
 
 let _appRef: Application | null = null;
 
@@ -469,11 +470,44 @@ export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
     return;
   }
 
-  // shaderLive is ON — unbake any baked planets and resume updates
+  // shaderLive is ON — per-planet auto-bake: when a planet's on-
+  // screen footprint is small, the live shader's detail is below the
+  // perceivable threshold anyway, so we bake it to a static sprite
+  // and skip the ALU-heavy per-pixel shader entirely. As soon as the
+  // camera zooms in past the threshold, unbake and resume live
+  // shader updates. The bake/unbake pair is already used by the
+  // global shaderLive=false path, so we reuse it here.
+  const AUTO_BAKE_PX = 40;   // Below this many screen pixels, bake.
+  const AUTO_UNBAKE_PX = 55; // Above this, go back to live.
+                             // Hysteresis prevents thrashing at the
+                             // threshold boundary.
+  const zoom = getZoom() || 1;
   const deltaSec = deltaMs / 1000;
   for (const planeta of planetas) {
-    if ((planeta as any)._bakedSprite) unbakePlaneta(planeta);
-    if (!planeta.visible) continue;
+    if (!planeta.visible) {
+      if ((planeta as any)._bakedSprite) unbakePlaneta(planeta);
+      continue;
+    }
+
+    const tamWorld = (planeta as any).scale?.x ?? 1;
+    const tamPx = tamWorld * zoom;
+    const alreadyBaked = !!(planeta as any)._bakedSprite;
+
+    if (alreadyBaked && tamPx > AUTO_UNBAKE_PX) {
+      unbakePlaneta(planeta);
+    } else if (!alreadyBaked && tamPx < AUTO_BAKE_PX) {
+      bakePlaneta(planeta);
+    }
+
+    // If now baked, keep the sprite in sync with the planet's world
+    // position and skip the shader time advance — it isn't rendering.
+    if ((planeta as any)._bakedSprite) {
+      const sprite = (planeta as any)._bakedSprite as Sprite;
+      sprite.x = planeta.x;
+      sprite.y = planeta.y;
+      continue;
+    }
+
     const shader = (planeta as any)._planetShader as Shader | undefined;
     if (shader) {
       const uniforms = (shader.resources as any).planetUniforms.uniforms;

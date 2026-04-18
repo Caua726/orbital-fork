@@ -119,6 +119,21 @@ fn dither(uv1: vec2<f32>, uv2: vec2<f32>) -> bool {
     return ((uv1.x + uv2.y) % (2.0 / planetUniforms.uPixels)) <= 1.0 / planetUniforms.uPixels;
 }
 
+// Gas planet circle noise (by Leukbaars) — WGSL port of circleNoise
+// from planeta.frag. Needed by the terran cloud block for parity
+// with the GLSL path; before, WGSL users silently got planets with
+// no clouds.
+fn circleNoise(uv_in: vec2<f32>) -> f32 {
+    let uv_y = floor(uv_in.y);
+    var uv = uv_in;
+    uv.x = uv.x + uv_y * 0.31;
+    let f = fract(uv);
+    let h = rand(vec2<f32>(floor(uv.x), floor(uv_y)));
+    let m = length(f - vec2<f32>(0.25) - vec2<f32>(h * 0.5));
+    let r = h * 0.25;
+    return smoothstep(0.0, r, m * 0.75);
+}
+
 // === Terran planet ===
 fn terranPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
     let dith = dither(uv_in, uvRaw);
@@ -151,6 +166,39 @@ fn terranPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
     if (river_fbm < fbm1 * 0.5) {
         col = planetUniforms.uColors5;
         if (fbm4 + dl < fbm1 * 1.5) { col = planetUniforms.uColors4; }
+    }
+
+    // Cloud layer — parity with GLSL path. Gated on `a > 0.0` so the
+    // 9-iter circleNoise loop + fbm doesn't run outside the disc.
+    if (planetUniforms.uCloudCover > 0.0 && a > 0.0) {
+        var cloudUV = uv;
+        cloudUV.y = cloudUV.y + smoothstep(0.0, 1.3, abs(cloudUV.x - 0.4));
+        let cTime = planetUniforms.uTime * planetUniforms.uTimeSpeed * 0.5;
+        var c_noise = 0.0;
+        for (var ci = 0; ci < 9; ci++) {
+            c_noise = c_noise + circleNoise(
+                (cloudUV * planetUniforms.uSize * 0.3)
+                + vec2<f32>(f32(ci + 1) + 10.0)
+                + vec2<f32>(cTime, 0.0)
+            );
+        }
+        let cloudFbm = fbm(cloudUV * planetUniforms.uSize + vec2<f32>(c_noise) + vec2<f32>(cTime, 0.0));
+        let cloudMask = step(planetUniforms.uCloudCover, cloudFbm);
+        if (cloudMask > 0.0) {
+            let spherified_raw = spherify(floor(uvRaw * planetUniforms.uPixels) / planetUniforms.uPixels);
+            let d_cloud_light = distance(spherified_raw, planetUniforms.uLightOrigin);
+            var cloudCol = vec4<f32>(0.96, 1.0, 0.91, 1.0);
+            if (cloudFbm < planetUniforms.uCloudCover + 0.03) {
+                cloudCol = vec4<f32>(0.87, 0.88, 0.91, 1.0);
+            }
+            if (d_cloud_light + cloudFbm * 0.2 > 0.52) {
+                cloudCol = vec4<f32>(0.41, 0.44, 0.60, 1.0);
+            }
+            if (d_cloud_light + cloudFbm * 0.2 > 0.62) {
+                cloudCol = vec4<f32>(0.25, 0.29, 0.45, 1.0);
+            }
+            col = cloudCol;
+        }
     }
 
     return vec4<f32>(col.rgb, a * col.a);

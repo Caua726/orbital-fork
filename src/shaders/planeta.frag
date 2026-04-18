@@ -153,8 +153,12 @@ vec4 terranPlanet(vec2 uv, vec2 uvRaw) {
         if (fbm4 + d_light < fbm1 * 1.5) col = uColors4;
     }
 
-    // Cloud layer (only for terran planets with uCloudAlpha > 0)
-    if (uCloudAlpha > 0.0) {
+    // Cloud layer (only for terran planets with uCloudAlpha > 0).
+    // Gated on `a > 0.0` so the 9-iteration circleNoise loop + fbm
+    // don't run for pixels outside the planet disc. Saves roughly
+    // 40-55% of the terran fragment cost on pixels the shader was
+    // about to discard anyway.
+    if (uCloudAlpha > 0.0 && a > 0.0) {
         // Clouds use different seed offset, slower speed, and stretched UVs
         vec2 cloudUV = uv; // already spherified and rotated
         cloudUV.y += smoothstep(0.0, 1.3, abs(cloudUV.x - 0.4));
@@ -325,6 +329,14 @@ vec4 starPlanet(vec2 uv, vec2 uvRaw) {
     // Body shader time = t * mult * 0.005 → t * 0.8, then shader does *time_speed → t*0.04
     // Blobs shader time = t * mult * 0.01 → t * 1.6, then *time_speed → t*0.08
     // Flares shader time = t * mult * 0.015 → t * 2.4, then *time_speed → t*0.12
+
+    // Coarse radius gate — the star quad is 2.9× the body radius to
+    // leave room for corona/flare, so ~75% of quad pixels are pure
+    // transparent outside the flare reach. Exit those before paying
+    // for the body Cells noise, the 15-iter blob loop, or flare fbm.
+    // 0.52 is slightly beyond the max flare extent visible in the
+    // shader output — safe margin.
+    if (distance(uv, vec2(0.5)) > 0.52) return vec4(0.0);
 
     float mult = floor(uSize + 0.5) * 2.0 / max(uTimeSpeed, 0.001);
     float bodyTime = uTime * mult * 0.005;

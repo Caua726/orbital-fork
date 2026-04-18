@@ -22,9 +22,14 @@ export interface OrbitalConfig {
     mostrarRam: boolean;
     vsync: boolean;
     fpsCap: number;
-    renderScale: number;   // 0.5..1.5. Pixi resolution multiplier — independent
+    renderScale: number;   // 0.1..4. Pixi resolution multiplier — independent
                            // of window DPR. <1 renders fewer pixels + browser
                            // upscales; >1 oversamples for crisper output.
+    starfieldLayers: 1 | 2 | 3;  // How many parallax star layers run in the
+                                  // fullscreen shader. Lower = less fragment
+                                  // work per pixel.
+    planetMaxOctaves: number;     // Global cap on planet fbm octaves (1-6).
+                                  // Each octave roughly doubles shader ALU.
     renderer: 'webgl' | 'webgpu' | 'software';
     webglVersion: 'auto' | '1' | '2';
     gpuPreference: 'auto' | 'high-performance' | 'low-power';
@@ -68,6 +73,8 @@ export const DEFAULTS: OrbitalConfig = {
     vsync: true,
     fpsCap: 0,
     renderScale: 1.0,
+    starfieldLayers: 3,
+    planetMaxOctaves: 6,
     renderer: 'webgl',
     webglVersion: 'auto',
     gpuPreference: 'auto',
