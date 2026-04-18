@@ -422,6 +422,10 @@ onConfigChange((cfg) => { _shaderLive = cfg.graphics.shaderLive; });
  */
 function bakePlaneta(planeta: any): void {
   if (!_appRef) return;
+  // Canvas2D renderer has no generateTexture / shader pipeline —
+  // bake is meaningless there. Belt-and-suspenders guard in case a
+  // future code path ever calls this with a canvas planet.
+  if (isCanvas2dRenderer()) return;
   if ((planeta as any)._bakedSprite) return; // already baked
   const mesh = planeta as Mesh;
   const shader = (mesh as any)._planetShader as Shader | undefined;
@@ -512,6 +516,11 @@ export function renderPlanetaParaCanvas(planeta: any, tamanho = 96): HTMLCanvasE
   }
 
   if (!_appRef) return null;
+  // Past this point we use renderer.extract.canvas() which Canvas2D
+  // mode doesn't implement. Caller already returns early for canvas
+  // planets via _isCanvasPlanet; this guard covers edge cases where
+  // the planet lost that flag (e.g. DTO reconstruction bug).
+  if (isCanvas2dRenderer()) return null;
   const mesh = planeta as Mesh;
   const shader = (mesh as any)._planetShader as Shader | undefined;
   if (!shader) return null;
