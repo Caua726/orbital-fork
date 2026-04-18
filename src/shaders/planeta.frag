@@ -1,3 +1,10 @@
+#version 300 es
+// Explicit #version 300 es so Pixi's auto-detector never falls
+// through to GLSL 1.00 — we use uint/uvec2 and mediump would also
+// truncate the seed multiplications that rand() depends on.
+precision highp float;
+precision highp int;
+
 in vec2 vUV;
 out vec4 finalColor;
 
@@ -38,13 +45,34 @@ uniform float uCloudAlpha; // 0=no clouds, >0=has clouds
 // star
 uniform float uTiles;
 
+// Deterministic PCG 2D → u32. Integer ops are bit-exact across every
+// WebGL2 driver, so the planet surface is identical in Chrome/ANGLE,
+// Firefox/native, SwiftShader, etc. The old fract(sin(...)) hash was
+// silently downgraded to mediump in ANGLE on many GPUs, collapsing
+// to constants and producing "squared grids" / NaN patches.
+uint pcg2d(uvec2 v) {
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v ^= v >> 16u;
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v ^= v >> 16u;
+    return v.x ^ v.y;
+}
+
 float rand(vec2 coord) {
-    // Stars, gas, and islands use square tiling; terran/dry use 2:1 for wrap-around
+    // Keep the original tiling domain so planets still wrap seamlessly.
     vec2 m = (uPlanetType == 0 || uPlanetType == 1)
         ? vec2(2.0, 1.0) * floor(uSize + 0.5)
         : vec2(1.0, 1.0) * floor(uSize + 0.5);
     coord = mod(coord, m);
-    return fract(sin(dot(coord.xy, vec2(12.9898, 78.233))) * 15.5453 * uSeed);
+    ivec2 ic = ivec2(floor(coord));
+    // Fold uSeed into the hash as a u32 salt. uSeed is in [1, 10]; we
+    // multiply by 65537 and cast so different seeds diverge widely.
+    uint seed32 = uint(uSeed * 65537.0);
+    uvec2 c = uvec2(ic + ivec2(32768));
+    return float(pcg2d(c + uvec2(seed32, seed32 ^ 0xA5A5A5A5u))) * (1.0 / 4294967296.0);
 }
 
 float noise(vec2 coord) {

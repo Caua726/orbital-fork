@@ -65,6 +65,20 @@ fn mainVertex(
 }
 
 // === Fragment helpers ===
+// PCG 2D → u32 hash; bit-exact WGSL mirror of the WebGL2 path so
+// WebGPU renders identical planets to WebGL2.
+fn pcg2d(v_in: vec2<u32>) -> u32 {
+    var v = v_in;
+    v = v * vec2<u32>(1664525u) + vec2<u32>(1013904223u);
+    v.x = v.x + v.y * 1664525u;
+    v.y = v.y + v.x * 1664525u;
+    v = v ^ (v >> vec2<u32>(16u));
+    v.x = v.x + v.y * 1664525u;
+    v.y = v.y + v.x * 1664525u;
+    v = v ^ (v >> vec2<u32>(16u));
+    return v.x ^ v.y;
+}
+
 fn rand(coord_in: vec2<f32>) -> f32 {
     var m: vec2<f32>;
     if (planetUniforms.uPlanetType == 0 || planetUniforms.uPlanetType == 1) {
@@ -73,7 +87,10 @@ fn rand(coord_in: vec2<f32>) -> f32 {
         m = vec2<f32>(1.0, 1.0) * floor(planetUniforms.uSize + 0.5);
     }
     let c = ((coord_in % m) + m) % m;
-    return fract(sin(dot(c, vec2<f32>(12.9898, 78.233))) * 15.5453 * planetUniforms.uSeed);
+    let ic = vec2<i32>(floor(c));
+    let seed32 = u32(planetUniforms.uSeed * 65537.0);
+    let uc = vec2<u32>(ic + vec2<i32>(32768));
+    return f32(pcg2d(uc + vec2<u32>(seed32, seed32 ^ 0xA5A5A5A5u))) * (1.0 / 4294967296.0);
 }
 
 fn noise(coord: vec2<f32>) -> f32 {
