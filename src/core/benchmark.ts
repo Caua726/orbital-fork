@@ -61,41 +61,44 @@ export interface GpuInfo {
 }
 
 function classificarGpu(avgMs: number): GpuInfo {
+  // GPU names here are CONSUMER-RECOGNIZABLE — things the average
+  // gamer has heard of or searched for in a store. Grouped by rough
+  // generation/tier so the user sees "ok my PC is about like those".
   if (avgMs < 1.5) return {
     tier: 'topo',
-    plainLabel: 'PC gamer top de linha',
-    plainSummary: 'Roda o jogo com sobra em qualidade máxima',
-    techLabel: '~RTX 40xx / RX 7xxx',
+    plainLabel: 'RTX 4080 / RTX 4090 / RX 7900',
+    plainSummary: 'Placa top de linha — qualidade máxima sem esforço',
+    techLabel: 'avg frame < 1.5 ms',
   };
   if (avgMs < 3) return {
     tier: 'alto',
-    plainLabel: 'PC gamer moderno',
-    plainSummary: 'Roda tranquilo em qualidade alta',
-    techLabel: '~RTX 30xx / RX 6xxx',
+    plainLabel: 'RTX 3070 / RTX 4070 / RX 6700',
+    plainSummary: 'Placa gamer moderna — roda em qualidade alta',
+    techLabel: 'avg frame 1.5–3 ms',
   };
   if (avgMs < 6) return {
     tier: 'medio',
-    plainLabel: 'PC gamer médio',
-    plainSummary: 'Roda bem em qualidade média',
-    techLabel: '~RTX 20xx / GTX 1660 / RX 5xxx',
+    plainLabel: 'RTX 3060 / GTX 1080 / RX 5600',
+    plainSummary: 'Placa gamer intermediária — boa em qualidade média',
+    techLabel: 'avg frame 3–6 ms',
   };
   if (avgMs < 12) return {
     tier: 'entrada',
-    plainLabel: 'Notebook ou PC básico',
-    plainSummary: 'Roda em qualidade baixa pra manter fluidez',
-    techLabel: '~GTX 10xx / iGPU moderna',
+    plainLabel: 'GTX 1660 / GTX 1060 / RX 580',
+    plainSummary: 'Placa de entrada ou integrada moderna — qualidade baixa',
+    techLabel: 'avg frame 6–12 ms',
   };
   if (avgMs < 25) return {
     tier: 'fraco',
-    plainLabel: 'PC antigo ou de escritório',
-    plainSummary: 'Roda no mínimo, pode ficar lento',
-    techLabel: '~iGPU antiga / mobile fraca',
+    plainLabel: 'GTX 1050 / GT 1030 / Intel Iris Xe',
+    plainSummary: 'Notebook antigo ou placa fraca — preset mínimo',
+    techLabel: 'avg frame 12–25 ms',
   };
   return {
     tier: 'muito-fraco',
-    plainLabel: 'Máquina sem aceleração de vídeo',
-    plainSummary: 'Provavelmente renderização via CPU',
-    techLabel: '~software / mobile muito antiga',
+    plainLabel: 'Intel HD / iGPU antiga / renderização por software',
+    plainSummary: 'Sem aceleração de vídeo — performance será limitada',
+    techLabel: 'avg frame > 25 ms',
   };
 }
 

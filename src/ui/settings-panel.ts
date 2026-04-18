@@ -684,19 +684,19 @@ function renderGraphicsTab(body: HTMLDivElement): void {
         gpuSec.style.cssText = 'background: rgba(255,255,255,0.04); border-radius: 4px; padding: 10px 12px; margin-bottom: 10px;';
         const gpuLabel = document.createElement('div');
         gpuLabel.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.55); letter-spacing: 0.1em; margin-bottom: 4px;';
-        gpuLabel.textContent = 'SEU PC';
-        // Big plain-Portuguese title everyone gets, then a one-line
-        // takeaway about what the machine handles, then the tech
-        // family reference for gamers who want it.
+        gpuLabel.textContent = 'PARECIDO COM';
+        // Main line: recognizable GPU models. Subtitle: plain-
+        // language takeaway about what the machine handles. Tiny
+        // line below: raw avg ms range for the curious.
         const gpuTierLine = document.createElement('div');
-        gpuTierLine.style.cssText = `font-size: 1.15em; color: ${tierColor[result.gpuTier]}; font-weight: bold;`;
+        gpuTierLine.style.cssText = `font-size: 1.05em; color: ${tierColor[result.gpuTier]}; font-weight: bold; line-height: 1.25;`;
         gpuTierLine.textContent = result.gpuPlainLabel;
         const gpuSummary = document.createElement('div');
-        gpuSummary.style.cssText = 'font-size: 0.85em; color: rgba(255,255,255,0.8); margin-top: 3px;';
+        gpuSummary.style.cssText = 'font-size: 0.85em; color: rgba(255,255,255,0.8); margin-top: 4px;';
         gpuSummary.textContent = result.gpuPlainSummary;
         const gpuEq = document.createElement('div');
         gpuEq.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.45); margin-top: 4px; font-style: italic;';
-        gpuEq.textContent = `equivalente: ${result.gpuTechLabel}`;
+        gpuEq.textContent = result.gpuTechLabel;
         // GPU tier bar — 6 segments colored by tier
         const tierBar = document.createElement('div');
         tierBar.style.cssText = 'display: flex; gap: 3px; margin-top: 8px;';
