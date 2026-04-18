@@ -1,5 +1,5 @@
 import type { Application } from 'pixi.js';
-import type { Mundo, CheatsState, DebugConfig, ProfilingData } from '../types';
+import type { Mundo, CheatsState, ProfilingData } from '../types';
 import { getCamera } from '../core/player';
 // Reuse the state objects that the existing game systems already read from.
 // Flipping these here affects the game live, no wiring needed.
@@ -508,6 +508,99 @@ function createProfDivider(label: string): HTMLDivElement {
   return div;
 }
 
+interface ProfChild { label: string; key: keyof ProfilingData; color: string; }
+
+/**
+ * Expandable profiling group — one top-level row that registers a
+ * bucket AND owns a collapsed tree of children. Click the chevron to
+ * reveal the fine-grained breakdown. Each child is a regular prof
+ * row (number + sparkline) so the update loop treats it uniformly.
+ */
+function createProfGroup(
+  label: string,
+  parentKey: keyof ProfilingData,
+  color: string,
+  children: ProfChild[],
+): HTMLDivElement {
+  const wrapper = document.createElement('div');
+
+  const header = document.createElement('div');
+  header.className = 'debug-prof-row';
+  header.style.cursor = children.length > 0 ? 'pointer' : 'default';
+
+  const chevron = document.createElement('span');
+  chevron.style.cssText = 'width: 12px; display: inline-block; opacity: 0.6; transition: transform 0.15s;';
+  chevron.textContent = children.length > 0 ? '▸' : ' ';
+  header.appendChild(chevron);
+
+  const lbl = document.createElement('span');
+  lbl.className = 'label';
+  lbl.textContent = label;
+  lbl.style.marginLeft = '2px';
+  header.appendChild(lbl);
+
+  const cur = document.createElement('span');
+  cur.className = 'cur';
+  cur.textContent = '0.00 ms';
+  header.appendChild(cur);
+
+  const mx = document.createElement('span');
+  mx.className = 'max';
+  mx.textContent = '/ 0.00';
+  header.appendChild(mx);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 120;
+  canvas.height = 16;
+  header.appendChild(canvas);
+
+  _profRows[parentKey] = { value: cur, max: mx, canvas, color };
+  wrapper.appendChild(header);
+
+  if (children.length === 0) return wrapper;
+
+  const kids = document.createElement('div');
+  kids.style.cssText = 'margin-left: 16px; display: none; border-left: 1px solid rgba(255,255,255,0.08); padding-left: 6px;';
+  for (const c of children) kids.appendChild(createProfRow(c.label, c.key, c.color));
+  wrapper.appendChild(kids);
+
+  header.addEventListener('click', () => {
+    const open = kids.style.display !== 'none';
+    kids.style.display = open ? 'none' : 'block';
+    chevron.style.transform = open ? '' : 'rotate(90deg)';
+  });
+  return wrapper;
+}
+
+const _counterRows: Partial<Record<keyof ProfilingData, HTMLSpanElement>> = {};
+
+/**
+ * Counter row — same layout as a prof row but displays an integer
+ * count rather than milliseconds. Used for drawCalls / textureUploads
+ * / triangle count sourced from the WebGL hooks in main.ts.
+ */
+function createCounterRow(label: string, key: keyof ProfilingData): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'debug-prof-row';
+
+  const pad = document.createElement('span');
+  pad.style.cssText = 'width: 12px; display: inline-block;';
+  row.appendChild(pad);
+
+  const lbl = document.createElement('span');
+  lbl.className = 'label';
+  lbl.textContent = label;
+  row.appendChild(lbl);
+
+  const val = document.createElement('span');
+  val.className = 'cur';
+  val.textContent = '0';
+  row.appendChild(val);
+
+  _counterRows[key] = val;
+  return row;
+}
+
 function createSpeedSlider(): HTMLDivElement {
   const row = document.createElement('div');
   row.className = 'debug-row';
@@ -684,21 +777,43 @@ export function criarDebugMenu(app: Application, mundo: Mundo): HTMLDivElement {
   // opaque "logica" number. Splitting them is the whole point of this
   // panel: immediately see which system is eating the frame.
   profSec.appendChild(createProfDivider('Gameplay'));
-  profSec.appendChild(createProfRow('Planetas (recursos/orbit)', 'planetasLogic', '#4488cc'));
-  profSec.appendChild(createProfRow('Naves (movimento)',         'naves',         '#66aadd'));
-  profSec.appendChild(createProfRow('IA (decisões)',             'ia',            '#cc8844'));
-  profSec.appendChild(createProfRow('Combate',                   'combate',       '#dd6666'));
-  profSec.appendChild(createProfRow('Stats / primeiro-contato',  'stats',         '#888888'));
+  profSec.appendChild(createProfGroup('Planetas (recursos/orbit)', 'planetasLogic', '#4488cc', [
+    { label: 'Recursos + pesquisa', key: 'planetasLogic_recursos', color: '#4488cc' },
+    { label: 'Órbita',              key: 'planetasLogic_orbita',   color: '#4488cc' },
+    { label: 'Filas de produção',   key: 'planetasLogic_filas',    color: '#4488cc' },
+    { label: 'Tempo (shader/anim)', key: 'planetasLogic_tempo',    color: '#4488cc' },
+    { label: 'Luz (sol→planeta)',   key: 'planetasLogic_luz',      color: '#4488cc' },
+  ]));
+  profSec.appendChild(createProfGroup('Naves (movimento)', 'naves', '#66aadd', []));
+  profSec.appendChild(createProfGroup('IA (decisões)',     'ia',    '#cc8844', []));
+  profSec.appendChild(createProfGroup('Combate',           'combate', '#dd6666', []));
+  profSec.appendChild(createProfGroup('Stats / contato',   'stats',   '#888888', []));
 
   profSec.appendChild(createProfDivider('Render'));
-  profSec.appendChild(createProfRow('Fundo (starfield)',         'fundo',    '#44aa88'));
-  profSec.appendChild(createProfRow('Fog of war',                'fog',      '#ff6060'));
-  profSec.appendChild(createProfRow('Planetas (sprite update)',  'planetas', '#ffcc40'));
-  profSec.appendChild(createProfRow('Resto do render',           'render',   '#aa66ff'));
+  profSec.appendChild(createProfGroup('Fundo (starfield)', 'fundo', '#44aa88', []));
+  profSec.appendChild(createProfGroup('Fog of war', 'fog', '#ff6060', [
+    { label: 'Canvas (fill + ellipses)', key: 'fog_canvas', color: '#ff6060' },
+    { label: 'Upload GPU (texSubImage)', key: 'fog_upload', color: '#ff6060' },
+  ]));
+  profSec.appendChild(createProfGroup('Planetas (sprite update)', 'planetas', '#ffcc40', [
+    { label: 'Visibilidade + órbitas', key: 'planetas_vis',     color: '#ffcc40' },
+    { label: 'Anel de seleção',        key: 'planetas_anel',    color: '#ffcc40' },
+    { label: 'Memória (fantasmas)',    key: 'planetas_memoria', color: '#ffcc40' },
+  ]));
+  profSec.appendChild(createProfGroup('Resto do render', 'render', '#aa66ff', [
+    { label: 'Sóis (visibility)',      key: 'render_sois',  color: '#aa66ff' },
+    { label: 'Naves (visibility)',     key: 'render_naves', color: '#aa66ff' },
+  ]));
 
   profSec.appendChild(createProfDivider('Total'));
-  profSec.appendChild(createProfRow('Tick (só gameplay)',        'total',      '#aaaaaa'));
-  profSec.appendChild(createProfRow('Frame wall (real)',         'frameWall',  '#ffffff'));
+  profSec.appendChild(createProfGroup('Tick (só gameplay)',    'total',      '#aaaaaa', []));
+  profSec.appendChild(createProfGroup('Pixi render (GPU/CPU)', 'pixiRender', '#c0a0ff', []));
+  profSec.appendChild(createProfGroup('Frame wall (real)',     'frameWall',  '#ffffff', []));
+
+  profSec.appendChild(createProfDivider('GPU counters (per frame)'));
+  profSec.appendChild(createCounterRow('Draw calls',        'drawCalls'));
+  profSec.appendChild(createCounterRow('Texture uploads',   'textureUploads'));
+  profSec.appendChild(createCounterRow('Triângulos',        'triangles'));
 
   panel.appendChild(profSec);
 
@@ -805,7 +920,7 @@ export function criarDebugMenu(app: Application, mundo: Mundo): HTMLDivElement {
       mod.pararLoggingProfiling();
       stopPolling();
     }
-    mod.baixarLogProfiling(_app, getConfig());
+    mod.baixarLogProfiling(_app, getConfig(), _mundo);
     void refreshProfStatus();
   });
 
@@ -909,6 +1024,15 @@ export function atualizarDebugMenu(): void {
     // variance, but a 16ms frame doesn't compress everything into a
     // sliver. Lower bound 1.5ms so idle bars aren't flat-line.
     if (hist) desenharSparkline(row.canvas, hist, cursor, Math.max(1.5, peak), row.color);
+  }
+
+  // Integer counter rows (drawCalls, textureUploads, triangles). Same
+  // averaged-over-window as ms buckets but displayed as rounded ints.
+  for (const key of Object.keys(_counterRows) as Array<keyof ProfilingData>) {
+    const el = _counterRows[key];
+    if (!el) continue;
+    const avg = profiling[key];
+    el.textContent = avg < 10 ? avg.toFixed(1) : String(Math.round(avg));
   }
 }
 

@@ -212,18 +212,36 @@ export interface TipoJogador {
 // combat, ship movement, and resource ticks, which was useless for
 // diagnosis. Kept as a legacy alias (sum of gameplay buckets).
 export interface ProfilingData {
-  // Gameplay sub-buckets (summed they replace what "logica" used to be).
+  // Gameplay top-level buckets (summed they replace what "logica" used to be).
   planetasLogic: number;   // Resource/research/orbit/queue ticks across all planets.
   naves: number;           // Ship movement + state updates.
   ia: number;              // AI decision-making + memory decay.
   combate: number;         // Combat resolution + spatial hash + damage.
   stats: number;           // Periodic stats sampling + first-contact + primeiro-contato.
 
+  // Gameplay sub-buckets (children of the top-level ones above). Let
+  // the debug HUD draw a tree instead of a flat list so you can see
+  // WHY a bucket is heavy without grep'ing through code.
+  planetasLogic_recursos: number;  // atualizarRecursosPlaneta + atualizarPesquisaPlaneta
+  planetasLogic_orbita: number;    // atualizarOrbitaPlaneta
+  planetasLogic_filas: number;     // atualizarFilasPlaneta
+  planetasLogic_tempo: number;     // atualizarTempoPlanetas (planetas + sois)
+  planetasLogic_luz: number;       // atualizarLuzPlaneta per planet
+
   // Rendering / per-frame visual buckets.
   fundo: number;           // Starfield RT render + sprite placement.
   fog: number;             // Fog-of-war canvas draw + GPU upload.
   planetas: number;        // Per-planet sprite/uniform updates (light, shader rotation).
   render: number;          // Remaining render path: selection, trails, combat visuals, HUD.
+
+  // Render sub-buckets.
+  fog_canvas: number;      // Canvas2D fillRect + ellipse work
+  fog_upload: number;      // ImageSource.update → GPU texture upload
+  planetas_vis: number;    // Per-planet visibility gate + viewport cull
+  planetas_anel: number;   // Selection ring Graphics rebuild
+  planetas_memoria: number;// Fog-of-war ghost planet updates
+  render_sois: number;     // Sun visibility gate + alpha
+  render_naves: number;    // Ship visibility gate + selection rebuild
 
   // Aggregates — computed from the above each flush.
   logica: number;          // Legacy = planetasLogic + naves + ia + combate + stats.
@@ -237,6 +255,13 @@ export interface ProfilingData {
   // wrapping app.renderer.render(). On software renderers (WARP,
   // SwiftShader) this is usually >90% of frameWall.
   pixiRender: number;
+
+  // Counters (not milliseconds — just per-frame tallies). drawCalls
+  // and textureUploads are hooked from the WebGL context directly so
+  // they tell us exactly what Pixi submitted to the GPU this frame.
+  drawCalls: number;
+  textureUploads: number;
+  triangles: number;       // rough estimate from drawElements count arg
 }
 
 // === Ação Nave Parsed ===

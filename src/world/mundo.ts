@@ -31,7 +31,7 @@ import { atualizarPesquisaPlaneta } from './pesquisa';
 import { atualizarCampoDeVisao } from './visao';
 import { atualizarFilasPlaneta, atualizarRecursosPlaneta } from './construcao';
 import { profileMark, profileAcumular, profileFlush } from './profiling';
-import { amostrarFrameProfiling } from './profiling-logger';
+import { amostrarFrameProfiling, setLoggerContexto } from './profiling-logger';
 import { getConfig } from '../core/config';
 
 // Cached lazy import to avoid circular dep (mundo → save → reconstruir → mundo)
@@ -376,6 +376,7 @@ let _lastFrameMark = 0;
 // === Game loop ===
 export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): void {
   const frameInicio = profileMark();
+  setLoggerContexto(false);
   // Wall clock — how long since the PREVIOUS frame started? This
   // includes whatever happened between the previous atualizarMundo
   // return and now (Pixi render, ticker overhead, vsync wait).
@@ -393,24 +394,37 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   const deltaMs = app.ticker.deltaMS;
   mundo.ultimoTickMs = performance.now();
 
-  // Per-system gameplay logic, now split into fine buckets so the
-  // debug HUD can show exactly which system is burning frame budget.
+  // Per-system gameplay logic, split into fine sub-buckets so the
+  // debug HUD can show exactly which step is burning frame budget.
+  // The outer `t` still records the combined planetasLogic total.
   let t = profileMark();
+  let tSub = profileMark();
   for (const planeta of mundo.planetas) {
     atualizarRecursosPlaneta(planeta, deltaMs);
     atualizarPesquisaPlaneta(planeta, deltaMs);
-    atualizarOrbitaPlaneta(planeta, deltaMs);
-    atualizarFilasPlaneta(mundo, planeta, deltaMs);
   }
-  // Time integration for all celestial bodies — cheap enough to keep
-  // bundled with the planet-logic bucket since it's the same domain.
+  profileAcumular('planetasLogic_recursos', tSub);
+
+  tSub = profileMark();
+  for (const planeta of mundo.planetas) atualizarOrbitaPlaneta(planeta, deltaMs);
+  profileAcumular('planetasLogic_orbita', tSub);
+
+  tSub = profileMark();
+  for (const planeta of mundo.planetas) atualizarFilasPlaneta(mundo, planeta, deltaMs);
+  profileAcumular('planetasLogic_filas', tSub);
+
+  tSub = profileMark();
   atualizarTempoPlanetas(mundo.planetas, deltaMs);
   atualizarTempoPlanetas(mundo.sois, deltaMs);
+  profileAcumular('planetasLogic_tempo', tSub);
+
+  tSub = profileMark();
   for (const planeta of mundo.planetas) {
     if (!planeta.visible) continue;
     const sistema = mundo.sistemas[planeta.dados.sistemaId];
     if (sistema?.sol) atualizarLuzPlaneta(planeta, sistema.sol.x, sistema.sol.y);
   }
+  profileAcumular('planetasLogic_luz', tSub);
   profileAcumular('planetasLogic', t);
 
   t = profileMark();
@@ -461,7 +475,9 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   const gfxCfg = getConfig().graphics;
 
   t = profileMark();
+  let tVis = 0, tAnel = 0, tMemoria = 0;
   for (const planeta of mundo.planetas) {
+    const tV0 = profileMark();
     const visNaTela = planeta.x > esq && planeta.x < dir && planeta.y > cima && planeta.y < baixo;
     const vis = visNaTela && planeta._visivelAoJogador;
     // When baked, hide mesh and control sprite visibility instead
@@ -483,23 +499,38 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     const orbitaDescoberta = planeta._descobertoAoJogador && !!(solDoSistema?._descobertoAoJogador);
     planeta._linhaOrbita.visible = gfxCfg.mostrarOrbitas && orbitaDescoberta && orbitaNaTela;
     planeta._linhaOrbita.alpha = planeta._visivelAoJogador && !!(solDoSistema?._visivelAoJogador) ? 0.5 : 0.18;
+    tVis += performance.now() - tV0;
 
     if (vis) {
+      const tA0 = profileMark();
       const anel = planeta._anel;
       anel.clear();
       const largura = planeta.dados.selecionado ? 2.5 : 1.25;
       const raioBase = planeta.dados.tamanho * 0.42;
       const raio = Math.max(10, raioBase - largura * 0.5);
       anel.circle(0, 0, raio).stroke({ color: COR_ANEL_PLANETA, width: largura, alpha: 0.72 });
+      tAnel += performance.now() - tA0;
     }
 
+    const tM0 = profileMark();
     atualizarVisibilidadeMemoria(planeta, planeta._visivelAoJogador, esq, dir, cima, baixo, gfxCfg.maxFantasmas);
     atualizarEscalaLabelMemoria(planeta, zoom);
+    tMemoria += performance.now() - tM0;
   }
+  const tMem0 = profileMark();
   aplicarLimiteFantasmas(mundo);
+  tMemoria += performance.now() - tMem0;
+  // Loop-internal tallies are posted directly (pseudo-inicio = now - ms).
+  // profileAcumular expects (campo, inicio_ts); we simulate by passing
+  // performance.now() - ms as the "start" timestamp.
+  const nowRef = performance.now();
+  profileAcumular('planetas_vis', nowRef - tVis);
+  profileAcumular('planetas_anel', nowRef - tAnel);
+  profileAcumular('planetas_memoria', nowRef - tMemoria);
   profileAcumular('planetas', t);
 
   t = profileMark();
+  const tSois0 = profileMark();
   for (const sol of mundo.sois) {
     const visNaTela = sol.x > esq && sol.x < dir && sol.y > cima && sol.y < baixo;
     const solVis = visNaTela && (sol._visivelAoJogador || sol._descobertoAoJogador);
@@ -512,7 +543,9 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
       sol.alpha = sol._visivelAoJogador ? 1 : 0.28;
     }
   }
+  profileAcumular('render_sois', tSois0);
 
+  const tNaves0 = profileMark();
   for (const nave of mundo.naves) {
     const visNaTela = nave.x > esq && nave.x < dir && nave.y > cima && nave.y < baixo;
     nave.gfx.visible = visNaTela;
@@ -521,6 +554,7 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
       atualizarSelecaoNave(nave);
     }
   }
+  profileAcumular('render_naves', tNaves0);
   profileAcumular('render', t);
 
   profileAcumular('total', frameInicio);

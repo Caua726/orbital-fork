@@ -216,7 +216,7 @@ async function bootstrap(): Promise<void> {
   // latency (queue stuff) which is usually small. The delta between
   // 'pixiRender' and 'frameWall' is the compositor + vsync wait.
   try {
-    const { profileMark, profileAcumular } = await import('./world/profiling');
+    const { profileMark, profileAcumular, profileContar } = await import('./world/profiling');
     const origRender = app.renderer.render.bind(app.renderer);
     (app.renderer as any).render = (...args: unknown[]) => {
       const t = profileMark();
@@ -226,6 +226,48 @@ async function bootstrap(): Promise<void> {
         profileAcumular('pixiRender', t);
       }
     };
+
+    // WebGL drawCall + texture upload counters. We intercept the GL
+    // context's draw*/tex*Image2D methods so the debug HUD knows exactly
+    // what Pixi submitted this frame. Zero overhead when profiling is
+    // off because the HUD just reads the accumulator; incrementing a
+    // number inside a method wrap is a few ns.
+    const gl = (app.renderer as any).gl as (WebGL2RenderingContext | WebGLRenderingContext | undefined);
+    if (gl && typeof gl.drawElements === 'function') {
+      const origDE = gl.drawElements.bind(gl);
+      const origDA = gl.drawArrays.bind(gl);
+      const origTI = gl.texImage2D.bind(gl);
+      const origTS = gl.texSubImage2D.bind(gl);
+      (gl as any).drawElements = (mode: number, count: number, type: number, offset: number) => {
+        profileContar('drawCalls', 1);
+        profileContar('triangles', (count / 3) | 0);
+        return origDE(mode, count, type, offset);
+      };
+      (gl as any).drawArrays = (mode: number, first: number, count: number) => {
+        profileContar('drawCalls', 1);
+        profileContar('triangles', (count / 3) | 0);
+        return origDA(mode, first, count);
+      };
+      (gl as any).texImage2D = (...args: unknown[]) => {
+        profileContar('textureUploads', 1);
+        return (origTI as any)(...args);
+      };
+      (gl as any).texSubImage2D = (...args: unknown[]) => {
+        profileContar('textureUploads', 1);
+        return (origTS as any)(...args);
+      };
+      const gl2 = gl as WebGL2RenderingContext;
+      if (typeof gl2.drawElementsInstanced === 'function') {
+        const origDEI = gl2.drawElementsInstanced.bind(gl2);
+        (gl2 as any).drawElementsInstanced = (
+          mode: number, count: number, type: number, offset: number, instanceCount: number,
+        ) => {
+          profileContar('drawCalls', 1);
+          profileContar('triangles', ((count / 3) | 0) * instanceCount);
+          return origDEI(mode, count, type, offset, instanceCount);
+        };
+      }
+    }
   } catch (err) {
     console.warn('[profiling] renderer.render wrap failed:', err);
   }
@@ -716,6 +758,11 @@ async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJ
   if (!_app) return;
   const app = _app;
 
+  try {
+    const { logarEvento } = await import('./world/profiling-logger');
+    logarEvento('enter_game', { nome, systems: mundo.sistemas.length, planets: mundo.planetas.length, ships: mundo.naves.length });
+  } catch { /* logger optional */ }
+
   if (_mundoMenu) {
     destruirMundoMenu(_mundoMenu, app);
     _mundoMenu = null;
@@ -1020,6 +1067,11 @@ function restaurarOuReinicializarIas(mundo: Mundo, dto: MundoDTO): void {
 async function voltarAoMenu(): Promise<void> {
   if (!_app) return;
   const app = _app;
+
+  try {
+    const { logarEvento } = await import('./world/profiling-logger');
+    logarEvento('return_to_menu');
+  } catch { /* logger optional */ }
 
   // 1. Black overlay covers everything during teardown so the user
   //    sees a smooth fade instead of a frame of destroyed content.

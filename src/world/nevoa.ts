@@ -379,6 +379,7 @@ export function removerMemoriaPlaneta(mundo: Mundo, planeta: Planeta): void {
 
 import { Sprite, Texture, ImageSource } from 'pixi.js';
 import { config } from '../ui/debug';
+import { profileMark, profileAcumular } from './profiling';
 
 // Fog resolution scales with graphics preset. Software rasterizers
 // (WARP/SwiftShader) pay for every pixel uploaded, and the fog blits
@@ -464,7 +465,7 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
   const redesenhar = _fogFrame % fogT === 0;
 
   if (redesenhar) {
-    const t0 = performance.now();
+    const tCanvas0 = profileMark();
     const ctx = _fogCtx!;
 
     ctx.globalCompositeOperation = 'source-over';
@@ -483,11 +484,10 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
       ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-
-    const t1 = performance.now();
-    _fogProfSoma.canvas += t1 - t0;
+    profileAcumular('fog_canvas', tCanvas0);
 
     // Upload textura
+    const tUp0 = profileMark();
     const visao = mundo.visaoContainer;
 
     if (!_fogSprite) {
@@ -503,13 +503,16 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
 
     _fogSource!.resource = _fogCanvas;
     _fogSource!.update();
+    profileAcumular('fog_upload', tUp0);
 
-    _fogProfSoma.upload += performance.now() - t1;
+    // Legacy averaged view still exported for any HUD consumer that
+    // hasn't migrated to the global profiling buckets yet.
+    const dt = performance.now() - tCanvas0;
+    _fogProfSoma.canvas += dt;
     _fogProfFrames++;
-
     if (_fogProfFrames >= 10) {
       fogProfiling.canvas = _fogProfSoma.canvas / _fogProfFrames;
-      fogProfiling.upload = _fogProfSoma.upload / _fogProfFrames;
+      fogProfiling.upload = 0;
       _fogProfSoma = { canvas: 0, upload: 0 };
       _fogProfFrames = 0;
     }

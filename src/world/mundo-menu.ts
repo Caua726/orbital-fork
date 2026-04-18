@@ -7,6 +7,12 @@ import { criarSistemaSolar } from './sistema';
 import { atualizarTempoPlanetas, atualizarLuzPlaneta } from './planeta-procedural';
 import { carregarSpritesheetNaves } from './naves';
 import { resetarNomesPlanetas } from './nomes';
+import { profileMark, profileAcumular, profileFlush } from './profiling';
+import { amostrarFrameProfiling, setLoggerContexto } from './profiling-logger';
+
+// Wall-clock tracker so the menu contributes to the frameWall bucket
+// just like the in-game ticker does.
+let _menuLastFrameMark = 0;
 
 /**
  * A lightweight menu-background "world": just one procedural solar
@@ -88,16 +94,48 @@ export function atualizarMundoMenu(
   camY: number,
   deltaMs: number,
 ): void {
+  // frameWall = real clock between ticks. On the first call we have
+  // no previous mark, so skip that sample rather than record a huge
+  // startup spike.
+  const frameInicio = profileMark();
+  if (_menuLastFrameMark > 0) {
+    profileAcumular('frameWall', _menuLastFrameMark);
+  }
+  _menuLastFrameMark = frameInicio;
+  setLoggerContexto(true);
+
+  // Orbit integration + sunlight per planet. Maps to the same
+  // planetasLogic_orbita + planetasLogic_luz buckets used in-game so
+  // the HUD shows one continuous signal across menu ↔ game.
+  let t = profileMark();
+  let tSub = profileMark();
   for (const planeta of mundo.planetas) {
     planeta._orbita.angulo += planeta._orbita.velocidade * deltaMs;
     planeta.x = planeta._orbita.centroX + Math.cos(planeta._orbita.angulo) * planeta._orbita.raio;
     planeta.y = planeta._orbita.centroY + Math.sin(planeta._orbita.angulo) * planeta._orbita.raio;
+  }
+  profileAcumular('planetasLogic_orbita', tSub);
+
+  tSub = profileMark();
+  for (const planeta of mundo.planetas) {
     atualizarLuzPlaneta(planeta, mundo.sistema.sol.x, mundo.sistema.sol.y);
   }
+  profileAcumular('planetasLogic_luz', tSub);
+
+  tSub = profileMark();
   atualizarTempoPlanetas(mundo.planetas, deltaMs);
   atualizarTempoPlanetas([mundo.sistema.sol], deltaMs);
+  profileAcumular('planetasLogic_tempo', tSub);
+  profileAcumular('planetasLogic', t);
+
+  t = profileMark();
   const zoom = getCamera().zoom || 1;
   atualizarFundo(mundo.fundo, camX, camY, app.screen.width / zoom, app.screen.height / zoom);
+  profileAcumular('fundo', t);
+
+  profileAcumular('total', frameInicio);
+  profileFlush();
+  amostrarFrameProfiling();
 }
 
 export function destruirMundoMenu(mundo: MundoMenu, app: Application): void {
@@ -105,6 +143,7 @@ export function destruirMundoMenu(mundo: MundoMenu, app: Application): void {
     mundo.container.parent.removeChild(mundo.container);
   }
   mundo.container.destroy({ children: true });
+  _menuLastFrameMark = 0;
   // Canvas context is shared with whatever replaces us — we don't touch
   // app here.
   void app;

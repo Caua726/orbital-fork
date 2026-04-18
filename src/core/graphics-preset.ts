@@ -69,6 +69,7 @@ const PRESETS: Record<Nivel, FlagsDerivadas> = {
 export function aplicarPreset(nivel: Nivel): void {
   const preset = PRESETS[nivel];
   const cfg = getConfig();
+  const previo = cfg.graphics.qualidadeEfeitos;
   setConfig({
     graphics: {
       ...cfg.graphics,
@@ -76,6 +77,13 @@ export function aplicarPreset(nivel: Nivel): void {
       qualidadeEfeitos: nivel,
     },
   });
+  // Log the preset transition so profiling traces can explain a sudden
+  // shift in render cost (e.g. user flipped to minimo mid-session).
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { logarEvento } = require('../world/profiling-logger') as typeof import('../world/profiling-logger');
+    logarEvento('preset_changed', { from: previo, to: nivel, ...preset });
+  } catch { /* optional */ }
 }
 
 export function presetBateComFlagsDerivadas(cfg: OrbitalConfig): boolean {

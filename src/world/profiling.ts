@@ -16,16 +16,33 @@ import type { ProfilingData } from '../types';
  */
 
 const CAMPOS: Array<keyof ProfilingData> = [
+  // Top-level gameplay
   'planetasLogic', 'naves', 'ia', 'combate', 'stats',
+  // Gameplay sub-buckets
+  'planetasLogic_recursos', 'planetasLogic_orbita', 'planetasLogic_filas',
+  'planetasLogic_tempo', 'planetasLogic_luz',
+  // Top-level render
   'fundo', 'fog', 'planetas', 'render',
+  // Render sub-buckets
+  'fog_canvas', 'fog_upload',
+  'planetas_vis', 'planetas_anel', 'planetas_memoria',
+  'render_sois', 'render_naves',
+  // Aggregates + counters
   'logica', 'total', 'frameWall', 'pixiRender',
+  'drawCalls', 'textureUploads', 'triangles',
 ];
 
 function criarZero(): ProfilingData {
   return {
     planetasLogic: 0, naves: 0, ia: 0, combate: 0, stats: 0,
+    planetasLogic_recursos: 0, planetasLogic_orbita: 0, planetasLogic_filas: 0,
+    planetasLogic_tempo: 0, planetasLogic_luz: 0,
     fundo: 0, fog: 0, planetas: 0, render: 0,
+    fog_canvas: 0, fog_upload: 0,
+    planetas_vis: 0, planetas_anel: 0, planetas_memoria: 0,
+    render_sois: 0, render_naves: 0,
     logica: 0, total: 0, frameWall: 0, pixiRender: 0,
+    drawCalls: 0, textureUploads: 0, triangles: 0,
   };
 }
 
@@ -75,6 +92,14 @@ export function profileAcumular(campo: keyof ProfilingData, inicio: number): voi
   const ms = performance.now() - inicio;
   _soma[campo] += ms;
   _frameSample[campo] += ms;
+}
+
+/** Per-frame counters (drawCalls, textureUploads, triangles). Not
+ *  time-based — just increments until the next flush averages them
+ *  over the window. Use from WebGL hooks (main.ts) to tally GPU work. */
+export function profileContar(campo: keyof ProfilingData, n: number = 1): void {
+  _soma[campo] += n;
+  _frameSample[campo] += n;
 }
 
 export function profileFlush(): void {
