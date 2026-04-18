@@ -1,7 +1,7 @@
 import { Application } from 'pixi.js';
 import type { Mundo, TipoJogador } from './types';
 import { criarMundo, atualizarMundo, getEstadoJogo, destruirMundo, setDificuldadeProximoMundo, getDificuldadeAtual } from './world/mundo';
-import { getStarfieldMemoryBytes, precompilarShaderStarfield } from './world/fundo';
+import { getStarfieldMemoryBytes, precompilarShaderStarfield, setAppReferenceForFundo } from './world/fundo';
 import { getFogMemoryBytes } from './world/nevoa';
 import { getSpritesheetMemoryBytes } from './world/spritesheets';
 import { getAiMemoryBytes } from './world/ia-memoria';
@@ -386,6 +386,7 @@ async function bootstrap(): Promise<void> {
   // mid-frame the first time a real planet renders. Without this the
   // initial ~second of gameplay showed a visible FPS sag while the GL
   // driver compiled + linked the shared GlProgram.
+  setAppReferenceForFundo(app);
   await precompilarShadersPlaneta(app);
   await precompilarShaderStarfield(app);
 
