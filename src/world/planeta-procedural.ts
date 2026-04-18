@@ -330,6 +330,44 @@ function bakePlaneta(planeta: any): void {
   }
 }
 
+/**
+ * Render a small snapshot of the planet's live shader (current uTime,
+ * rotation, uniforms) to an HTMLCanvasElement for embedding in DOM
+ * surfaces like the drawer's portrait. Cheap enough to call at ~2 Hz;
+ * returns null if the renderer or shader isn't ready.
+ */
+export function renderPlanetaParaCanvas(planeta: any, tamanho = 96): HTMLCanvasElement | null {
+  if (!_appRef) return null;
+  const mesh = planeta as Mesh;
+  const shader = (mesh as any)._planetShader as Shader | undefined;
+  if (!shader) return null;
+
+  try {
+    const clone = new Mesh({ geometry: quadGeometry, shader, state: mesh.state });
+    clone.scale.set(tamanho);
+    clone.position.set(tamanho / 2, tamanho / 2);
+    const wrapper = new Container();
+    wrapper.addChild(clone);
+
+    const texture = _appRef.renderer.generateTexture({
+      target: wrapper,
+      frame: new Rectangle(0, 0, tamanho, tamanho),
+      resolution: 1,
+      antialias: true,
+    });
+
+    const canvas = _appRef.renderer.extract.canvas(texture) as HTMLCanvasElement;
+
+    clone.destroy();
+    wrapper.destroy();
+    texture.destroy(true);
+    return canvas;
+  } catch (err) {
+    console.warn('[planeta-procedural] portrait render failed:', err);
+    return null;
+  }
+}
+
 /** Swap back from baked sprite to live mesh. */
 function unbakePlaneta(planeta: any): void {
   const sprite = (planeta as any)._bakedSprite as Sprite | undefined;

@@ -20,6 +20,7 @@ import { getPersonalidades } from '../world/ia-decisao';
 import { gerarImperioLore } from '../world/lore/imperio-lore';
 import { abrirImperioLore } from './lore-modal';
 import { oreIcon, alloyIcon, fuelIcon } from './resource-bar';
+import { renderPlanetaParaCanvas } from '../world/planeta-procedural';
 
 let _modal: HTMLDivElement | null = null;
 let _bodyEl: HTMLDivElement | null = null;
@@ -29,6 +30,11 @@ let _currentPlaneta: Planeta | null = null;
 let _currentMundo: Mundo | null = null;
 let _keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 let _lastRebuildMs = 0;
+/** Live-shader portrait canvas mounted inside the drawer header.
+ *  Refreshed periodically via refreshPortrait() — not every frame,
+ *  since portrait doesn't need 60 Hz. */
+let _portraitCanvas: HTMLCanvasElement | null = null;
+let _lastPortraitRefreshMs = 0;
 
 function injectStyles(): void {
   if (_styleInjected) return;
@@ -415,11 +421,11 @@ function buildHeader(p: Planeta): HTMLDivElement {
 
   const portrait = document.createElement('div');
   portrait.className = 'planeta-drawer-portrait';
-  const dot = document.createElement('div');
-  dot.className = 'dot';
-  dot.style.background = `radial-gradient(circle at 30% 30%, rgba(255,255,255,0.25), ${tipoPlanetaCor(p.dados.tipoPlaneta)} 60%)`;
-  portrait.appendChild(dot);
+  // Initial placeholder tint in case the first live-shader render
+  // hasn't landed yet (Pixi not fully ready on first click).
+  portrait.style.background = `radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2), ${tipoPlanetaCor(p.dados.tipoPlaneta)} 70%)`;
   head.appendChild(portrait);
+  refreshPortrait(p, portrait);
 
   const meta = document.createElement('div');
   meta.className = 'planeta-drawer-meta';
@@ -481,6 +487,42 @@ function tipoPlanetaCor(tipo: string): string {
   if (tipo === 'marte') return '#c96a3a';
   if (tipo === 'gasoso') return '#9a7fc2';
   return '#4a9e6a';
+}
+
+const PORTRAIT_REFRESH_MS = 500;
+
+/**
+ * Render the planet's live shader into a small canvas and swap it
+ * into the portrait slot. Called on drawer open and periodically from
+ * atualizarPlanetaDrawer — throttled to ~2 Hz since the portrait is
+ * a preview, not the main view.
+ */
+function refreshPortrait(planeta: Planeta, portraitEl: HTMLElement): void {
+  const canvas = renderPlanetaParaCanvas(planeta, 96);
+  if (!canvas) return;
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.display = 'block';
+  canvas.style.borderRadius = '50%';
+  // Replace the existing canvas if any, else append.
+  if (_portraitCanvas && _portraitCanvas.parentElement === portraitEl) {
+    portraitEl.replaceChild(canvas, _portraitCanvas);
+  } else {
+    // Clear any placeholder children then mount
+    while (portraitEl.firstChild) portraitEl.removeChild(portraitEl.firstChild);
+    portraitEl.appendChild(canvas);
+  }
+  _portraitCanvas = canvas;
+  _lastPortraitRefreshMs = performance.now();
+}
+
+function tickPortraitIfDue(): void {
+  if (!_modal || !_currentPlaneta) return;
+  const portraitEl = _modal.querySelector<HTMLElement>('.planeta-drawer-portrait');
+  if (!portraitEl) return;
+  const now = performance.now();
+  if (now - _lastPortraitRefreshMs < PORTRAIT_REFRESH_MS) return;
+  refreshPortrait(_currentPlaneta, portraitEl);
 }
 
 function buildActions(_p: Planeta, _mundo: Mundo): HTMLDivElement | null {
@@ -568,6 +610,10 @@ const REBUILD_INTERVALO_MS = 500;
  */
 export function atualizarPlanetaDrawer(): void {
   if (!_closeResolver || !_currentPlaneta || !_currentMundo || !_bodyEl) return;
+  // Portrait refreshes at its own throttle (500ms) independent of
+  // the body rebuild cadence (also 500ms) — they happen to match
+  // today but there's no reason to couple them.
+  tickPortraitIfDue();
   const now = performance.now();
   if (now - _lastRebuildMs < REBUILD_INTERVALO_MS) return;
   _lastRebuildMs = now;
@@ -582,6 +628,8 @@ function close(): void {
   _modal?.classList.remove('visible');
   _currentPlaneta = null;
   _currentMundo = null;
+  _portraitCanvas = null;
+  _lastPortraitRefreshMs = 0;
   const r = _closeResolver;
   _closeResolver = null;
   if (r) r();
