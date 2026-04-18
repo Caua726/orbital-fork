@@ -671,8 +671,7 @@ function renderGraphicsTab(body: HTMLDivElement): void {
       const pixelsNativo = nativeW * nativeH;
       const ratio = pixelsNativo > 0 ? pixelsAtual / pixelsNativo : 1;
       resReadout.textContent =
-        `Renderizando em ${renderW}×${renderH} · nativo ${nativeW}×${nativeH}` +
-        ` · ${(ratio * 100).toFixed(0)}% dos pixels`;
+        `${renderW}×${renderH} · ${Math.round(ratio * 100)}% vs nativo ${nativeW}×${nativeH}`;
     };
     refresh(Number(slider.value));
 
