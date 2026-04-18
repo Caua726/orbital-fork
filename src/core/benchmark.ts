@@ -65,15 +65,17 @@ function classificar(avgMs: number): {
   preset: OrbitalConfig['graphics']['qualidadeEfeitos'];
   scale: number;
 } {
-  // Thresholds are for the REAL post-gl.finish frame cost. Scene
-  // now renders 10× per sample with 48 max-octave planets + star —
-  // live gameplay is ~30× lighter than this measurement, so a fast
-  // GPU has enormous headroom on the recommended preset.
-  if (avgMs < 30)     return { preset: 'alto',   scale: 1.0 };
-  if (avgMs < 70)     return { preset: 'medio',  scale: 1.0 };
-  if (avgMs < 130)    return { preset: 'medio',  scale: 0.85 };
-  if (avgMs < 220)    return { preset: 'baixo',  scale: 0.75 };
-  if (avgMs < 400)    return { preset: 'baixo',  scale: 0.5 };
+  // Thresholds target gameplay-equivalent workload: the scene
+  // approximates what a player actually sees (a handful of planets
+  // at mixed sizes + a sun, one render per sample, natural octave
+  // counts from the palette). avgMs is the real post-gl.finish
+  // frame cost for that workload. The preset is picked so that at
+  // 60 FPS (16.67 ms budget) the user has headroom on 'alto'.
+  if (avgMs < 4)      return { preset: 'alto',   scale: 1.0 };
+  if (avgMs < 9)      return { preset: 'medio',  scale: 1.0 };
+  if (avgMs < 14)     return { preset: 'medio',  scale: 0.85 };
+  if (avgMs < 22)     return { preset: 'baixo',  scale: 0.75 };
+  if (avgMs < 40)     return { preset: 'baixo',  scale: 0.5 };
   return               { preset: 'minimo', scale: 0.35 };
 }
 
@@ -81,44 +83,34 @@ async function construirCenaTeste(screenW: number, screenH: number): Promise<Con
   const root = new PxContainer();
 
   const tiposArray = Object.values(TIPO_PLANETA);
-  // 48-planet grid (8 cols × 6 rows) — denser than any gameplay
-  // configuration. Each mesh forced to 6 FBM octaves so every pixel
-  // runs the maximum-cost fragment path.
-  const cols = 8;
-  const rows = 6;
-  const cellW = screenW * 0.98 / cols;
-  const cellH = screenH * 0.98 / rows;
-  const cell = Math.min(cellW, cellH);
-  const gridW = cell * cols;
-  const gridH = cell * rows;
-  const offsetX = (screenW - gridW) / 2;
-  const offsetY = (screenH - gridH) / 2;
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const tipo = tiposArray[(r * cols + c) % tiposArray.length];
-      const mesh = criarPlanetaProceduralSprite(
-        offsetX + c * cell + cell / 2,
-        offsetY + r * cell + cell / 2,
-        // Slight overlap keeps GPU from skipping boundary pixels.
-        cell * 1.05,
-        tipo,
-        1 + Math.random() * 9,
-      );
-      // Force the heaviest fbm octave count on every planet so even
-      // gas / dry types run the terran-level surface cost. Safe to
-      // touch — if the shader path is active, the uniform group
-      // accepts the write; if we're in Canvas2D mode the paleta
-      // would govern instead, but the stress scene is primarily a
-      // GPU benchmark.
-      const shader = (mesh as any)._planetShader;
-      const uniforms = shader?.resources?.planetUniforms?.uniforms;
-      if (uniforms) uniforms.uOctaves = 6;
-      root.addChild(mesh as unknown as Container);
-    }
+  // Gameplay-representative scene: what a typical player viewport
+  // looks like — a handful of planets at mixed sizes, one sun.
+  // Natural octave counts from each palette (terran=6, dry=4,
+  // gas=5 etc) so the measurement reflects the real fragment cost.
+  const placements: Array<{ x: number; y: number; size: number; tipoIdx: number }> = [
+    // Center-ish medium planet (what 'the planet you're looking at' looks like)
+    { x: 0.50, y: 0.55, size: 0.42, tipoIdx: 0 },
+    // Two small planets further out (orbiting neighbours)
+    { x: 0.22, y: 0.30, size: 0.18, tipoIdx: 1 },
+    { x: 0.80, y: 0.75, size: 0.20, tipoIdx: 2 },
+    // Distant gas / islands, small
+    { x: 0.75, y: 0.22, size: 0.14, tipoIdx: 3 },
+    { x: 0.18, y: 0.80, size: 0.15, tipoIdx: 0 },
+  ];
+  const minSide = Math.min(screenW, screenH);
+  for (const p of placements) {
+    const mesh = criarPlanetaProceduralSprite(
+      screenW * p.x,
+      screenH * p.y,
+      minSide * p.size,
+      tiposArray[p.tipoIdx % tiposArray.length],
+      1 + Math.random() * 9,
+    );
+    root.addChild(mesh as unknown as Container);
   }
 
-  const sol = criarEstrelaProcedural(screenW / 2, screenH / 2, Math.min(screenW, screenH) * 0.15);
+  // Sun at the edge of the scene, typical medium size.
+  const sol = criarEstrelaProcedural(screenW * 0.12, screenH * 0.15, minSide * 0.08);
   root.addChild(sol as unknown as Container);
 
   return root;
@@ -154,26 +146,19 @@ export async function rodarBenchmark(
       const now = performance.now();
       const elapsed = now - start;
 
-      // Heavy inner loop: advance uTime for every planet between
-      // renders (so the visible result is motion, not a frozen
-      // frame) and render the full scene many times. 50 renders per
-      // sample takes a fast desktop GPU ~50-90 ms — enough that the
-      // measurement is dominated by real GPU cost, not timer noise.
-      // The screen only paints the LAST render of each sample (one
-      // paint per rAF), which the user perceives as smooth
-      // animation because each paint is uTime-advanced.
-      const INNER_RENDERS = 50;
-      const renderStart = performance.now();
-      for (let i = 0; i < INNER_RENDERS; i++) {
-        for (const child of scene.children) {
-          const u = (child as any)?._planetShader?.resources?.planetUniforms?.uniforms;
-          if (u) {
-            u.uTime += 0.02;
-            u.uRotation += 0.01;
-          }
+      // One render per sample — matches what a normal gameplay frame
+      // does, so the result directly maps to expected in-game FPS.
+      // Animate the uniforms so each sample is a fresh frame and the
+      // GPU can't cache.
+      for (const child of scene.children) {
+        const u = (child as any)?._planetShader?.resources?.planetUniforms?.uniforms;
+        if (u) {
+          u.uTime += 0.02;
+          u.uRotation += 0.01;
         }
-        app.renderer.render({ container: scene });
       }
+      const renderStart = performance.now();
+      app.renderer.render({ container: scene });
       await syncGpu(app.renderer);
       const renderEnd = performance.now();
       const workMs = renderEnd - renderStart;

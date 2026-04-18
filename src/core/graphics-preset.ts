@@ -5,9 +5,13 @@ type Nivel = OrbitalConfig['graphics']['qualidadeEfeitos'];
 
 type FlagsDerivadas = Pick<
   OrbitalConfig['graphics'],
-  'fogThrottle' | 'maxFantasmas' | 'densidadeStarfield' | 'shaderLive' | 'mostrarOrbitas'
+  'fogThrottle' | 'maxFantasmas' | 'densidadeStarfield' | 'shaderLive' | 'mostrarOrbitas' | 'renderScale'
 >;
 
+// Render scale is the single biggest perf knob (pixel count scales
+// quadratically with the multiplier). Tying it to the preset means
+// a user flipping 'minimo' on a weak machine actually feels the
+// difference instead of getting fogThrottle-only savings.
 const PRESETS: Record<Nivel, FlagsDerivadas> = {
   alto: {
     fogThrottle: 1,
@@ -15,6 +19,7 @@ const PRESETS: Record<Nivel, FlagsDerivadas> = {
     densidadeStarfield: 1.0,
     shaderLive: true,
     mostrarOrbitas: true,
+    renderScale: 1.0,
   },
   medio: {
     fogThrottle: 2,
@@ -22,6 +27,7 @@ const PRESETS: Record<Nivel, FlagsDerivadas> = {
     densidadeStarfield: 0.7,
     shaderLive: true,
     mostrarOrbitas: true,
+    renderScale: 0.85,
   },
   baixo: {
     fogThrottle: 3,
@@ -32,6 +38,7 @@ const PRESETS: Record<Nivel, FlagsDerivadas> = {
     // only the truly-minimum preset trades live shading for perf.
     shaderLive: true,
     mostrarOrbitas: true,
+    renderScale: 0.65,
   },
   minimo: {
     fogThrottle: 5,
@@ -39,6 +46,7 @@ const PRESETS: Record<Nivel, FlagsDerivadas> = {
     densidadeStarfield: 0.15,
     shaderLive: false,
     mostrarOrbitas: false,
+    renderScale: 0.4,
   },
 };
 

@@ -611,6 +611,7 @@ function renderGraphicsTab(body: HTMLDivElement): void {
       overlay.appendChild(card);
       document.body.appendChild(overlay);
 
+      let reportShown = false;
       try {
         const result = await rodarBenchmark(app, (p, liveMs) => {
           progressBar.style.width = `${(p * 100).toFixed(1)}%`;
@@ -626,13 +627,67 @@ function renderGraphicsTab(body: HTMLDivElement): void {
           scale: result.recommendedRenderScale.toFixed(2),
         });
         _refreshBody?.();
+
+        // Final report card — replaces the live-stats UI with a
+        // breakdown of the measurement and the applied changes.
+        // Stays on-screen until the user dismisses it so they can
+        // actually read what happened.
+        while (card.firstChild) card.removeChild(card.firstChild);
+        const avgFps = result.avgFrameMs > 0 ? Math.round(1000 / result.avgFrameMs) : 0;
+        const p95Fps = result.p95FrameMs > 0 ? Math.round(1000 / result.p95FrameMs) : 0;
+        const makeRow = (label: string, value: string, color = '#fff'): HTMLDivElement => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display: flex; justify-content: space-between; gap: 16px; font-size: 0.85em; padding: 2px 0; font-variant-numeric: tabular-nums;';
+          const l = document.createElement('span');
+          l.style.color = 'rgba(255,255,255,0.65)';
+          l.textContent = label;
+          const v = document.createElement('span');
+          v.style.color = color;
+          v.textContent = value;
+          row.append(l, v);
+          return row;
+        };
+        const makeDivider = (): HTMLDivElement => {
+          const d = document.createElement('div');
+          d.style.cssText = 'border-top: 1px dashed rgba(255,255,255,0.2); margin: 8px 0;';
+          return d;
+        };
+        const reportTitle = document.createElement('div');
+        reportTitle.style.cssText = 'font-size: 1.05em; margin-bottom: 10px; letter-spacing: 0.05em;';
+        reportTitle.textContent = 'RELATÓRIO DO BENCHMARK';
+        const closeBtn = document.createElement('button');
+        closeBtn.style.cssText = 'margin-top: 12px; padding: 4px 16px; background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 3px; cursor: pointer; pointer-events: auto; font-family: inherit;';
+        closeBtn.textContent = 'OK';
+        closeBtn.addEventListener('click', () => { try { overlay.remove(); } catch { /* noop */ } });
+        card.append(
+          reportTitle,
+          makeRow('Frame médio', `${result.avgFrameMs.toFixed(1)} ms (${avgFps} FPS)`),
+          makeRow('Frame p95',   `${result.p95FrameMs.toFixed(1)} ms (${p95Fps} FPS)`),
+          makeRow('Mais rápido', `${result.minFrameMs.toFixed(1)} ms`),
+          makeRow('Mais lento',  `${result.maxFrameMs.toFixed(1)} ms`),
+          makeRow('Amostras',    String(result.framesSampled)),
+          makeDivider(),
+          makeRow('Preset recomendado', result.recommendedPreset.toUpperCase(), '#6ec1ff'),
+          makeRow('Escala de render',   `${result.recommendedRenderScale.toFixed(2)}×`, '#6ec1ff'),
+          makeDivider(),
+          makeRow('✓ Aplicado', 'configurações atualizadas', '#5fbd6f'),
+          closeBtn,
+        );
+        overlay.style.justifyContent = 'center';
+        overlay.style.paddingBottom = '0';
+        card.style.pointerEvents = 'auto';
+        reportShown = true;
       } catch (err) {
         console.warn('[benchmark] failed:', err);
         status.textContent = t('settings.benchmark.failed');
       } finally {
         benchBtn.disabled = false;
         benchBtn.textContent = t('settings.benchmark.btn');
-        try { overlay.remove(); } catch { /* noop */ }
+        // Only remove the overlay if we didn't show the persistent
+        // report card — that one stays until the user clicks OK.
+        if (!reportShown) {
+          try { overlay.remove(); } catch { /* noop */ }
+        }
         if (settingsOverlay) {
           settingsOverlay.style.setProperty('display', prevDisplay, prevPriority);
         }
