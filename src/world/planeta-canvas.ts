@@ -587,11 +587,15 @@ export function renderPlanetParaImageData(
         case 3: gasPixel(ctx, uvPixX, uvPixY, uvRawX, uvRawY, _pixelOut); break;
         default: starPixel(ctx, uvPixX, uvPixY, uvRawX, uvRawY, _pixelOut); break;
       }
-      // Premultiplied alpha (matches planeta.frag final line)
-      const a = _pixelOut[3] / 255;
-      data[idx] = _pixelOut[0] * a;
-      data[idx + 1] = _pixelOut[1] * a;
-      data[idx + 2] = _pixelOut[2] * a;
+      // Write NON-premultiplied RGBA straight into the canvas.
+      // Canvas2D stores data as non-premultiplied; Pixi's Texture.from(
+      // canvas) default behaviour is to premultiply on upload. If we
+      // pre-multiplied here too, Pixi would multiply a second time on
+      // upload and every planet would look dim + tinted. Let Pixi do
+      // the one and only premultiply.
+      data[idx] = _pixelOut[0];
+      data[idx + 1] = _pixelOut[1];
+      data[idx + 2] = _pixelOut[2];
       data[idx + 3] = _pixelOut[3];
       idx += 4;
     }

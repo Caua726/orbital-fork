@@ -310,12 +310,12 @@ export interface CanvasPlanetState {
 function criarPlanetaCanvasSprite(
   x: number, y: number, tamanho: number,
   paleta: PaletaPlaneta, seed: number,
+  uPixelsArg: number = 64,
 ): Sprite {
-  // Internal resolution matches the pixelization grid the shader
-  // uses (uPixels=64). Each pixel then maps to tamanho/64 world units
-  // after the Sprite scale is applied. Nearest-neighbor upscale
-  // preserves the pixel-art edges.
-  const uPixels = 64;
+  // Internal resolution matches the pixelization grid the shader uses.
+  // Default uPixels=64 for planets, callers pass 128 for stars (same
+  // values the GLSL path uses).
+  const uPixels = uPixelsArg;
   const W = uPixels;
   const H = uPixels;
   const canvas = document.createElement('canvas');
@@ -699,24 +699,9 @@ export function criarEstrelaProcedural(
 
   const tamanho = raio * 2.9;
 
-  // Canvas2D mode: same JS-port path as planets. uPixels=128 matches
-  // what the shader path uses for stars so the pixelization grid is
-  // the same density.
+  // Canvas2D mode: JS-port path. uPixels=128 matches the shader.
   if (isCanvas2dRenderer()) {
-    const sprite = criarPlanetaCanvasSprite(x, y, tamanho, paleta, seed);
-    // Stars use a higher internal resolution than planets (128 vs 64
-    // for the GLSL uPixels default). Re-init the canvas at the right
-    // size so detail matches.
-    const cs = (sprite as any)._canvasRender as CanvasPlanetState;
-    if (cs.canvas.width !== 128) {
-      cs.canvas.width = 128;
-      cs.canvas.height = 128;
-      cs.uPixels = 128;
-      cs.imageData = cs.ctx.createImageData(128, 128);
-      sprite.scale.set(tamanho / 128);
-      cs.dirty = true;
-    }
-    // Stars rotate slower than planets.
+    const sprite = criarPlanetaCanvasSprite(x, y, tamanho, paleta, seed, 128);
     (sprite as any)._rotSpeed = 0.005 + Math.random() * 0.01;
     return sprite as unknown as Mesh<Geometry, Shader>;
   }
