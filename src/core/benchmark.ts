@@ -48,6 +48,10 @@ export interface BenchmarkResult {
   /** Best-effort GPU identifier from debug-renderer-info. Often masked. */
   gpuVendor: string;
   gpuRenderer: string;
+  /** True when the renderer is CPU software (WARP, SwiftShader, etc). */
+  isSoftware: boolean;
+  softwareKind: SoftwareDetection['kind'];
+  softwareFriendlyName: string;
 }
 
 export interface GpuInfo {
@@ -123,6 +127,51 @@ function coletarInfoRenderer(app: Application): { name: string; vendor: string; 
   return { name, vendor, renderer };
 }
 
+/**
+ * Detect whether the active renderer is CPU-based software rasterization
+ * (WARP on Windows, SwiftShader on Chromium, LLVMpipe on Linux Mesa,
+ * or the Canvas2D fallback). These cases can't reach gameplay-viable
+ * framerates on anything except extreme-low-res — the caller may want
+ * to apply the most aggressive preset and show a toast explaining
+ * why the game will look pixelated.
+ */
+export interface SoftwareDetection {
+  isSoftware: boolean;
+  kind: 'warp' | 'swiftshader' | 'llvmpipe' | 'canvas2d' | 'outro' | 'nenhum';
+  /** Friendly name to show in the report / toast. */
+  friendlyName: string;
+}
+
+export function detectarRendererSoftware(app: Application): SoftwareDetection {
+  const info = coletarInfoRenderer(app);
+  const name = info.name.toLowerCase();
+  const renderer = info.renderer.toLowerCase();
+  const vendor = info.vendor.toLowerCase();
+
+  if (name.includes('canvas')) {
+    return { isSoftware: true, kind: 'canvas2d', friendlyName: 'Canvas2D (CPU)' };
+  }
+  // Microsoft WARP — what Chrome on Windows falls back to when GPU
+  // acceleration is disabled or the driver is blacklisted. The
+  // string always contains 'Basic Render Driver'.
+  if (renderer.includes('basic render driver') || renderer.includes('warp')) {
+    return { isSoftware: true, kind: 'warp', friendlyName: 'Microsoft WARP' };
+  }
+  // Chromium's own software backend.
+  if (renderer.includes('swiftshader') || vendor.includes('swiftshader') || vendor.includes('google swiftshader')) {
+    return { isSoftware: true, kind: 'swiftshader', friendlyName: 'Google SwiftShader' };
+  }
+  // Linux Mesa software path.
+  if (renderer.includes('llvmpipe') || renderer.includes('softpipe')) {
+    return { isSoftware: true, kind: 'llvmpipe', friendlyName: 'Mesa LLVMpipe' };
+  }
+  // Generic "software" hint — rare but covers corner cases.
+  if (renderer.includes('software') || vendor.includes('software')) {
+    return { isSoftware: true, kind: 'outro', friendlyName: 'renderizador por software' };
+  }
+  return { isSoftware: false, kind: 'nenhum', friendlyName: '' };
+}
+
 const DURATION_MS = 20000;
 const WARMUP_MS = 1500;
 
@@ -159,17 +208,20 @@ function classificar(avgMs: number): {
   scale: number;
 } {
   // Preset thresholds are deliberately generous — the game itself is
-  // very light, roughly 4× less expensive than the benchmark scene.
-  // Intel HD integrated graphics runs it at 'alto' without problems,
-  // so any dedicated GPU should get 'alto' too. We only drop to
-  // lower presets when the measurement suggests the machine is
-  // genuinely struggling on the stress scene.
+  // very light. Intel HD integrated graphics runs it at 'alto', so
+  // any dedicated GPU should too. We only drop to lower presets when
+  // the machine is genuinely struggling. For software renderers
+  // (WARP, SwiftShader) we go down to render scale 0.15 so 1920×1080
+  // shrinks to 288×162 — the only way to get close to 60 FPS without
+  // hardware acceleration.
   if (avgMs < 20)     return { preset: 'alto',   scale: 1.0 };
   if (avgMs < 35)     return { preset: 'medio',  scale: 1.0 };
   if (avgMs < 55)     return { preset: 'medio',  scale: 0.85 };
   if (avgMs < 80)     return { preset: 'baixo',  scale: 0.75 };
   if (avgMs < 130)    return { preset: 'baixo',  scale: 0.5 };
-  return               { preset: 'minimo', scale: 0.35 };
+  if (avgMs < 250)    return { preset: 'minimo', scale: 0.35 };
+  if (avgMs < 500)    return { preset: 'minimo', scale: 0.2 };
+  return               { preset: 'minimo', scale: 0.15 };
 }
 
 async function construirCenaTeste(screenW: number, screenH: number): Promise<Container> {
@@ -274,6 +326,7 @@ export async function rodarBenchmark(
   }
 
   const info = coletarInfoRenderer(app);
+  const swDet = detectarRendererSoftware(app);
 
   if (samples.length === 0) {
     const fallbackGpu = classificarGpu(999);
@@ -284,7 +337,7 @@ export async function rodarBenchmark(
       p95FrameMs: 999,
       framesSampled: 0,
       recommendedPreset: 'minimo',
-      recommendedRenderScale: 0.35,
+      recommendedRenderScale: 0.15,
       gpuTier: fallbackGpu.tier,
       gpuPlainLabel: fallbackGpu.plainLabel,
       gpuPlainSummary: fallbackGpu.plainSummary,
@@ -292,6 +345,9 @@ export async function rodarBenchmark(
       rendererName: info.name,
       gpuVendor: info.vendor,
       gpuRenderer: info.renderer,
+      isSoftware: swDet.isSoftware,
+      softwareKind: swDet.kind,
+      softwareFriendlyName: swDet.friendlyName,
     };
   }
 
@@ -299,8 +355,20 @@ export async function rodarBenchmark(
   const trimmed = sorted.slice(0, Math.ceil(sorted.length * 0.9));
   const avg = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
   const p95 = sorted[Math.floor(sorted.length * 0.95)];
-  const { preset, scale } = classificar(avg);
+  let { preset, scale } = classificar(avg);
   const gpu = classificarGpu(avg);
+
+  // Software renderer override: cap the recommendation at minimo +
+  // tiny render scale regardless of what the measurement said.
+  // Even a 'fast' WARP sample can't sustain 60 FPS on the real game.
+  let plainLabel = gpu.plainLabel;
+  let plainSummary = gpu.plainSummary;
+  if (swDet.isSoftware) {
+    preset = 'minimo';
+    scale = Math.min(scale, 0.2);
+    plainLabel = `${swDet.friendlyName} (CPU)`;
+    plainSummary = 'Sem aceleração de GPU — renderização por software é muito lenta';
+  }
 
   return {
     avgFrameMs: avg,
@@ -311,11 +379,14 @@ export async function rodarBenchmark(
     recommendedPreset: preset,
     recommendedRenderScale: scale,
     gpuTier: gpu.tier,
-    gpuPlainLabel: gpu.plainLabel,
-    gpuPlainSummary: gpu.plainSummary,
+    gpuPlainLabel: plainLabel,
+    gpuPlainSummary: plainSummary,
     gpuTechLabel: gpu.techLabel,
     rendererName: info.name,
     gpuVendor: info.vendor,
     gpuRenderer: info.renderer,
+    isSoftware: swDet.isSoftware,
+    softwareKind: swDet.kind,
+    softwareFriendlyName: swDet.friendlyName,
   };
 }

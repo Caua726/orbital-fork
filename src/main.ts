@@ -208,6 +208,39 @@ async function bootstrap(): Promise<void> {
   }
   if (!initOk) throw lastErr ?? new Error('No renderer backend succeeded');
 
+  // ── Software-renderer detection ────────────────────────────────
+  // Chrome on Windows without GPU acceleration falls through ANGLE
+  // to WARP; Chromium in some configurations uses SwiftShader.
+  // Both can't reach gameplay-viable framerates on this game, so we
+  // force the minimum preset + tiny render scale on first detection
+  // and toast the user with a clear explanation. The flag we save
+  // to config stops the auto-apply from running on every boot.
+  try {
+    const { detectarRendererSoftware } = await import('./core/benchmark');
+    const sw = detectarRendererSoftware(app);
+    if (sw.isSoftware) {
+      const currentGfx = getConfig().graphics;
+      // Only auto-apply on the first detection — once the user has
+      // seen the toast, we trust them to tune manually.
+      if (!(currentGfx as any)._softwareDetectedOnce) {
+        setConfigDuranteBoot({
+          graphics: {
+            ...currentGfx,
+            qualidadeEfeitos: 'minimo',
+            renderScale: 0.15,
+            _softwareDetectedOnce: true,
+          } as any,
+        });
+      }
+      window.setTimeout(() => {
+        toast(`Renderizando via ${sw.friendlyName} — GPU do navegador está desabilitada. Jogo ajustado pro preset mínimo. Ative aceleração por hardware pra performance normal.`, 'err');
+      }, 1500);
+      console.warn(`[renderer] software detected: ${sw.friendlyName} (${sw.kind})`);
+    }
+  } catch (err) {
+    console.warn('[renderer] software detection failed:', err);
+  }
+
   // ── Vsync + FPS cap wiring ──────────────────────────────────────
   // vsync=true  → rAF-driven ticker. fpsCap via ticker.maxFPS.
   // vsync=false → stop the rAF ticker, drive updates from a
