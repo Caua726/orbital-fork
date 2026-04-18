@@ -208,6 +208,28 @@ async function bootstrap(): Promise<void> {
   }
   if (!initOk) throw lastErr ?? new Error('No renderer backend succeeded');
 
+  // ── Pixi render profiling ──────────────────────────────────────
+  // Wrap renderer.render so every internal render call is timed and
+  // accumulated into the 'pixiRender' profiling bucket. On software
+  // rasterizers (WARP / SwiftShader) this sync call IS the real GPU
+  // cost; on WebGL/WebGPU hardware it measures CPU-side submission
+  // latency (queue stuff) which is usually small. The delta between
+  // 'pixiRender' and 'frameWall' is the compositor + vsync wait.
+  try {
+    const { profileMark, profileAcumular } = await import('./world/profiling');
+    const origRender = app.renderer.render.bind(app.renderer);
+    (app.renderer as any).render = (...args: unknown[]) => {
+      const t = profileMark();
+      try {
+        return (origRender as any)(...args);
+      } finally {
+        profileAcumular('pixiRender', t);
+      }
+    };
+  } catch (err) {
+    console.warn('[profiling] renderer.render wrap failed:', err);
+  }
+
   // ── Software-renderer detection ────────────────────────────────
   // Chrome on Windows without GPU acceleration falls through ANGLE
   // to WARP; Chromium in some configurations uses SwiftShader.

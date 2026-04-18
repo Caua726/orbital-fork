@@ -232,6 +232,11 @@ export interface ProfilingData {
   // the real frame duration as the game perceives it; "total - our
   // measured buckets" = Pixi render + browser idle (vsync wait).
   frameWall: number;
+  // Pixi's internal render pipeline time per frame — scene graph
+  // traversal, batching, GL/GPU draw submission. Measured by
+  // wrapping app.renderer.render(). On software renderers (WARP,
+  // SwiftShader) this is usually >90% of frameWall.
+  pixiRender: number;
 }
 
 // === Ação Nave Parsed ===

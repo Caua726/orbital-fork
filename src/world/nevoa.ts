@@ -380,8 +380,23 @@ export function removerMemoriaPlaneta(mundo: Mundo, planeta: Planeta): void {
 import { Sprite, Texture, ImageSource } from 'pixi.js';
 import { config } from '../ui/debug';
 
-const FOG_MAX_W = 960;
-const FOG_MAX_H = 540;
+// Fog resolution scales with graphics preset. Software rasterizers
+// (WARP/SwiftShader) pay for every pixel uploaded, and the fog blits
+// fullscreen each fogThrottle cycle — so at 'minimo' we drop to 1/9
+// the pixel count (320×180 vs 960×540). The visual trade-off is
+// soft edges on visibility circles, which actually reads FINE for
+// fog-of-war; it wasn't pixel-perfect to begin with.
+const FOG_BASE_W = 960;
+const FOG_BASE_H = 540;
+const FOG_MIN_W = 320;
+const FOG_MIN_H = 180;
+
+function fogDims(): { w: number; h: number } {
+  const nivel = getConfig().graphics.qualidadeEfeitos;
+  if (nivel === 'minimo') return { w: FOG_MIN_W, h: FOG_MIN_H };
+  if (nivel === 'baixo') return { w: 640, h: 360 };
+  return { w: FOG_BASE_W, h: FOG_BASE_H };
+}
 
 /**
  * Approximate bytes held by fog-of-war resources — the backing 2D
@@ -391,7 +406,7 @@ const FOG_MAX_H = 540;
 export function getFogMemoryBytes(): number {
   if (!_fogCanvas) return 0;
   // Canvas bytes + GPU upload ≈ 2× the pixel data.
-  return FOG_MAX_W * FOG_MAX_H * 4 * 2;
+  return _fogCanvas.width * _fogCanvas.height * 4 * 2;
 }
 
 let _fogCanvas: HTMLCanvasElement | null = null;
@@ -400,6 +415,8 @@ let _fogSprite: Sprite | null = null;
 let _fogSource: ImageSource | null = null;
 let _fogTexture: Texture | null = null;
 let _fogFrame: number = 0;
+let _fogW: number = FOG_BASE_W;
+let _fogH: number = FOG_BASE_H;
 
 /** Sub-profiling do fog */
 interface FogProfiling {
@@ -422,9 +439,13 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
   const worldW = bounds.dir - bounds.esq;
   const worldH = bounds.baixo - bounds.cima;
 
-  // Resolução fixa — nunca muda com zoom
-  const canvasW = FOG_MAX_W;
-  const canvasH = FOG_MAX_H;
+  // Resolução do canvas depende do preset atual. Se o usuário mudar
+  // de preset em runtime, destruímos o canvas/texture/sprite antigos
+  // e o próximo frame recria no tamanho novo.
+  const { w: canvasW, h: canvasH } = fogDims();
+  if (_fogCanvas && (_fogW !== canvasW || _fogH !== canvasH)) {
+    destruirFog();
+  }
   const scaleX = canvasW / worldW;
   const scaleY = canvasH / worldH;
 
@@ -433,6 +454,8 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
     _fogCanvas.width = canvasW;
     _fogCanvas.height = canvasH;
     _fogCtx = _fogCanvas.getContext('2d');
+    _fogW = canvasW;
+    _fogH = canvasH;
   }
 
   // Só redesenhar canvas a cada N frames (fogThrottle >= 1 sempre)
