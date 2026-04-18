@@ -38,6 +38,9 @@ interface TrailState {
   spawnAccum: number;
   lastX: number;
   lastY: number;
+  /** Tracks whether the last frame had zero particles; lets atualizar
+   *  skip the Graphics.clear() call when nothing has changed. */
+  wasEmptyLastFrame: boolean;
 }
 
 const _state = new WeakMap<Nave, TrailState>();
@@ -45,7 +48,7 @@ const _state = new WeakMap<Nave, TrailState>();
 function getOrInitState(nave: Nave): TrailState {
   let s = _state.get(nave);
   if (!s) {
-    s = { particles: [], spawnAccum: 0, lastX: nave.x, lastY: nave.y };
+    s = { particles: [], spawnAccum: 0, lastX: nave.x, lastY: nave.y, wasEmptyLastFrame: true };
     _state.set(nave, s);
   }
   return s;
@@ -103,9 +106,18 @@ export function atualizarTrail(nave: Nave, deltaMs: number): void {
     }
   }
 
-  // Redraw — only if there are particles to draw
+  // Redraw — but skip the clear() entirely when the trail was already
+  // empty last frame and still is. Graphics.clear() triggers a
+  // batch-buffer rebuild on Pixi's side; doing it for ~300 idle ships
+  // every frame is where most of the long-idle FPS budget disappeared.
+  if (state.particles.length === 0) {
+    if (state.wasEmptyLastFrame) return;
+    trail.clear();
+    state.wasEmptyLastFrame = true;
+    return;
+  }
+  state.wasEmptyLastFrame = false;
   trail.clear();
-  if (state.particles.length === 0) return;
 
   const color = TRAIL_COLOR[nave.tipo] ?? 0xcccccc;
   const baseWidth = TRAIL_WIDTH[nave.tipo] ?? 4;

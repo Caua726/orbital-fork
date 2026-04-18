@@ -232,13 +232,23 @@ function fmtRate(n: number): string {
   return n >= 10 ? fmtCompact(n) : n.toFixed(1);
 }
 
+// HUD numbers don't need 60 Hz refresh — ~5 Hz reads clean and saves
+// one O(planets + naves) pass per frame (+ DOM writes) for the entire
+// session. With 300 ships and long idle sessions this was burning
+// non-trivial time every tick.
+const _RESOURCE_REFRESH_MS = 200;
+let _lastResourceRefreshMs = 0;
+
 /**
  * Sum the player's total resources + production rates across owned
- * planets, and push the numbers into the five HUD slots. Called from
- * the main ticker each frame. Cheap — O(planets) with trivial math.
+ * planets, and push the numbers into the five HUD slots. Throttled to
+ * ~5 Hz — the player cannot perceive HUD updates faster than that.
  */
 export function atualizarResourceBar(mundo: Mundo): void {
   if (!_container) return;
+  const now = performance.now();
+  if (now - _lastResourceRefreshMs < _RESOURCE_REFRESH_MS) return;
+  _lastResourceRefreshMs = now;
   let comum = 0, raro = 0, combustivel = 0;
   let prodComum = 0, prodRaro = 0, prodCombustivel = 0;
   let planetas = 0;
@@ -276,4 +286,7 @@ export function destruirResourceBar(): void {
     _container = null;
   }
   _elementosPorId.clear();
+  // Reset throttle so a subsequent criar+atualizar sequence (tests,
+  // new game) updates on its first call rather than being skipped.
+  _lastResourceRefreshMs = 0;
 }

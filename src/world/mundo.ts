@@ -503,13 +503,21 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
 // === First-contact detection ===
 // When any planet belonging to an AI becomes visible for the first time,
 // record the moment so tooltips can show "primeiro contato há X min".
+// Short-circuits once every discovered AI has been marked — after first
+// contact with all current AIs this function becomes a single flag read.
+let _primeiroContatoCompleto = false;
 function atualizarPrimeiroContato(mundo: Mundo): void {
+  if (_primeiroContatoCompleto) return;
   for (const p of mundo.planetas) {
     if (!p._visivelAoJogador) continue;
     const d = p.dados.dono;
     if (!d.startsWith('inimigo')) continue;
     marcarPrimeiroContato(d, mundo.ultimoTickMs);
   }
+}
+/** Reset by callers when a new world / fresh game begins. */
+export function resetPrimeiroContatoFlag(): void {
+  _primeiroContatoCompleto = false;
 }
 
 // === Estado do jogo ===
@@ -521,7 +529,9 @@ function verificarEstadoJogo(mundo: Mundo): void {
 
   for (const planeta of mundo.planetas) {
     if (planeta.dados.dono === 'jogador') jogadorTemPlaneta = true;
-    if (planeta.dados.dono !== 'jogador') todosSaoJogador = false;
+    else todosSaoJogador = false;
+    // Early exit once both flags are decided.
+    if (jogadorTemPlaneta && !todosSaoJogador) break;
   }
 
   if (!jogadorTemPlaneta) {

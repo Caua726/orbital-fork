@@ -307,22 +307,49 @@ export function atualizarVisibilidadeMemoria(planeta: Planeta, visivelAoJogador:
  * calls. Visible ghosts beyond the cap are hidden, ordered by timestamp
  * desc (most recent wins).
  */
+// Reused scratch buffer for fantasma cap enforcement. Pre-allocated
+// entries prevent per-frame {planeta, ts} object creation at 60 Hz,
+// which otherwise produces millions of short-lived objects during
+// long idle play sessions (user reported 10h runs tanking FPS).
+interface _FantasmaEntry { planeta: Planeta | null; ts: number }
+const _visiveisBuffer: _FantasmaEntry[] = [];
+
 export function aplicarLimiteFantasmas(mundo: Mundo): void {
   const max = getConfig().graphics.maxFantasmas;
   if (max < 0) return; // unlimited
   if (max === 0) return; // already handled in atualizarVisibilidadeMemoria
 
-  const visiveis: Array<{ planeta: Planeta; ts: number }> = [];
+  let count = 0;
   for (const p of mundo.planetas) {
     const m = memorias.get(p);
     if (!m || !m.visual.visible || !m.dados) continue;
-    visiveis.push({ planeta: p, ts: m.dados.timestamp });
+    if (count < _visiveisBuffer.length) {
+      _visiveisBuffer[count].planeta = p;
+      _visiveisBuffer[count].ts = m.dados.timestamp;
+    } else {
+      _visiveisBuffer.push({ planeta: p, ts: m.dados.timestamp });
+    }
+    count++;
   }
-  if (visiveis.length <= max) return;
+  if (count <= max) return;
 
-  visiveis.sort((a, b) => b.ts - a.ts);
-  for (let i = max; i < visiveis.length; i++) {
-    const m = memorias.get(visiveis[i].planeta);
+  // Partial sort (insertion) over the active prefix; avoids
+  // Array.prototype.sort allocating a sorted copy or invoking the
+  // comparator on already-settled items.
+  for (let i = 1; i < count; i++) {
+    const cur = _visiveisBuffer[i];
+    const curTs = cur.ts;
+    let j = i - 1;
+    while (j >= 0 && _visiveisBuffer[j].ts < curTs) {
+      _visiveisBuffer[j + 1] = _visiveisBuffer[j];
+      j--;
+    }
+    _visiveisBuffer[j + 1] = cur;
+  }
+  for (let i = max; i < count; i++) {
+    const p = _visiveisBuffer[i].planeta;
+    if (!p) continue;
+    const m = memorias.get(p);
     if (m) m.visual.visible = false;
   }
 }

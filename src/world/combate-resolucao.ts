@@ -116,18 +116,42 @@ function cellKey(x: number, y: number): string {
   return `${Math.floor(x / CELL_SIZE)},${Math.floor(y / CELL_SIZE)}`;
 }
 
+// Persistent spatial-hash grid + cell pool. Cleared+refilled per combat
+// tick instead of allocating a fresh Map + Array-per-cell every call.
+// At 30 Hz × long sessions the old churn produced hundreds of thousands
+// of short-lived objects per minute.
+const _spatialGrid = new Map<string, Nave[]>();
+const _spatialCellPool: Nave[][] = [];
+let _spatialPoolUsed = 0;
+
 function buildSpatialHash(naves: Nave[]): Map<string, Nave[]> {
-  const grid = new Map<string, Nave[]>();
+  // Recycle every cell array back into the pool; clear the grid itself.
+  for (const cell of _spatialGrid.values()) {
+    cell.length = 0;
+    _spatialCellPool.push(cell);
+  }
+  _spatialGrid.clear();
+  _spatialPoolUsed = 0;
+
   for (const n of naves) {
     const key = cellKey(n.x, n.y);
-    let cell = grid.get(key);
+    let cell = _spatialGrid.get(key);
     if (!cell) {
-      cell = [];
-      grid.set(key, cell);
+      // Either pull from the pool or grow it (rare after the first
+      // few frames — pool size stabilizes at peak occupied cell count).
+      if (_spatialPoolUsed < _spatialCellPool.length) {
+        cell = _spatialCellPool[_spatialPoolUsed++];
+        cell.length = 0;
+      } else {
+        cell = [];
+        _spatialCellPool.push(cell);
+        _spatialPoolUsed++;
+      }
+      _spatialGrid.set(key, cell);
     }
     cell.push(n);
   }
-  return grid;
+  return _spatialGrid;
 }
 
 function* iterNeighbors(grid: Map<string, Nave[]>, x: number, y: number): Generator<Nave> {

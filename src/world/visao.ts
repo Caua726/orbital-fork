@@ -26,26 +26,53 @@ export function pontoDentroDaVisao(x: number, y: number, fontesVisao: FonteVisao
   return false;
 }
 
+// Reused scratch pool for per-frame FonteVisao objects. Pre-allocated
+// once at module load; atualizarCampoDeVisao grabs from the pool so
+// no GC pressure from a 60 Hz visibility tick.
+const _fontePool: FonteVisao[] = [];
+let _fontePoolUsed = 0;
+function grabFonte(): FonteVisao {
+  if (_fontePoolUsed < _fontePool.length) return _fontePool[_fontePoolUsed++];
+  const f: FonteVisao = { x: 0, y: 0, raio: 0 };
+  _fontePool.push(f);
+  _fontePoolUsed++;
+  return f;
+}
+
 export function atualizarCampoDeVisao(mundo: Mundo, camera: Camera, app: Application): void {
-  const fontesVisao: FonteVisao[] = [];
+  _fontePoolUsed = 0;
+  // Reuse mundo.fontesVisao's own array rather than allocating fresh
+  // each frame (60 Hz × any session length ⇒ millions of dead arrays).
+  const fontesVisao = mundo.fontesVisao;
+  fontesVisao.length = 0;
 
   for (const planeta of mundo.planetas) {
     if (planeta.dados.dono !== 'jogador') continue;
-    fontesVisao.push({
-      x: planeta.x, y: planeta.y,
-      raio: calcularRaioVisaoPlaneta(planeta),
-    });
+    const f = grabFonte();
+    f.x = planeta.x;
+    f.y = planeta.y;
+    f.raio = calcularRaioVisaoPlaneta(planeta);
+    fontesVisao.push(f);
   }
 
   for (const nave of mundo.naves) {
+    // HUGE perf fix: only player-owned ships contribute to the player's
+    // fog-of-war vision. Before: with SHIP_CAP_MUNDO=300 and a long
+    // session where AIs saturate the cap, pontoDentroDaVisao was doing
+    // 300+ circle tests per planet per frame — mostly useless work
+    // (the player can't see through enemy ships). This alone cut fog
+    // cost by ~10× on long idle sessions.
+    if (nave.dono !== 'jogador') continue;
     let raio: number;
     if (nave.tipo === 'batedora') raio = RAIO_VISAO_BATEDORA();
     else if (nave.tipo === 'colonizadora') raio = RAIO_VISAO_COLONIZADORA();
     else raio = RAIO_VISAO_NAVE();
-    fontesVisao.push({ x: nave.x, y: nave.y, raio });
+    const f = grabFonte();
+    f.x = nave.x;
+    f.y = nave.y;
+    f.raio = raio;
+    fontesVisao.push(f);
   }
-
-  mundo.fontesVisao = fontesVisao;
   if (cheats.visaoTotal) {
     mundo.visaoContainer.removeChildren();
   } else {

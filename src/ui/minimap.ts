@@ -153,8 +153,15 @@ function drawMinimap(): void {
   const cssH = _canvas.clientHeight;
   if (cssW === 0 || cssH === 0) return;
 
-  _canvas.width = Math.round(cssW * dpr);
-  _canvas.height = Math.round(cssH * dpr);
+  // Only resize the backing store when the CSS size changed — setting
+  // canvas.width/height always clears the bitmap AND forces a full GPU
+  // upload, which was wasting a lot of frame time on long idle sessions.
+  const targetW = Math.round(cssW * dpr);
+  const targetH = Math.round(cssH * dpr);
+  if (_canvas.width !== targetW || _canvas.height !== targetH) {
+    _canvas.width = targetW;
+    _canvas.height = targetH;
+  }
 
   const w = _canvas.width;
   const h = _canvas.height;
