@@ -160,66 +160,38 @@ async function bootstrap(): Promise<void> {
   }
 
   // ── Vsync + FPS cap wiring ──────────────────────────────────────
-  // vsync=true  → rAF-driven ticker. fpsCap applies via ticker.maxFPS.
-  // vsync=false → stop the rAF ticker, drive updates ourselves. Two
-  //               sub-modes here:
-  //    cap > 0 → setTimeout loop with wait = 1000/cap - elapsed.
-  //              (respects the cap, browser clamp isn't a concern
-  //              since we ask for delays > 4ms.)
-  //    cap = 0 → MessageChannel loop. Browsers clamp setTimeout(fn, 0)
-  //              to ~4ms minimum, which caps the FPS counter at ~250.
-  //              MessageChannel.postMessage re-dispatches on the
-  //              event loop with zero clamp — can fire 5-10k times/s
-  //              on a desktop. That's the "see what my PC really does"
-  //              number the Sem vsync option exists for.
+  // vsync=true  → rAF-driven ticker. fpsCap via ticker.maxFPS.
+  // vsync=false → stop the rAF ticker, drive updates from a
+  //               setTimeout loop. fpsCap enforces a minimum delay
+  //               when > 0. With cap=0 the browser's ~4ms minimum
+  //               setTimeout clamp caps us at roughly 250 FPS — but
+  //               that's the price of staying responsive. The
+  //               MessageChannel trick that bypasses the clamp
+  //               saturated the ticker and froze the tab, so we
+  //               live with the ~250 ceiling.
   let _loopTimer: number | null = null;
-  let _loopChannel: MessageChannel | null = null;
-  const tearDownLoops = (): void => {
+  const aplicarModoFps = (vsync: boolean, cap: number): void => {
     if (_loopTimer !== null) {
       window.clearTimeout(_loopTimer);
       _loopTimer = null;
     }
-    if (_loopChannel) {
-      try {
-        _loopChannel.port1.close();
-        _loopChannel.port2.close();
-      } catch { /* noop */ }
-      _loopChannel = null;
-    }
-  };
-  const aplicarModoFps = (vsync: boolean, cap: number): void => {
-    tearDownLoops();
     if (vsync) {
       app.ticker.maxFPS = cap > 0 ? cap : 0;
       if (!app.ticker.started) app.ticker.start();
       return;
     }
     app.ticker.stop();
-    if (cap > 0) {
-      const minDelayMs = 1000 / cap;
-      let lastTickMs = performance.now();
-      const loop = (): void => {
-        const now = performance.now();
-        app.ticker.update(now);
-        const elapsed = performance.now() - lastTickMs;
-        lastTickMs = now;
-        const wait = Math.max(0, minDelayMs - elapsed);
-        _loopTimer = window.setTimeout(loop, wait) as unknown as number;
-      };
-      loop();
-    } else {
-      // Unlocked — no cap. MessageChannel avoids the setTimeout(0)
-      // browser clamp so the ticker runs as fast as the renderer can
-      // keep up with.
-      const channel = new MessageChannel();
-      _loopChannel = channel;
-      channel.port1.onmessage = (): void => {
-        if (_loopChannel !== channel) return; // torn down mid-flight
-        app.ticker.update(performance.now());
-        channel.port2.postMessage(null);
-      };
-      channel.port2.postMessage(null); // kick off
-    }
+    const minDelayMs = cap > 0 ? 1000 / cap : 0;
+    let lastTickMs = performance.now();
+    const loop = (): void => {
+      const now = performance.now();
+      app.ticker.update(now);
+      const elapsed = performance.now() - lastTickMs;
+      lastTickMs = now;
+      const wait = Math.max(0, minDelayMs - elapsed);
+      _loopTimer = window.setTimeout(loop, wait) as unknown as number;
+    };
+    loop();
   };
   aplicarModoFps(gfx.vsync, gfx.fpsCap);
   onConfigChange((cfg) => aplicarModoFps(cfg.graphics.vsync, cfg.graphics.fpsCap));
