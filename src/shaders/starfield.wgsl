@@ -93,7 +93,9 @@ fn starLayer(
     let distInf = max(abs(d.x), abs(d.y));
 
     if (distInf > radiusWorld) { return vec3<f32>(0.0); }
-    return vec3<f32>(brightness);
+
+    let bmod = 0.35 + 0.65 * hash1(cellRaw, salt + 97);
+    return vec3<f32>(brightness * bmod);
 }
 
 @fragment
@@ -103,9 +105,9 @@ fn mainFragment(@location(0) vUV: vec2<f32>) -> @location(0) vec4<f32> {
     let dens = starUniforms.uDensidade;
 
     var col = vec3<f32>(0.0);
-    col = col + starLayer(worldPos, 55.0,  0.40, 0.35, 0.5, 0.40, 1, t, dens);
-    col = col + starLayer(worldPos, 80.0,  0.25, 0.30, 0.5, 0.65, 2, t, dens);
-    col = col + starLayer(worldPos, 200.0, 0.12, 0.28, 1.5, 1.00, 3, t, dens);
+    col = col + starLayer(worldPos, 24.0,  0.40, 0.75, 0.5, 0.55, 1, t, dens);
+    col = col + starLayer(worldPos, 60.0,  0.25, 0.40, 0.5, 0.85, 2, t, dens);
+    col = col + starLayer(worldPos, 200.0, 0.12, 0.30, 1.5, 1.00, 3, t, dens);
 
     return vec4<f32>(col, 1.0);
 }

@@ -73,7 +73,12 @@ vec3 starLayer(vec2 worldPos, float cellSize, float parallax,
     float distInf = max(abs(d.x), abs(d.y));
 
     if (distInf > radiusWorld) return vec3(0.0);
-    return vec3(brightness);
+
+    // Per-star brightness jitter so the field doesn't read as one flat
+    // greyscale. Matches the static bitmap's `90 + rand*120` range
+    // (roughly 0.35..1.0 in normalized space) within a single layer.
+    float bmod = 0.35 + 0.65 * hash1(cellID, salt + 97);
+    return vec3(brightness * bmod);
 }
 
 void main() {
@@ -83,15 +88,17 @@ void main() {
     // Low parallax → stars feel distant.
     // Three layers matching the static bitmap's density: dense dim
     // up front, sparser + brighter at depth.
-    // Tuned to roughly match the static bitmap (~390 dots per 512²
-    // tile = ~0.0015 dots/px). On a 1366×768 viewport at zoom=1
-    // that's ~150 visible stars — readable, not busy.
-    //
-    // radiusWorld is in world units; at zoom=1 that's pixels, so
-    // 0.5 draws a 1×1 pixel star, 1.5 draws a 2×2 star.
-    col += starLayer(worldPos, 55.0,  0.40, 0.35, 0.5, 0.40, 1);
-    col += starLayer(worldPos, 80.0,  0.25, 0.30, 0.5, 0.65, 2);
-    col += starLayer(worldPos, 200.0, 0.12, 0.28, 1.5, 1.00, 3);
+    // Tuned to match the static bitmap reference: ~390 dots per 512²
+    // tile × ~4 tiles visible in a 1366×768 viewport ≈ 1500 stars
+    // on screen. Per-layer breakdown:
+    //   - dim: ~1300 stars (cellSize 24, density 0.75)
+    //   - mid: ~120 stars  (cellSize 60)
+    //   - brt: ~10 stars   (cellSize 200, radius 1.5 = 2×2 pixels)
+    // Per-star brightness jitter (inside starLayer) spreads each
+    // layer across a greyscale range so the field isn't flat.
+    col += starLayer(worldPos, 24.0,  0.40, 0.75, 0.5, 0.55, 1);
+    col += starLayer(worldPos, 60.0,  0.25, 0.40, 0.5, 0.85, 2);
+    col += starLayer(worldPos, 200.0, 0.12, 0.30, 1.5, 1.00, 3);
 
     finalColor = vec4(col, 1.0);
 }
