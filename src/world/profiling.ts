@@ -18,14 +18,14 @@ import type { ProfilingData } from '../types';
 const CAMPOS: Array<keyof ProfilingData> = [
   'planetasLogic', 'naves', 'ia', 'combate', 'stats',
   'fundo', 'fog', 'planetas', 'render',
-  'logica', 'total',
+  'logica', 'total', 'frameWall',
 ];
 
 function criarZero(): ProfilingData {
   return {
     planetasLogic: 0, naves: 0, ia: 0, combate: 0, stats: 0,
     fundo: 0, fog: 0, planetas: 0, render: 0,
-    logica: 0, total: 0,
+    logica: 0, total: 0, frameWall: 0,
   };
 }
 

@@ -228,7 +228,11 @@ export interface ProfilingData {
 
   // Aggregates — computed from the above each flush.
   logica: number;          // Legacy = planetasLogic + naves + ia + combate + stats.
-  total: number;           // Measured from frame start to end.
+  total: number;           // Gameplay tick only (measured around our work).
+  // Wall-clock time between consecutive atualizarMundo calls. This is
+  // the real frame duration as the game perceives it; "total - our
+  // measured buckets" = Pixi render + browser idle (vsync wait).
+  frameWall: number;
 }
 
 // === Ação Nave Parsed ===

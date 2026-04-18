@@ -363,9 +363,26 @@ export function destruirMundo(mundo: Mundo, app: Application): void {
   _primeiroContatoCompleto = false;
 }
 
+// Wall-clock delta between consecutive atualizarMundo calls. Captures
+// Pixi render pipeline + browser idle (vsync wait) which our per-bucket
+// profiling doesn't cover. Seed with 0 so the first frame shows nothing
+// weird.
+let _lastFrameMark = 0;
+
 // === Game loop ===
 export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): void {
   const frameInicio = profileMark();
+  // Wall clock — how long since the PREVIOUS frame started? This
+  // includes whatever happened between the previous atualizarMundo
+  // return and now (Pixi render, ticker overhead, vsync wait).
+  if (_lastFrameMark > 0) {
+    // Write straight into the profiling aggregate via profileAcumular,
+    // using a synthetic "start time" of frameInicio - delta so the
+    // subtraction inside profileAcumular produces the right number.
+    profileAcumular('frameWall', _lastFrameMark);
+  }
+  _lastFrameMark = frameInicio;
+
   // Use Pixi's ticker delta so the debug game-speed slider actually
   // scales simulation time. Previously a hand-rolled performance.now()
   // delta ignored `app.ticker.speed` entirely, making the slider inert.

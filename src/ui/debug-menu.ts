@@ -697,7 +697,8 @@ export function criarDebugMenu(app: Application, mundo: Mundo): HTMLDivElement {
   profSec.appendChild(createProfRow('Resto do render',           'render',   '#aa66ff'));
 
   profSec.appendChild(createProfDivider('Total'));
-  profSec.appendChild(createProfRow('TOTAL (frame)',             'total',    '#ffffff'));
+  profSec.appendChild(createProfRow('Tick (só gameplay)',        'total',      '#aaaaaa'));
+  profSec.appendChild(createProfRow('Frame wall (real)',         'frameWall',  '#ffffff'));
 
   panel.appendChild(profSec);
 
