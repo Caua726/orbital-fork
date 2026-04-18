@@ -684,13 +684,19 @@ function renderGraphicsTab(body: HTMLDivElement): void {
         gpuSec.style.cssText = 'background: rgba(255,255,255,0.04); border-radius: 4px; padding: 10px 12px; margin-bottom: 10px;';
         const gpuLabel = document.createElement('div');
         gpuLabel.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.55); letter-spacing: 0.1em; margin-bottom: 4px;';
-        gpuLabel.textContent = 'CLASSE DE GPU';
+        gpuLabel.textContent = 'SEU PC';
+        // Big plain-Portuguese title everyone gets, then a one-line
+        // takeaway about what the machine handles, then the tech
+        // family reference for gamers who want it.
         const gpuTierLine = document.createElement('div');
         gpuTierLine.style.cssText = `font-size: 1.15em; color: ${tierColor[result.gpuTier]}; font-weight: bold;`;
-        gpuTierLine.textContent = tierPt[result.gpuTier] ?? result.gpuTier;
+        gpuTierLine.textContent = result.gpuPlainLabel;
+        const gpuSummary = document.createElement('div');
+        gpuSummary.style.cssText = 'font-size: 0.85em; color: rgba(255,255,255,0.8); margin-top: 3px;';
+        gpuSummary.textContent = result.gpuPlainSummary;
         const gpuEq = document.createElement('div');
-        gpuEq.style.cssText = 'font-size: 0.75em; color: rgba(255,255,255,0.6); margin-top: 2px;';
-        gpuEq.textContent = result.gpuTierLabel;
+        gpuEq.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.45); margin-top: 4px; font-style: italic;';
+        gpuEq.textContent = `equivalente: ${result.gpuTechLabel}`;
         // GPU tier bar — 6 segments colored by tier
         const tierBar = document.createElement('div');
         tierBar.style.cssText = 'display: flex; gap: 3px; margin-top: 8px;';
@@ -701,7 +707,7 @@ function renderGraphicsTab(body: HTMLDivElement): void {
           seg.style.cssText = `flex: 1; height: 6px; border-radius: 2px; background: ${active ? tierColor[result.gpuTier] : 'rgba(255,255,255,0.08)'}; opacity: ${active ? (0.4 + (i / 6) * 0.6).toFixed(2) : '1'};`;
           tierBar.appendChild(seg);
         }
-        gpuSec.append(gpuLabel, gpuTierLine, gpuEq, tierBar);
+        gpuSec.append(gpuLabel, gpuTierLine, gpuSummary, gpuEq, tierBar);
 
         // Section: performance — two columns
         const perfSec = document.createElement('div');

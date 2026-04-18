@@ -37,8 +37,12 @@ export interface BenchmarkResult {
   recommendedPreset: OrbitalConfig['graphics']['qualidadeEfeitos'];
   recommendedRenderScale: number;
   gpuTier: GpuTier;
-  /** Short human label for the tier, e.g. "~RTX 30xx / RX 6xxx". */
-  gpuTierLabel: string;
+  /** Plain-Portuguese label (e.g. "PC gamer moderno"). */
+  gpuPlainLabel: string;
+  /** One-sentence takeaway about what this machine handles. */
+  gpuPlainSummary: string;
+  /** Technical equivalent (e.g. "~RTX 30xx / RX 6xxx"). */
+  gpuTechLabel: string;
   /** The renderer backend string from the live Pixi renderer. */
   rendererName: string;
   /** Best-effort GPU identifier from debug-renderer-info. Often masked. */
@@ -46,20 +50,53 @@ export interface BenchmarkResult {
   gpuRenderer: string;
 }
 
-/**
- * Classify the measured frame time into a rough GPU tier. These are
- * approximations — browsers mask the actual GPU model, and the same
- * avgMs can come from very different combinations of card + CPU.
- * The label is deliberately vague ("equivalent to <family>") rather
- * than naming a specific chip.
- */
-function classificarGpu(avgMs: number): { tier: GpuTier; label: string } {
-  if (avgMs < 1.5)  return { tier: 'topo',        label: '~RTX 40xx / RX 7xxx' };
-  if (avgMs < 3)    return { tier: 'alto',        label: '~RTX 30xx / RX 6xxx' };
-  if (avgMs < 6)    return { tier: 'medio',       label: '~RTX 20xx / GTX 1660 / RX 5xxx' };
-  if (avgMs < 12)   return { tier: 'entrada',     label: '~GTX 10xx / iGPU moderna' };
-  if (avgMs < 25)   return { tier: 'fraco',       label: '~iGPU antiga / mobile fraca' };
-  return             { tier: 'muito-fraco', label: '~software / mobile muito antiga' };
+export interface GpuInfo {
+  tier: GpuTier;
+  /** Plain-Portuguese friendly name that non-gamers understand. */
+  plainLabel: string;
+  /** One-sentence takeaway about what this machine handles. */
+  plainSummary: string;
+  /** Technical equivalent for users who know GPU model families. */
+  techLabel: string;
+}
+
+function classificarGpu(avgMs: number): GpuInfo {
+  if (avgMs < 1.5) return {
+    tier: 'topo',
+    plainLabel: 'PC gamer top de linha',
+    plainSummary: 'Roda o jogo com sobra em qualidade máxima',
+    techLabel: '~RTX 40xx / RX 7xxx',
+  };
+  if (avgMs < 3) return {
+    tier: 'alto',
+    plainLabel: 'PC gamer moderno',
+    plainSummary: 'Roda tranquilo em qualidade alta',
+    techLabel: '~RTX 30xx / RX 6xxx',
+  };
+  if (avgMs < 6) return {
+    tier: 'medio',
+    plainLabel: 'PC gamer médio',
+    plainSummary: 'Roda bem em qualidade média',
+    techLabel: '~RTX 20xx / GTX 1660 / RX 5xxx',
+  };
+  if (avgMs < 12) return {
+    tier: 'entrada',
+    plainLabel: 'Notebook ou PC básico',
+    plainSummary: 'Roda em qualidade baixa pra manter fluidez',
+    techLabel: '~GTX 10xx / iGPU moderna',
+  };
+  if (avgMs < 25) return {
+    tier: 'fraco',
+    plainLabel: 'PC antigo ou de escritório',
+    plainSummary: 'Roda no mínimo, pode ficar lento',
+    techLabel: '~iGPU antiga / mobile fraca',
+  };
+  return {
+    tier: 'muito-fraco',
+    plainLabel: 'Máquina sem aceleração de vídeo',
+    plainSummary: 'Provavelmente renderização via CPU',
+    techLabel: '~software / mobile muito antiga',
+  };
 }
 
 function coletarInfoRenderer(app: Application): { name: string; vendor: string; renderer: string } {
@@ -224,6 +261,7 @@ export async function rodarBenchmark(
   const info = coletarInfoRenderer(app);
 
   if (samples.length === 0) {
+    const fallbackGpu = classificarGpu(999);
     return {
       avgFrameMs: 999,
       minFrameMs: 999,
@@ -232,8 +270,10 @@ export async function rodarBenchmark(
       framesSampled: 0,
       recommendedPreset: 'minimo',
       recommendedRenderScale: 0.35,
-      gpuTier: 'muito-fraco',
-      gpuTierLabel: '~software / mobile muito antiga',
+      gpuTier: fallbackGpu.tier,
+      gpuPlainLabel: fallbackGpu.plainLabel,
+      gpuPlainSummary: fallbackGpu.plainSummary,
+      gpuTechLabel: fallbackGpu.techLabel,
       rendererName: info.name,
       gpuVendor: info.vendor,
       gpuRenderer: info.renderer,
@@ -245,7 +285,7 @@ export async function rodarBenchmark(
   const avg = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
   const p95 = sorted[Math.floor(sorted.length * 0.95)];
   const { preset, scale } = classificar(avg);
-  const { tier, label } = classificarGpu(avg);
+  const gpu = classificarGpu(avg);
 
   return {
     avgFrameMs: avg,
@@ -255,8 +295,10 @@ export async function rodarBenchmark(
     framesSampled: samples.length,
     recommendedPreset: preset,
     recommendedRenderScale: scale,
-    gpuTier: tier,
-    gpuTierLabel: label,
+    gpuTier: gpu.tier,
+    gpuPlainLabel: gpu.plainLabel,
+    gpuPlainSummary: gpu.plainSummary,
+    gpuTechLabel: gpu.techLabel,
     rendererName: info.name,
     gpuVendor: info.vendor,
     gpuRenderer: info.renderer,
