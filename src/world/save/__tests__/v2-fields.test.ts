@@ -62,7 +62,6 @@ vi.mock('../../visao', () => ({
 
 vi.mock('../../construcao', () => ({
   atualizarFilasPlaneta: () => {},
-  desenharConstrucoesPlaneta: () => {},
 }));
 
 vi.mock('../../profiling', () => ({

@@ -74,7 +74,6 @@ export interface Planeta extends Container {
   _orbita: OrbitaPlaneta;
   _linhaOrbita: Graphics;
   _anel: Graphics;
-  _construcoes: Graphics;
   _visivelAoJogador: boolean;
   _descobertoAoJogador: boolean;
 }

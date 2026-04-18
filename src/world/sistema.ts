@@ -111,10 +111,6 @@ export function criarSistemaSolar(container: Container, orbitasContainer: Contai
     p.addChild(anel);
     p._anel = anel;
 
-    const construcoes = new Graphics();
-    p.addChild(construcoes);
-    p._construcoes = construcoes;
-
     p.visible = false;
     container.addChild(p);
     planetas.push(p);

@@ -265,10 +265,6 @@ function reconstruirPlaneta(
   planeta.addChild(anel);
   planeta._anel = anel;
 
-  const construcoes = new Graphics();
-  planeta.addChild(construcoes);
-  planeta._construcoes = construcoes;
-
   return planeta;
 }
 

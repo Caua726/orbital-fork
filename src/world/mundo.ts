@@ -29,7 +29,7 @@ import { atualizarCombate, resetCombateVisuals } from './combate-resolucao';
 import { gerarSeedMusical } from '../audio/musica-ambiente';
 import { atualizarPesquisaPlaneta } from './pesquisa';
 import { atualizarCampoDeVisao } from './visao';
-import { atualizarFilasPlaneta, desenharConstrucoesPlaneta, atualizarRecursosPlaneta } from './construcao';
+import { atualizarFilasPlaneta, atualizarRecursosPlaneta } from './construcao';
 import { profileMark, profileAcumular, profileFlush } from './profiling';
 import { getConfig } from '../core/config';
 
@@ -281,7 +281,6 @@ export async function criarMundo(
   planetaInicial.dados.producao *= tipoJogador?.bonus?.producao || 1;
   planetaInicial.dados.fabricas += tipoJogador?.bonus?.fabricasIniciais || 0;
   planetaInicial.dados.infraestrutura += tipoJogador?.bonus?.infraestruturaInicial || 0;
-  desenharConstrucoesPlaneta(planetaInicial);
   registrarMemoriaPlaneta(planetaInicial);
 
   const sistemaInicial = sistemas[planetaInicial.dados.sistemaId];
@@ -487,7 +486,6 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
       const raioBase = planeta.dados.tamanho * 0.42;
       const raio = Math.max(10, raioBase - largura * 0.5);
       anel.circle(0, 0, raio).stroke({ color: COR_ANEL_PLANETA, width: largura, alpha: 0.72 });
-      desenharConstrucoesPlaneta(planeta);
     }
 
     atualizarVisibilidadeMemoria(planeta, planeta._visivelAoJogador, esq, dir, cima, baixo, gfxCfg.maxFantasmas);

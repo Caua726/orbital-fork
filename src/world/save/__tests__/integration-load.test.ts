@@ -48,7 +48,6 @@ vi.mock('../../pesquisa', () => ({ atualizarPesquisaPlaneta: () => {} }));
 vi.mock('../../visao', () => ({ atualizarCampoDeVisao: () => {} }));
 vi.mock('../../construcao', () => ({
   atualizarFilasPlaneta: () => {},
-  desenharConstrucoesPlaneta: () => {},
 }));
 vi.mock('../../profiling', () => ({
   profileMark: () => {},
