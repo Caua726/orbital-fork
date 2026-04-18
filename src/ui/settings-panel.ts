@@ -656,22 +656,14 @@ function renderGraphicsTab(body: HTMLDivElement): void {
     scaleReadout.style.cssText = 'min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; color: #fff;';
 
     const resReadout = document.createElement('div');
-    resReadout.style.cssText = 'font-size: 0.85em; color: rgba(255,255,255,0.6); margin-top: 4px; font-variant-numeric: tabular-nums;';
+    resReadout.style.cssText = 'font-size: 0.7em; color: rgba(255,255,255,0.55); margin-top: 3px; font-variant-numeric: tabular-nums; letter-spacing: 0.02em;';
 
     const refresh = (v: number): void => {
       scaleReadout.textContent = `${v.toFixed(2)}×`;
       const dpr = window.devicePixelRatio || 1;
-      const cssW = window.innerWidth;
-      const cssH = window.innerHeight;
-      const renderW = Math.round(cssW * v * dpr);
-      const renderH = Math.round(cssH * v * dpr);
-      const nativeW = Math.round(cssW * dpr);
-      const nativeH = Math.round(cssH * dpr);
-      const pixelsAtual = renderW * renderH;
-      const pixelsNativo = nativeW * nativeH;
-      const ratio = pixelsNativo > 0 ? pixelsAtual / pixelsNativo : 1;
-      resReadout.textContent =
-        `${renderW}×${renderH} · ${Math.round(ratio * 100)}% vs nativo ${nativeW}×${nativeH}`;
+      const renderW = Math.round(window.innerWidth * v * dpr);
+      const renderH = Math.round(window.innerHeight * v * dpr);
+      resReadout.textContent = `${renderW}×${renderH}`;
     };
     refresh(Number(slider.value));
 
