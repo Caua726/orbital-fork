@@ -827,6 +827,10 @@ async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJ
     if (HUD_LEGACY_HABILITADO) {
       criarChatLog();
       criarSidebar();
+    } else {
+      // Mobile drawer needs the sidebar container + hamburger, even
+      // without the legacy nav items. CSS hides it on desktop.
+      criarSidebar({ drawerOnly: true });
     }
     // The side planet-panel is superseded by the new planet-modal
     // (opened on planet click). Kept in code but not instantiated —

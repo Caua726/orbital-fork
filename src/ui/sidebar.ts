@@ -176,6 +176,13 @@ function injectStyles(): void {
     }
     .sidebar-btn:hover .sidebar-icon-img { opacity: 1; }
 
+    /* Hide full sidebar on desktop when it's only serving as the mobile
+       drawer container (nav items aren't functional yet with the new
+       legacy-gated flow). Mobile breakpoints re-show it as a drawer. */
+    body:not(.size-sm):not(.portrait.size-md) .sidebar.drawer-only {
+      display: none !important;
+    }
+
     /* Mobile drawer behavior */
     .sidebar-hamburger {
       display: none;
@@ -289,17 +296,19 @@ function updateActive(): void {
   });
 }
 
-export function criarSidebar(): HTMLDivElement {
+export function criarSidebar(opts: { drawerOnly?: boolean } = {}): HTMLDivElement {
   if (_container) return _container;
   injectStyles();
 
   const sidebar = document.createElement('div');
-  sidebar.className = 'hud-panel sidebar';
+  sidebar.className = 'hud-panel sidebar' + (opts.drawerOnly ? ' drawer-only' : '');
   sidebar.setAttribute('data-ui', 'true');
   sidebar.style.pointerEvents = 'auto';
 
-  for (const item of NAV_ITEMS) {
-    sidebar.appendChild(createNavButton(item));
+  if (!opts.drawerOnly) {
+    for (const item of NAV_ITEMS) {
+      sidebar.appendChild(createNavButton(item));
+    }
   }
 
   // ── Menu button (icon + label) ──
