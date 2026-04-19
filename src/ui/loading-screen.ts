@@ -59,11 +59,16 @@ function injectStyles(): void {
       50%      { opacity: var(--star-alpha, 0.8); transform: scale(1); }
     }
 
-    /* CRT-style horizontal scanline that sweeps top→bottom slowly */
+    /* CRT-style horizontal scanline that sweeps top→bottom slowly.
+       Uses transform (NOT top) so the animation runs on the GPU
+       compositor thread and keeps going even when the main thread
+       is blocked by worldgen — otherwise the loading screen freezes
+       until criarMundo finishes. */
     .loading-scan {
       position: absolute;
       left: 0;
       right: 0;
+      top: 0;
       height: 1px;
       background: linear-gradient(
         90deg,
@@ -74,15 +79,16 @@ function injectStyles(): void {
         transparent 100%
       );
       box-shadow: 0 0 calc(var(--hud-unit) * 0.6) rgba(255, 255, 255, 0.15);
+      will-change: transform, opacity;
       animation: loading-scan-sweep 6s linear infinite;
       pointer-events: none;
     }
 
     @keyframes loading-scan-sweep {
-      0%   { top: -2%; opacity: 0; }
+      0%   { transform: translateY(-2vh); opacity: 0; }
       10%  { opacity: 0.8; }
       90%  { opacity: 0.8; }
-      100% { top: 102%; opacity: 0; }
+      100% { transform: translateY(102vh); opacity: 0; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -124,7 +130,12 @@ function injectStyles(): void {
       line-height: 1;
     }
 
-    /* Thin underline bar that slides a bright indicator back and forth. */
+    /* Thin underline bar that slides a bright indicator back and forth.
+       The indicator is driven by transform (NOT left) so the animation
+       runs entirely on the GPU compositor. That's the only reason the
+       progress bar keeps moving during the 1-2s of blocking worldgen
+       work — main thread can be 100% busy and the animation still
+       tracks frames perfectly. */
     .loading-bar {
       width: 100%;
       height: 2px;
@@ -138,22 +149,27 @@ function injectStyles(): void {
       position: absolute;
       top: 0;
       bottom: 0;
-      left: -30%;
+      left: 0;
       width: 30%;
       background: var(--hud-text);
+      will-change: transform;
+      transform: translateX(-100%);
       animation: loading-bar-slide 1.6s ease-in-out infinite;
     }
 
+    /* Bar travels from fully off-screen left (-100% of its own width)
+       to fully off-screen right (100%/0.3 = 333.33%), held at the end
+       for half the cycle so the eye catches the return animation. */
     @keyframes loading-bar-slide {
-      0%   { left: -30%; }
-      50%  { left: 100%; }
-      100% { left: 100%; }
+      0%   { transform: translateX(-100%); }
+      50%  { transform: translateX(333.33%); }
+      100% { transform: translateX(333.33%); }
     }
 
     @media (prefers-reduced-motion: reduce) {
       .loading-bar::before {
         animation: none;
-        left: 0;
+        transform: translateX(0);
         width: 100%;
         opacity: 0.4;
       }

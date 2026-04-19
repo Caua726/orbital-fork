@@ -238,6 +238,14 @@ export async function criarMundo(
     sistemas.push(sistema);
     sois.push(sistema.sol);
     planetas.push(...sistema.planetas);
+
+    // Yield to the browser every 3 systems so the loading screen
+    // animations + label updates keep tracking. Each criarSistemaSolar
+    // can take 40-80ms (planet sprite bakes etc), and blocking 1.5s+
+    // straight froze the loader visibly before this change.
+    if (sistemas.length % 3 === 0) {
+      await new Promise<void>((r) => setTimeout(r, 0));
+    }
   }
 
   // Hard validation: if the galaxy ended up empty, abort with a clear
