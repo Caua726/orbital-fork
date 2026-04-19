@@ -1,5 +1,5 @@
-// WGSL mirror of starfield.frag. PCG integer hash → bit-exact
-// with the WebGL2 path. Same per-star velocity motion model.
+// WGSL mirror of starfield.frag — pixel-grid-snapped integer-delta
+// star test, offset-based parallax, PCG integer hash.
 
 struct GlobalUniforms {
     uProjectionMatrix: mat3x3<f32>,
@@ -67,33 +67,40 @@ fn hash2(cell: vec2<i32>, salt: i32) -> vec2<f32> {
 
 fn starLayer(
     worldPos: vec2<f32>,
+    uCamera: vec2<f32>,
     cellSize: f32,
     parallax: f32,
     density: f32,
-    radiusWorld: f32,
-    brightness: f32,
+    sizePx: i32,
+    maxBrightness: f32,
     salt: i32,
     uTime: f32,
     uDensidade: f32,
 ) -> vec3<f32> {
-    let pp = worldPos * parallax;
+    let pp = worldPos - uCamera * (1.0 - parallax);
+
     var cellRaw = vec2<i32>(floor(pp / cellSize));
     cellRaw = ((cellRaw % vec2<i32>(32768)) + vec2<i32>(32768)) % vec2<i32>(32768);
-    let inCell = fract(pp / cellSize);
 
     let lottery = hash1(cellRaw, salt);
     if (lottery > density * clamp(uDensidade, 0.0, 2.0)) { return vec3<f32>(0.0); }
 
     let velDir = hash2(cellRaw, salt + 23) - vec2<f32>(0.5);
-    let speed = 0.015 + hash1(cellRaw, salt + 43) * 0.025;
+    let speed = 0.003 + hash1(cellRaw, salt + 43) * 0.005;
     let drift = velDir * uTime * speed;
+    let starPosNorm = fract(hash2(cellRaw, salt + 13) + drift);
 
-    let starPos = fract(hash2(cellRaw, salt + 13) + drift);
-    let d = (inCell - starPos) * cellSize;
-    let distInf = max(abs(d.x), abs(d.y));
+    let cellOrigin = vec2<f32>(cellRaw) * cellSize;
+    let starWorldPx = floor(cellOrigin + starPosNorm * cellSize);
+    let fragWorldPx = floor(pp);
+    let delta = fragWorldPx - starWorldPx;
+    let s = f32(sizePx);
 
-    if (distInf > radiusWorld) { return vec3<f32>(0.0); }
-    return vec3<f32>(brightness);
+    if (delta.x < 0.0 || delta.x >= s) { return vec3<f32>(0.0); }
+    if (delta.y < 0.0 || delta.y >= s) { return vec3<f32>(0.0); }
+
+    let bmod = 0.35 + 0.65 * hash1(cellRaw, salt + 97);
+    return vec3<f32>(maxBrightness * bmod);
 }
 
 @fragment
@@ -101,11 +108,12 @@ fn mainFragment(@location(0) vUV: vec2<f32>) -> @location(0) vec4<f32> {
     let worldPos = starUniforms.uCamera + (vUV - vec2<f32>(0.5)) * starUniforms.uViewport;
     let t = starUniforms.uTime;
     let dens = starUniforms.uDensidade;
+    let cam = starUniforms.uCamera;
 
     var col = vec3<f32>(0.0);
-    col = col + starLayer(worldPos, 22.0,  0.40, 0.85, 1.0, 0.45, 1, t, dens);
-    col = col + starLayer(worldPos, 34.0,  0.25, 0.60, 1.0, 0.70, 2, t, dens);
-    col = col + starLayer(worldPos, 160.0, 0.12, 0.45, 2.0, 1.00, 3, t, dens);
+    col = col + starLayer(worldPos, cam, 24.0,  0.40, 0.75, 1, 0.80, 1, t, dens);
+    col = col + starLayer(worldPos, cam, 60.0,  0.25, 0.40, 1, 0.95, 2, t, dens);
+    col = col + starLayer(worldPos, cam, 200.0, 0.12, 0.30, 2, 1.00, 3, t, dens);
 
     return vec4<f32>(col, 1.0);
 }

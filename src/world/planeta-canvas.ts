@@ -122,15 +122,36 @@ function buildCtx(paleta: PaletaPlaneta, state: PlanetRenderState, uPixels: numb
   };
 }
 
-// rand() from planeta.frag: modulo the coord by tiling, then
-// fract(sin(dot(...)) * 15.5453 * uSeed). JS Math.sin is typically
-// ~2× slower than multiply, so this is the hottest primitive here.
+// rand() — bit-exact JS port of planeta.frag's PCG integer hash.
+// Math.imul + unsigned coercion (`>>> 0`) gives identical u32 results
+// to WebGL2's uint ops, so Canvas2D planets render indistinguishable
+// from Mesh+Shader planets.
+function pcg2d(vx: number, vy: number): number {
+  let x = Math.imul(vx, 1664525) + 1013904223 | 0;
+  let y = Math.imul(vy, 1664525) + 1013904223 | 0;
+  x = x + Math.imul(y, 1664525) | 0;
+  y = y + Math.imul(x, 1664525) | 0;
+  x ^= x >>> 16;
+  y ^= y >>> 16;
+  x = x + Math.imul(y, 1664525) | 0;
+  y = y + Math.imul(x, 1664525) | 0;
+  x ^= x >>> 16;
+  y ^= y >>> 16;
+  return (x ^ y) >>> 0;
+}
+
 function rand(ctx: RenderCtx, cx: number, cy: number): number {
   // mod with positive wrap
   let x = cx % ctx.mX; if (x < 0) x += ctx.mX;
   let y = cy % ctx.mY; if (y < 0) y += ctx.mY;
-  const d = x * 12.9898 + y * 78.233;
-  return fract(Math.sin(d) * 15.5453 * ctx.uSeed);
+  const ix = Math.floor(x) + 32768;
+  const iy = Math.floor(y) + 32768;
+  // uSeed*65537 cast to u32 as salt. Y-axis salt is derived by one
+  // PCG step on the seed (matches the shader exactly — see the
+  // detailed reasoning in planeta.frag::rand).
+  const seed32 = (ctx.uSeed * 65537) >>> 0;
+  const seedY = (Math.imul(seed32, 1664525) + 1013904223) >>> 0;
+  return pcg2d((ix + seed32) >>> 0, (iy + seedY) >>> 0) / 4294967296;
 }
 
 function noise(ctx: RenderCtx, cx: number, cy: number): number {
@@ -586,6 +607,12 @@ export function renderPlanetParaImageData(
       const uvx = (px + 0.5) * uvStepX;
       const uvRawX = uvx;
       const uvPixX = Math.floor(uvx * uPixels) / uPixels;
+      // Zero the scratch so any pixel function that early-exits on
+      // outside-disc (setting only alpha=0) doesn't leak RGB from
+      // the previously-rendered pixel. Pixi premultiplies on upload
+      // so RGB is visually hidden anyway, but the leak kills the
+      // determinism guarantee we lean on for shader-parity tests.
+      _pixelOut[0] = 0; _pixelOut[1] = 0; _pixelOut[2] = 0; _pixelOut[3] = 0;
       switch (paleta.planetType) {
         case 0: terranPixel(ctx, uvPixX, uvPixY, uvRawX, uvRawY, _pixelOut); break;
         case 1: dryPixel(ctx, uvPixX, uvPixY, uvRawX, uvRawY, _pixelOut); break;

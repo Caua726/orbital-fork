@@ -1,4 +1,5 @@
 import type { Mundo, Nave, Planeta } from '../types';
+import { VELOCIDADE_NAVE } from '../world/constantes';
 import { marcarInteracaoUi } from './interacao-ui';
 import { injectBottomSheetStyles } from './bottom-sheet.css';
 import {
@@ -120,10 +121,7 @@ function distanceToTarget(nave: Nave): number | null {
 function etaLabel(nave: Nave): string {
   const dist = distanceToTarget(nave);
   if (dist == null || dist <= 0) return '—';
-  // VELOCIDADE_NAVE = 0.045 px/ms; we don't import it to keep the file lean,
-  // but we mirror its value as a constant here. If you bump it, update too.
-  const speed = 0.045;
-  const ms = dist / speed;
+  const ms = dist / VELOCIDADE_NAVE;
   const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;

@@ -23,7 +23,7 @@ describe('aplicarPreset', () => {
     expect(g.qualidadeEfeitos).toBe('alto');
     expect(g.fogThrottle).toBe(1);
     expect(g.maxFantasmas).toBe(-1);
-    expect(g.densidadeStarfield).toBe(1.0);
+    expect(g.densidadeStarfield).toBe(0.30);
     expect(g.shaderLive).toBe(true);
     expect(g.mostrarOrbitas).toBe(true);
   });
@@ -34,7 +34,7 @@ describe('aplicarPreset', () => {
     expect(g.qualidadeEfeitos).toBe('minimo');
     expect(g.fogThrottle).toBe(15);
     expect(g.maxFantasmas).toBe(0);
-    expect(g.densidadeStarfield).toBe(0.1);
+    expect(g.densidadeStarfield).toBe(0.06);
     expect(g.shaderLive).toBe(false);
     expect(g.mostrarOrbitas).toBe(false);
   });

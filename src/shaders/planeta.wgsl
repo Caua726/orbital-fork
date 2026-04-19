@@ -65,6 +65,20 @@ fn mainVertex(
 }
 
 // === Fragment helpers ===
+// PCG 2D → u32 hash; bit-exact WGSL mirror of the WebGL2 path so
+// WebGPU renders identical planets to WebGL2.
+fn pcg2d(v_in: vec2<u32>) -> u32 {
+    var v = v_in;
+    v = v * vec2<u32>(1664525u) + vec2<u32>(1013904223u);
+    v.x = v.x + v.y * 1664525u;
+    v.y = v.y + v.x * 1664525u;
+    v = v ^ (v >> vec2<u32>(16u));
+    v.x = v.x + v.y * 1664525u;
+    v.y = v.y + v.x * 1664525u;
+    v = v ^ (v >> vec2<u32>(16u));
+    return v.x ^ v.y;
+}
+
 fn rand(coord_in: vec2<f32>) -> f32 {
     var m: vec2<f32>;
     if (planetUniforms.uPlanetType == 0 || planetUniforms.uPlanetType == 1) {
@@ -73,7 +87,14 @@ fn rand(coord_in: vec2<f32>) -> f32 {
         m = vec2<f32>(1.0, 1.0) * floor(planetUniforms.uSize + 0.5);
     }
     let c = ((coord_in % m) + m) % m;
-    return fract(sin(dot(c, vec2<f32>(12.9898, 78.233))) * 15.5453 * planetUniforms.uSeed);
+    let ic = vec2<i32>(floor(c));
+    // Cast via i32 then bitcast<u32> — direct u32(negative_float) is
+    // undefined in WGSL, which would silently diverge from the GLSL
+    // and JS paths if a negative uSeed ever landed here.
+    let seed32 = bitcast<u32>(i32(planetUniforms.uSeed * 65537.0));
+    let seedY = seed32 * 1664525u + 1013904223u;
+    let uc = vec2<u32>(ic + vec2<i32>(32768));
+    return f32(pcg2d(uc + vec2<u32>(seed32, seedY))) * (1.0 / 4294967296.0);
 }
 
 fn noise(coord: vec2<f32>) -> f32 {
@@ -170,7 +191,9 @@ fn terranPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
 
     // Cloud layer — parity with GLSL path. Gated on `a > 0.0` so the
     // 9-iter circleNoise loop + fbm doesn't run outside the disc.
-    if (planetUniforms.uCloudCover > 0.0 && a > 0.0) {
+    // uCloudAlpha (NOT uCloudCover) is the terran cloud threshold —
+    // uCloudCover is the gas-giant uniform and would misfire here.
+    if (planetUniforms.uCloudAlpha > 0.0 && a > 0.0) {
         var cloudUV = uv;
         cloudUV.y = cloudUV.y + smoothstep(0.0, 1.3, abs(cloudUV.x - 0.4));
         let cTime = planetUniforms.uTime * planetUniforms.uTimeSpeed * 0.5;
@@ -183,12 +206,12 @@ fn terranPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
             );
         }
         let cloudFbm = fbm(cloudUV * planetUniforms.uSize + vec2<f32>(c_noise) + vec2<f32>(cTime, 0.0));
-        let cloudMask = step(planetUniforms.uCloudCover, cloudFbm);
+        let cloudMask = step(planetUniforms.uCloudAlpha, cloudFbm);
         if (cloudMask > 0.0) {
             let spherified_raw = spherify(floor(uvRaw * planetUniforms.uPixels) / planetUniforms.uPixels);
             let d_cloud_light = distance(spherified_raw, planetUniforms.uLightOrigin);
             var cloudCol = vec4<f32>(0.96, 1.0, 0.91, 1.0);
-            if (cloudFbm < planetUniforms.uCloudCover + 0.03) {
+            if (cloudFbm < planetUniforms.uCloudAlpha + 0.03) {
                 cloudCol = vec4<f32>(0.87, 0.88, 0.91, 1.0);
             }
             if (d_cloud_light + cloudFbm * 0.2 > 0.52) {
@@ -227,6 +250,45 @@ fn dryPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
     }
 
     return vec4<f32>(col.rgb, a * col.a);
+}
+
+// === Islands planet ===
+// Ported from planeta.frag islandsPlanet(). Missing from WGSL
+// caused type=2 planets to dispatch to starPlanet on WebGPU —
+// every islands planet rendered as a star body.
+fn islandsPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
+    var d_light = distance(uv_in, planetUniforms.uLightOrigin);
+    let d_circle = distance(uv_in, vec2<f32>(0.5));
+    let a = step(d_circle, 0.49999);
+
+    var uv = rotate2d(uv_in, planetUniforms.uRotation);
+    uv = spherify(uv);
+
+    let base_fbm_uv = uv * planetUniforms.uSize + vec2<f32>(planetUniforms.uTime * planetUniforms.uTimeSpeed, 0.0);
+    let fbm1 = fbm(base_fbm_uv);
+    var fbm2 = fbm(base_fbm_uv - planetUniforms.uLightOrigin * fbm1);
+    var fbm3 = fbm(base_fbm_uv - planetUniforms.uLightOrigin * 1.5 * fbm1);
+    var fbm4 = fbm(base_fbm_uv - planetUniforms.uLightOrigin * 2.0 * fbm1);
+
+    if (d_light < planetUniforms.uLightBorder1) { fbm4 = fbm4 * 0.9; }
+    if (d_light > planetUniforms.uLightBorder1) {
+        fbm2 = fbm2 * 1.05;
+        fbm3 = fbm3 * 1.05;
+        fbm4 = fbm4 * 1.05;
+    }
+    if (d_light > planetUniforms.uLightBorder2) {
+        fbm2 = fbm2 * 1.3;
+        fbm3 = fbm3 * 1.4;
+        fbm4 = fbm4 * 1.8;
+    }
+
+    let d_light_pow = pow(d_light, 2.0) * 0.1;
+    var col = planetUniforms.uColors3;
+    if (fbm4 + d_light_pow < fbm1) { col = planetUniforms.uColors2; }
+    if (fbm3 + d_light_pow < fbm1) { col = planetUniforms.uColors1; }
+    if (fbm2 + d_light_pow < fbm1) { col = planetUniforms.uColors0; }
+
+    return vec4<f32>(col.rgb, step(planetUniforms.uLandCutoff, fbm1) * a * col.a);
 }
 
 // === Gas Giant (simplified) ===
@@ -302,6 +364,8 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
         col = terranPlanet(uvPix, uv);
     } else if (planetUniforms.uPlanetType == 1) {
         col = dryPlanet(uvPix, uv);
+    } else if (planetUniforms.uPlanetType == 2) {
+        col = islandsPlanet(uvPix, uv);
     } else if (planetUniforms.uPlanetType == 3) {
         col = gasPlanet(uvPix, uv);
     } else {
