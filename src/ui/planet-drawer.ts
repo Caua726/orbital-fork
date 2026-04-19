@@ -714,18 +714,35 @@ export function abrirPlanetaDrawer(planeta: Planeta, mundo: Mundo): Promise<void
   const actions = buildActions(planeta, mundo);
   if (actions) _modal.appendChild(actions);
 
-  // Ensure the slide-in animation plays reliably. Without this,
-  // opening the drawer right after mount (or right after a planet-
-  // switch which clears .visible) sometimes skipped the transition
-  // because the browser hadn't painted the hidden state yet. Force a
-  // style read to flush pending layout, then defer the class toggle
-  // to the next frame so the transition from opacity:0 + translateX
-  // actually runs every time.
+  // Slide-in animation was coming FROM BELOW on the first open
+  // instead of from the right edge. Root cause: the drawer's hidden
+  // CSS state is `visibility: hidden + opacity: 0 + transform:
+  // translateX(100%) translateY(-50%)`. Browsers skip transform/
+  // opacity transitions when the element simultaneously flips from
+  // visibility hidden → visible at t=0, so the element snapped
+  // to its final X but animated Y from 0 to -50% (= "from below").
+  //
+  // Fix: force `visibility: visible` via INLINE STYLE one rAF before
+  // adding the `.visible` class. That lets the browser paint the
+  // element at its hidden transform + opacity while already visible,
+  // so the subsequent class swap runs the real transition on both
+  // axes from the correct starting pose.
   const modal = _modal;
   const wasVisible = modal.classList.contains('visible');
   if (!wasVisible) {
+    modal.style.visibility = 'visible';
+    // Force a style recalc so the visibility change lands before the
+    // class swap — otherwise Chromium coalesces both mutations into a
+    // single frame and the old bug comes back.
     void modal.offsetWidth;
-    requestAnimationFrame(() => { modal.classList.add('visible'); });
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        // Clear the inline override so the .visible class drives the
+        // final visibility (still `visible`, but through the CSS rule).
+        modal.style.visibility = '';
+        modal.classList.add('visible');
+      });
+    });
   } else {
     modal.classList.add('visible');
   }

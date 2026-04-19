@@ -34,6 +34,12 @@ let _currentMundo: Mundo | null = null;
 let _portraitApp: Application | null = null;
 let _portraitContainer: Container | null = null;
 let _portraitSprite: Container | null = null;
+// Init is async — Pixi v8 Application.init returns a Promise and the
+// renderer / canvas getters throw if accessed before it resolves. We
+// remember the init Promise so every renderPortrait call can await it
+// (the 'two-click to open' symptom was the Uncaught TypeError from
+// accessing app.canvas on the first click, before init landed).
+let _portraitInitPromise: Promise<unknown> | null = null;
 
 function injectStyles(): void {
   if (_styleInjected) return;
@@ -430,31 +436,35 @@ function buildSectionPesquisa(p: Planeta): HTMLDivElement {
   return sec;
 }
 
-function renderPortrait(host: HTMLDivElement, p: Planeta): void {
-  host.replaceChildren();
-  // Boot a tiny Pixi app once; reuse across opens. 256×256 is plenty
-  // for the circular portrait — Pixi will downscale to fit the
-  // rounded container via CSS width: 100%.
+async function renderPortrait(host: HTMLDivElement, p: Planeta): Promise<void> {
+  // Boot a tiny Pixi app once; reuse across opens.
   if (!_portraitApp) {
     const app = new Application();
-    const initP = app.init({
+    _portraitApp = app;
+    _portraitInitPromise = app.init({
       width: 256,
       height: 256,
       background: 0x050910,
       antialias: true,
+    }).then(() => {
+      _portraitContainer = new Container();
+      app.stage.addChild(_portraitContainer);
     }).catch((err) => {
       console.warn('[planet-details] portrait Pixi init failed:', err);
+      _portraitApp = null;
+      _portraitContainer = null;
     });
-    // Silence lint about unawaited promise — fire-and-forget.
-    void initP;
-    _portraitApp = app;
-    _portraitContainer = new Container();
-    app.stage.addChild(_portraitContainer);
   }
+  // Wait for init to resolve before touching app.canvas / app.renderer
+  // — otherwise Pixi's getters throw because renderer is still
+  // undefined. This is the actual fix for the two-click open bug.
+  await _portraitInitPromise;
+  // Caller could have navigated away in the meantime.
+  if (_current !== p) return;
   const app = _portraitApp;
   const cont = _portraitContainer;
-  if (!cont || !app.canvas) return;
-  // Clear any previous sprite.
+  if (!app || !cont) return;
+  host.replaceChildren();
   if (_portraitSprite) {
     cont.removeChild(_portraitSprite);
     _portraitSprite.destroy({ children: true });
@@ -488,7 +498,7 @@ function refreshContent(): void {
   const right = _modal.querySelector<HTMLDivElement>('.pd-right');
   if (left) {
     const portrait = left.querySelector<HTMLDivElement>('.pd-portrait');
-    if (portrait) renderPortrait(portrait, p);
+    if (portrait) void renderPortrait(portrait, p);
     // Keep portrait + identity section.
     const keep = left.querySelector<HTMLDivElement>('.pd-portrait');
     left.replaceChildren();
