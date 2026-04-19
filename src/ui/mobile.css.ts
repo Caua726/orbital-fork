@@ -188,43 +188,78 @@ export function injectMobileStyles(): void {
       font-size: 14px !important;
     }
 
-    /* ── Drawer grabber + close button (mobile only). ─────────────── */
+    /* ── Drawer close button (mobile modal). Grabber hidden — in
+       fullscreen modal mode there's no drag-to-dismiss. */
     .planeta-drawer-grabber,
     .planeta-drawer-close {
       display: none;
-    }
-    body.size-sm .planeta-drawer-grabber,
-    body.portrait.size-md .planeta-drawer-grabber {
-      display: flex;
-      justify-content: center;
-      padding: 8px 0 4px;
-      cursor: grab;
-      touch-action: none;
-    }
-    .planeta-drawer-grabber-bar {
-      width: 48px;
-      height: 5px;
-      border-radius: 3px;
-      background: rgba(255,255,255,0.35);
     }
     body.size-sm .planeta-drawer-close,
     body.portrait.size-md .planeta-drawer-close {
       display: flex;
       position: absolute;
-      top: 10px;
-      right: 10px;
-      width: 40px;
-      height: 40px;
+      top: 14px;
+      right: 14px;
+      width: 48px;
+      height: 48px;
       align-items: center;
       justify-content: center;
-      border: 1px solid rgba(255,255,255,0.22);
-      background: rgba(10,20,35,0.6);
+      border: 1px solid rgba(255,255,255,0.28);
+      background: rgba(10,20,35,0.75);
       color: var(--hud-text, #e8f2ff);
-      border-radius: 10px;
-      font-size: 16px;
+      border-radius: 12px;
+      font-size: 20px;
       cursor: pointer;
       touch-action: manipulation;
       z-index: 3;
+    }
+
+    /* ── FULLSCREEN MODAL for planet-drawer on mobile.
+       Overrides all bottom-sheet rules. No slide-from-bottom,
+       no 85vh cap — covers the entire viewport. */
+    body.size-sm .planeta-drawer,
+    body.portrait.size-md .planeta-drawer {
+      position: fixed !important;
+      inset: 0 !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      max-width: 100vw !important;
+      height: 100dvh !important;
+      max-height: 100dvh !important;
+      margin: 0 !important;
+      border-radius: 0 !important;
+      border: none !important;
+      transform: none !important;
+      display: none !important;
+      flex-direction: column !important;
+      z-index: 950 !important;
+      overflow-y: auto !important;
+      animation: orbital-modal-fade-in 180ms ease !important;
+      transition: opacity 180ms ease !important;
+    }
+    body.size-sm .planeta-drawer.visible,
+    body.portrait.size-md .planeta-drawer.visible {
+      display: flex !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+    }
+    @keyframes orbital-modal-fade-in {
+      from { opacity: 0; transform: scale(0.98); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    body.size-sm .planeta-drawer-body,
+    body.portrait.size-md .planeta-drawer-body {
+      flex: 1 !important;
+      overflow-y: auto !important;
+      padding: 16px 20px 32px !important;
+    }
+    body.size-sm .planeta-drawer-head,
+    body.portrait.size-md .planeta-drawer-head {
+      padding: 18px 72px 14px 20px !important;
+      gap: 14px !important;
     }
 
     /* ── Planeta drawer tabs (mobile only). ───────────────────────── */
