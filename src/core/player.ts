@@ -80,24 +80,69 @@ export function getZoom(): number {
  * Zoom the camera while keeping a specific screen point anchored in place.
  * If `sx`/`sy` are omitted the anchor defaults to the center of the viewport
  * (matching what the user expects from keyboard/minimap zoom buttons).
+ *
+ * Smooth by default: starts a short tween that `atualizarCamera` advances
+ * each frame. Pass `immediate=true` for pinch gestures where the user's
+ * fingers are already driving the motion in real time.
  */
-function aplicarZoom(novoZoom: number, sx?: number, sy?: number): void {
+let _zoomTween: {
+  fromZoom: number; toZoom: number;
+  fromX: number; toX: number;
+  fromY: number; toY: number;
+  startMs: number; durationMs: number;
+} | null = null;
+
+function aplicarZoom(novoZoom: number, sx?: number, sy?: number, immediate = false): void {
   const app = _appRef;
+  const target = Math.max(0.3, Math.min(2.0, novoZoom));
   if (!app) {
-    camera.zoom = Math.max(0.3, Math.min(2.0, novoZoom));
+    camera.zoom = target;
     return;
   }
   const screenW = app.screen.width;
   const screenH = app.screen.height;
   const anchorSx = sx ?? screenW / 2;
   const anchorSy = sy ?? screenH / 2;
-  // World point currently under the anchor, before zoom.
+  // World point currently under the anchor, before the zoom change.
   const worldX = (anchorSx - screenW / 2) / camera.zoom + camera.x;
   const worldY = (anchorSy - screenH / 2) / camera.zoom + camera.y;
-  camera.zoom = Math.max(0.3, Math.min(2.0, novoZoom));
-  // Re-derive camera so the same world point stays under the anchor.
-  camera.x = worldX - (anchorSx - screenW / 2) / camera.zoom;
-  camera.y = worldY - (anchorSy - screenH / 2) / camera.zoom;
+  // Camera position that keeps that world point under the anchor AT target zoom.
+  const newCamX = worldX - (anchorSx - screenW / 2) / target;
+  const newCamY = worldY - (anchorSy - screenH / 2) / target;
+  if (immediate) {
+    camera.zoom = target;
+    camera.x = newCamX;
+    camera.y = newCamY;
+    _zoomTween = null;
+    return;
+  }
+  _zoomTween = {
+    fromZoom: camera.zoom, toZoom: target,
+    fromX: camera.x, toX: newCamX,
+    fromY: camera.y, toY: newCamY,
+    startMs: performance.now(), durationMs: 180,
+  };
+}
+
+function cancelarZoomTween(): void {
+  _zoomTween = null;
+}
+
+function avancarZoomTween(): void {
+  if (!_zoomTween) return;
+  const t = (performance.now() - _zoomTween.startMs) / _zoomTween.durationMs;
+  if (t >= 1) {
+    camera.zoom = _zoomTween.toZoom;
+    camera.x = _zoomTween.toX;
+    camera.y = _zoomTween.toY;
+    _zoomTween = null;
+    return;
+  }
+  // Ease-out cubic.
+  const e = 1 - Math.pow(1 - t, 3);
+  camera.zoom = _zoomTween.fromZoom + (_zoomTween.toZoom - _zoomTween.fromZoom) * e;
+  camera.x = _zoomTween.fromX + (_zoomTween.toX - _zoomTween.fromX) * e;
+  camera.y = _zoomTween.fromY + (_zoomTween.toY - _zoomTween.fromY) * e;
 }
 
 export function zoomIn(factor: number = 1.15): void {
@@ -281,7 +326,7 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
       const d = distance(pts[0], pts[1]);
       if (d > 0 && pinch.initialDist > 0) {
         const ratio = d / pinch.initialDist;
-        aplicarZoom(pinch.initialZoom * ratio, pinch.anchorSx, pinch.anchorSy);
+        aplicarZoom(pinch.initialZoom * ratio, pinch.anchorSx, pinch.anchorSy, true);
       }
       return;
     }
@@ -293,6 +338,9 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
       camera.y -= dy / camera.zoom;
       cameraLastMouse.x = e.clientX;
       cameraLastMouse.y = e.clientY;
+      // Pan overrides any in-flight zoom tween — otherwise the tween snaps
+      // the camera back to its pre-pan target on the next frame.
+      cancelarZoomTween();
     }
   }, { signal });
 
@@ -462,6 +510,7 @@ export function cancelarRotaNaveSelecionada(mundo: Mundo): void {
 }
 
 export function atualizarCamera(mundo: Mundo, app: Application): void {
+  avancarZoomTween();
   atualizarPreviewComandoNave();
   mundo.container.scale.set(camera.zoom);
   mundo.container.x = -camera.x * camera.zoom + app.screen.width / 2;

@@ -1,5 +1,6 @@
 import { zoomIn, zoomOut } from '../core/player';
 import { marcarInteracaoUi } from './interacao-ui';
+import { pulseElement } from './animations.css';
 
 let _container: HTMLDivElement | null = null;
 let _styleInjected = false;
@@ -55,6 +56,7 @@ export function criarZoomControls(): HTMLDivElement {
       e.preventDefault();
       marcarInteracaoUi();
       fn();
+      pulseElement(b);
     });
     return b;
   };

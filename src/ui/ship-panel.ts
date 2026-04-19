@@ -1,6 +1,7 @@
 import type { Mundo, Nave } from '../types';
 import { marcarInteracaoUi } from './interacao-ui';
 import { injectBottomSheetStyles } from './bottom-sheet.css';
+import { pulseElement } from './animations.css';
 import {
   obterNaveSelecionada,
   capacidadeCargaCargueira,
@@ -466,6 +467,7 @@ function renderActions(nave: Nave): void {
       marcarInteracaoUi();
       if (!isEnabled || !_mundoRef) return;
       action.onClick(nave, _mundoRef);
+      pulseElement(btn);
     });
     _buttonsEl.appendChild(btn);
   }

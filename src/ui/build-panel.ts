@@ -1,6 +1,7 @@
 import type { Mundo, Planeta } from '../types';
 import { marcarInteracaoUi } from './interacao-ui';
 import { injectBottomSheetStyles } from './bottom-sheet.css';
+import { pulseElement } from './animations.css';
 import {
   calcularCustoTier,
   calcularTempoConstrucaoMs,
@@ -616,6 +617,7 @@ function createCard(spec: CardSpec, state: CardState): HTMLButtonElement {
     marcarInteracaoUi();
     if (!state.enabled || !_selectedPlanet || !_mundoRef) return;
     construirNoPlaneta(_mundoRef, _selectedPlanet, resolveAcao(spec, state));
+    pulseElement(card, 'orbital-toggle-flash');
     _renderKey = '';
   });
 
