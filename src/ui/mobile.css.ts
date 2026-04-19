@@ -17,10 +17,18 @@ export function injectMobileStyles(): void {
       --hud-margin: clamp(12px, 2.4vmin, 22px) !important;
     }
 
-    /* ── Hide minimap + zoom controls on small screens — pinça/duplo-toque substituem. */
+    /* ── Hide minimap + zoom controls on small/portrait screens — pinça/duplo-toque substituem. */
     body.size-sm .minimap,
-    body.size-sm .zoom-controls {
+    body.size-sm .zoom-controls,
+    body.portrait.size-md .minimap,
+    body.portrait.size-md .zoom-controls {
       display: none !important;
+    }
+    @media (max-width: 820px) and (orientation: portrait) {
+      .minimap,
+      .zoom-controls {
+        display: none !important;
+      }
     }
 
     /* ── Generous touch targets on small or touch screens. */
