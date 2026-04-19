@@ -66,11 +66,13 @@ describe('shader source parity: planeta', () => {
     expect(wgsl).toContain('1013904223u');
   });
 
-  it('both use the same uSeed salt (0xA5A5A5A5)', () => {
-    // Salt XOR masks a second u32 so X and Y axes get independent
-    // streams. Drifting this value would desync Canvas2D/WebGL2/WebGPU.
-    expect(frag).toContain('0xA5A5A5A5u');
-    expect(wgsl).toContain('0xA5A5A5A5u');
+  it('both derive Y-axis salt via one PCG step on the seed', () => {
+    // The Y-axis salt is `seed * 1664525 + 1013904223` — plain u32
+    // arithmetic with PCG constants that are already proven to
+    // compile everywhere. Both paths must contain that exact
+    // formula to keep GLSL and WGSL bit-identical.
+    expect(frag).toMatch(/seed32\s*\*\s*1664525u\s*\+\s*1013904223u/);
+    expect(wgsl).toMatch(/seed32\s*\*\s*1664525u\s*\+\s*1013904223u/);
   });
 
   it('GLSL planeta path starts with #version 300 es', () => {
@@ -97,7 +99,6 @@ describe('shader source parity: JS port matches the shader hash', () => {
     );
     expect(canvas).toContain('1664525');
     expect(canvas).toContain('1013904223');
-    expect(canvas).toContain('0xA5A5A5A5');
     // Must use Math.imul for 32-bit int math — without it JS defaults
     // to f64 multiply which doesn't match the u32 wrap semantics.
     expect(canvas).toContain('Math.imul');

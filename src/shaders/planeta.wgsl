@@ -92,8 +92,9 @@ fn rand(coord_in: vec2<f32>) -> f32 {
     // undefined in WGSL, which would silently diverge from the GLSL
     // and JS paths if a negative uSeed ever landed here.
     let seed32 = bitcast<u32>(i32(planetUniforms.uSeed * 65537.0));
+    let seedY = seed32 * 1664525u + 1013904223u;
     let uc = vec2<u32>(ic + vec2<i32>(32768));
-    return f32(pcg2d(uc + vec2<u32>(seed32, seed32 ^ 0xA5A5A5A5u))) * (1.0 / 4294967296.0);
+    return f32(pcg2d(uc + vec2<u32>(seed32, seedY))) * (1.0 / 4294967296.0);
 }
 
 fn noise(coord: vec2<f32>) -> f32 {

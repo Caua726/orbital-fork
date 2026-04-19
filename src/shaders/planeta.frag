@@ -70,9 +70,15 @@ float rand(vec2 coord) {
     ivec2 ic = ivec2(floor(coord));
     // Fold uSeed into the hash as a u32 salt. uSeed is in [1, 10]; we
     // multiply by 65537 and cast so different seeds diverge widely.
+    // Y-axis salt is one PCG step on the seed — safe arithmetic
+    // using literals we know compile (the PCG constants). Using a
+    // large hex literal for XOR tripped ANGLE builds that parse
+    // hex as signed int first and rejected anything above the
+    // signed max.
     uint seed32 = uint(uSeed * 65537.0);
+    uint seedY = seed32 * 1664525u + 1013904223u;
     uvec2 c = uvec2(ic + ivec2(32768));
-    return float(pcg2d(c + uvec2(seed32, seed32 ^ 0xA5A5A5A5u))) * (1.0 / 4294967296.0);
+    return float(pcg2d(c + uvec2(seed32, seedY))) * (1.0 / 4294967296.0);
 }
 
 float noise(vec2 coord) {

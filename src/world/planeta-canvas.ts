@@ -146,10 +146,12 @@ function rand(ctx: RenderCtx, cx: number, cy: number): number {
   let y = cy % ctx.mY; if (y < 0) y += ctx.mY;
   const ix = Math.floor(x) + 32768;
   const iy = Math.floor(y) + 32768;
-  // uSeed*65537 cast to u32 as salt.
+  // uSeed*65537 cast to u32 as salt. Y-axis salt is derived by one
+  // PCG step on the seed (matches the shader exactly — see the
+  // detailed reasoning in planeta.frag::rand).
   const seed32 = (ctx.uSeed * 65537) >>> 0;
-  const saltY = (seed32 ^ 0xA5A5A5A5) >>> 0;
-  return pcg2d((ix + seed32) >>> 0, (iy + saltY) >>> 0) / 4294967296;
+  const seedY = (Math.imul(seed32, 1664525) + 1013904223) >>> 0;
+  return pcg2d((ix + seed32) >>> 0, (iy + seedY) >>> 0) / 4294967296;
 }
 
 function noise(ctx: RenderCtx, cx: number, cy: number): number {
