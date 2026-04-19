@@ -24,6 +24,8 @@ import { renderPlanetaParaCanvas, liberarPortraitPlaneta } from '../world/planet
 import { setCameraFollow } from '../core/player';
 import { abrirPlanetDetailsModal } from './planet-details-modal';
 import { parseAcaoNave } from '../world/naves';
+import { diagnosticarFila, moverItemFila, removerItemFila } from '../world/construcao';
+import { bindFilaDragDrop, isFilaDragging } from './fila-dnd';
 
 const LABEL_NAVE_DRAWER: Record<string, string> = {
   colonizadora: 'Colonizadora',
@@ -428,17 +430,99 @@ function injectStyles(): void {
       display: flex;
       flex-direction: column;
       gap: calc(var(--hud-unit) * 0.3);
+      position: relative;
     }
     .drawer-fila-item {
       display: grid;
-      grid-template-columns: calc(var(--hud-unit) * 1.1) 1fr auto;
+      grid-template-columns: calc(var(--hud-unit) * 1) calc(var(--hud-unit) * 1.1) 1fr auto calc(var(--hud-unit) * 1.1);
       align-items: center;
-      gap: calc(var(--hud-unit) * 0.5);
+      gap: calc(var(--hud-unit) * 0.4);
       padding: calc(var(--hud-unit) * 0.35) calc(var(--hud-unit) * 0.5);
       border: 1px solid var(--hud-line);
       border-radius: calc(var(--hud-radius) * 0.55);
       background: rgba(255, 255, 255, 0.02);
       font-size: calc(var(--hud-unit) * 0.78);
+      transition: transform 180ms ease, box-shadow 160ms ease, opacity 160ms;
+    }
+    .drawer-fila-item.fila-dragging {
+      z-index: 10;
+      opacity: 0.92;
+      box-shadow: 0 calc(var(--hud-unit) * 0.4) calc(var(--hud-unit) * 1) rgba(0, 0, 0, 0.7);
+      transition: none;
+      cursor: grabbing;
+    }
+    .fila-drag-handle {
+      width: calc(var(--hud-unit) * 1);
+      height: calc(var(--hud-unit) * 1);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--hud-text-dim);
+      cursor: grab;
+      user-select: none;
+      font-size: calc(var(--hud-unit) * 0.8);
+      line-height: 1;
+      letter-spacing: -1px;
+    }
+    .fila-drag-handle:hover { color: var(--hud-text); }
+    .fila-drag-handle.locked {
+      opacity: 0.25;
+      cursor: not-allowed;
+    }
+    .fila-remove-btn {
+      appearance: none;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--hud-text-dim);
+      width: calc(var(--hud-unit) * 1.1);
+      height: calc(var(--hud-unit) * 1.1);
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: calc(var(--hud-unit) * 0.8);
+      line-height: 1;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 120ms, color 120ms, border-color 120ms;
+    }
+    .fila-remove-btn:hover:not(:disabled) {
+      color: #ff9f9f;
+      border-color: rgba(255, 120, 120, 0.45);
+      background: rgba(255, 120, 120, 0.08);
+    }
+    .fila-remove-btn:disabled {
+      opacity: 0.2;
+      cursor: not-allowed;
+    }
+    .fila-drop-indicator {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 1px;
+      pointer-events: none;
+      box-shadow: 0 0 calc(var(--hud-unit) * 0.4) rgba(255, 255, 255, 0.35);
+      z-index: 20;
+      display: none;
+    }
+    .drawer-fila-diag {
+      margin-top: calc(var(--hud-unit) * 0.35);
+      padding: calc(var(--hud-unit) * 0.35) calc(var(--hud-unit) * 0.55);
+      border: 1px solid rgba(255, 180, 120, 0.45);
+      background: rgba(255, 180, 120, 0.08);
+      border-radius: calc(var(--hud-radius) * 0.5);
+      color: rgba(255, 210, 170, 0.95);
+      font-size: calc(var(--hud-unit) * 0.72);
+      line-height: 1.35;
+      display: flex;
+      align-items: center;
+      gap: calc(var(--hud-unit) * 0.4);
+    }
+    .drawer-fila-diag::before {
+      content: '⏸';
+      color: rgba(255, 200, 140, 0.9);
     }
     .drawer-fila-item.is-active {
       border-color: rgba(255, 255, 255, 0.35);
@@ -572,8 +656,6 @@ function cardInfraestrutura(p: Planeta): HTMLDivElement {
 function cardFila(p: Planeta): HTMLDivElement | null {
   const d = p.dados;
   const fila = d.filaProducao;
-  // Don't add noise to the drawer when nothing is queued and the
-  // player doesn't have the repeat flag set — no useful info to show.
   if (fila.length === 0 && !d.repetirFilaProducao) return null;
 
   const card = document.createElement('div');
@@ -582,6 +664,8 @@ function cardFila(p: Planeta): HTMLDivElement | null {
   t.className = 'planeta-card-title';
   t.textContent = 'Fila de Produção';
   card.appendChild(t);
+
+  const headLocked = d.construcaoAtual !== null || d.producaoNave !== null;
 
   if (fila.length === 0) {
     const empty = document.createElement('div');
@@ -594,8 +678,15 @@ function cardFila(p: Planeta): HTMLDivElement | null {
     fila.slice(0, 5).forEach((item, idx) => {
       const row = document.createElement('div');
       row.className = 'drawer-fila-item';
-      const isHeadActive = idx === 0 && (d.construcaoAtual !== null || d.producaoNave !== null);
+      row.dataset.filaIdx = String(idx);
+      const isHeadActive = idx === 0 && headLocked;
       if (isHeadActive) row.classList.add('is-active');
+
+      const handle = document.createElement('div');
+      handle.className = 'fila-drag-handle';
+      if (isHeadActive) handle.classList.add('locked');
+      handle.textContent = '⋮⋮';
+      handle.title = isHeadActive ? 'Item em produção — não pode ser movido' : 'Arrastar para reordenar';
 
       const idxEl = document.createElement('div');
       idxEl.className = 'drawer-fila-idx';
@@ -618,7 +709,21 @@ function cardFila(p: Planeta): HTMLDivElement | null {
       }
       pctEl.textContent = pct !== null ? `${pct}%` : '—';
 
-      row.append(idxEl, nameEl, pctEl);
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'fila-remove-btn';
+      removeBtn.textContent = '×';
+      removeBtn.title = isHeadActive ? 'Item em produção não pode ser cancelado' : 'Remover da fila';
+      removeBtn.disabled = isHeadActive;
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const currentIdx = Number(row.dataset.filaIdx ?? idx);
+        if (removerItemFila(p, currentIdx) && _currentPlaneta && _currentMundo) {
+          rebuildBody(_currentPlaneta, _currentMundo);
+        }
+      });
+
+      row.append(handle, idxEl, nameEl, pctEl, removeBtn);
 
       if (isHeadActive && pct !== null) {
         const bar = document.createElement('div');
@@ -632,6 +737,30 @@ function cardFila(p: Planeta): HTMLDivElement | null {
       list.appendChild(row);
     });
     card.appendChild(list);
+
+    // Wire drag & drop after the list is in the card's DOM tree.
+    bindFilaDragDrop(list, {
+      itemSelector: '.drawer-fila-item',
+      handleSelector: '.fila-drag-handle',
+      getIdx: (el) => Number(el.dataset.filaIdx ?? -1),
+      isLocked: (idx) => headLocked && idx === 0,
+      onReorder: (from, to) => {
+        if (moverItemFila(p, from, to) && _currentPlaneta && _currentMundo) {
+          rebuildBody(_currentPlaneta, _currentMundo);
+        }
+      },
+    });
+  }
+
+  // Show a diagnostic line when the queue head can't start — "fila
+  // travada porque X". Surfaces silent failures (low comum, missing
+  // pesquisa, fabrica tier insuficiente).
+  const diag = diagnosticarFila(p);
+  if (diag) {
+    const diagEl = document.createElement('div');
+    diagEl.className = 'drawer-fila-diag';
+    diagEl.textContent = diag;
+    card.appendChild(diagEl);
   }
 
   const footer = document.createElement('div');
@@ -958,6 +1087,10 @@ export function atualizarPlanetaDrawer(): void {
   tickPortraitIfDue();
   const now = performance.now();
   if (now - _lastRebuildMs < REBUILD_INTERVALO_MS) return;
+  // Suppress body rebuilds while the user is mid-drag in the fila —
+  // otherwise the tick would blow the drag state away every 500ms and
+  // the reorder would never complete.
+  if (isFilaDragging()) return;
   _lastRebuildMs = now;
   rebuildBody(_currentPlaneta, _currentMundo);
 }

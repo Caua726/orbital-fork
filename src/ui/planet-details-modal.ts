@@ -29,6 +29,8 @@ import { getBattles } from '../world/battle-log';
 import { getMemoria } from '../world/nevoa';
 import { getPrimeiroContato } from '../world/first-contact';
 import { inferirArquetipo } from '../world/imperio-jogador';
+import { diagnosticarFila, moverItemFila, removerItemFila } from '../world/construcao';
+import { bindFilaDragDrop, isFilaDragging } from './fila-dnd';
 import { attachTooltip } from './tooltip';
 import { aplicarTooltipsLore } from './lore-keywords';
 import { Application, Container, Ticker } from 'pixi.js';
@@ -389,18 +391,44 @@ function injectStyles(): void {
       display: flex;
       flex-direction: column;
       gap: calc(var(--hud-unit) * 0.3);
+      position: relative;
     }
     .pd-fila-item {
       display: grid;
-      grid-template-columns: calc(var(--hud-unit) * 1.1) 1fr auto;
+      grid-template-columns: calc(var(--hud-unit) * 1) calc(var(--hud-unit) * 1.1) 1fr auto calc(var(--hud-unit) * 1.1);
       align-items: center;
-      gap: calc(var(--hud-unit) * 0.5);
+      gap: calc(var(--hud-unit) * 0.4);
       padding: calc(var(--hud-unit) * 0.35) calc(var(--hud-unit) * 0.5);
       border: 1px solid var(--hud-line);
       border-radius: calc(var(--hud-radius) * 0.55);
       background: rgba(255, 255, 255, 0.02);
       font-size: calc(var(--hud-unit) * 0.78);
       min-width: 0;
+      transition: transform 180ms ease, box-shadow 160ms ease, opacity 160ms;
+    }
+    .pd-fila-item.fila-dragging {
+      z-index: 10;
+      opacity: 0.92;
+      box-shadow: 0 calc(var(--hud-unit) * 0.4) calc(var(--hud-unit) * 1) rgba(0, 0, 0, 0.7);
+      transition: none;
+      cursor: grabbing;
+    }
+    .pd-fila-diag {
+      margin-top: calc(var(--hud-unit) * 0.35);
+      padding: calc(var(--hud-unit) * 0.4) calc(var(--hud-unit) * 0.6);
+      border: 1px solid rgba(255, 180, 120, 0.45);
+      background: rgba(255, 180, 120, 0.08);
+      border-radius: calc(var(--hud-radius) * 0.5);
+      color: rgba(255, 210, 170, 0.95);
+      font-size: calc(var(--hud-unit) * 0.74);
+      line-height: 1.35;
+      display: flex;
+      align-items: center;
+      gap: calc(var(--hud-unit) * 0.4);
+    }
+    .pd-fila-diag::before {
+      content: '⏸';
+      color: rgba(255, 200, 140, 0.9);
     }
     .pd-fila-item.is-active {
       border-color: rgba(255, 255, 255, 0.35);
@@ -824,6 +852,7 @@ function buildSectionFila(p: Planeta): HTMLDivElement {
 
   const d = p.dados;
   const fila = d.filaProducao;
+  const headLocked = d.construcaoAtual !== null || d.producaoNave !== null;
 
   if (fila.length === 0) {
     const empty = document.createElement('div');
@@ -837,8 +866,15 @@ function buildSectionFila(p: Planeta): HTMLDivElement {
     fila.slice(0, 5).forEach((item, idx) => {
       const row = document.createElement('div');
       row.className = 'pd-fila-item';
-      const isHeadActive = idx === 0 && (d.construcaoAtual !== null || d.producaoNave !== null);
+      row.dataset.filaIdx = String(idx);
+      const isHeadActive = idx === 0 && headLocked;
       if (isHeadActive) row.classList.add('is-active');
+
+      const handle = document.createElement('div');
+      handle.className = 'fila-drag-handle';
+      if (isHeadActive) handle.classList.add('locked');
+      handle.textContent = '⋮⋮';
+      handle.title = isHeadActive ? 'Item em produção — não pode ser movido' : 'Arrastar para reordenar';
 
       const idxEl = document.createElement('div');
       idxEl.className = 'pd-fila-idx';
@@ -862,7 +898,19 @@ function buildSectionFila(p: Planeta): HTMLDivElement {
       }
       pctEl.textContent = pct !== null ? `${pct}%` : '—';
 
-      row.append(idxEl, nameEl, pctEl);
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'fila-remove-btn';
+      removeBtn.textContent = '×';
+      removeBtn.title = isHeadActive ? 'Item em produção não pode ser cancelado' : 'Remover da fila';
+      removeBtn.disabled = isHeadActive;
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const currentIdx = Number(row.dataset.filaIdx ?? idx);
+        if (removerItemFila(p, currentIdx)) refreshContent();
+      });
+
+      row.append(handle, idxEl, nameEl, pctEl, removeBtn);
 
       if (isHeadActive && pct !== null) {
         const bar = document.createElement('div');
@@ -878,6 +926,24 @@ function buildSectionFila(p: Planeta): HTMLDivElement {
     });
 
     sec.appendChild(list);
+
+    bindFilaDragDrop(list, {
+      itemSelector: '.pd-fila-item',
+      handleSelector: '.fila-drag-handle',
+      getIdx: (el) => Number(el.dataset.filaIdx ?? -1),
+      isLocked: (idx) => headLocked && idx === 0,
+      onReorder: (from, to) => {
+        if (moverItemFila(p, from, to)) refreshContent();
+      },
+    });
+  }
+
+  const diag = diagnosticarFila(p);
+  if (diag) {
+    const diagEl = document.createElement('div');
+    diagEl.className = 'pd-fila-diag';
+    diagEl.textContent = diag;
+    sec.appendChild(diagEl);
   }
 
   const footer = document.createElement('div');
@@ -1919,6 +1985,9 @@ export function abrirPlanetDetailsModal(p: Planeta, mundo: Mundo): Promise<void>
 export function atualizarPlanetDetailsModal(): void {
   if (!_modal || !_current) return;
   if (!_modal.classList.contains('visible')) return;
+  // Suppress live refreshes while the user is dragging a fila item —
+  // otherwise the tick would rebuild the section and wipe the drag state.
+  if (isFilaDragging()) return;
   refreshContent();
 }
 
