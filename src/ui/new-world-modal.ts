@@ -409,42 +409,67 @@ function injectStyles(): void {
       margin-top: calc(var(--hud-unit) * -0.4);
     }
 
-    /* ─ Personality quick-start presets ─ */
+    /* ─ Personality quick-start presets ─
+       Card grid with per-preset color accent bars that color-code the
+       strategic flavour at a glance (peaceful builders are cool/green,
+       conquerors hot, balanced neutral). Selected state raises the
+       card a pixel, thickens the accent and brightens text. */
     .nwm-preset-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(calc(var(--hud-unit) * 8), 1fr));
-      gap: calc(var(--hud-unit) * 0.35);
+      grid-template-columns: repeat(auto-fit, minmax(calc(var(--hud-unit) * 8.5), 1fr));
+      gap: calc(var(--hud-unit) * 0.45);
     }
     .nwm-preset {
+      position: relative;
       text-align: left;
-      padding: calc(var(--hud-unit) * 0.45) calc(var(--hud-unit) * 0.55);
-      background: rgba(0,0,0,0.25);
-      border: 1px solid var(--hud-line);
+      padding: calc(var(--hud-unit) * 0.75) calc(var(--hud-unit) * 0.7) calc(var(--hud-unit) * 0.6);
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--hud-border);
       border-radius: calc(var(--hud-radius) * 0.6);
       color: var(--hud-text);
       cursor: pointer;
       display: flex;
       flex-direction: column;
-      gap: calc(var(--hud-unit) * 0.15);
-      transition: background 120ms ease, border-color 120ms ease;
+      gap: calc(var(--hud-unit) * 0.25);
+      transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
       font-family: inherit;
     }
-    .nwm-preset:hover { background: rgba(255,255,255,0.06); }
-    .nwm-preset.selected {
-      background: rgba(140, 224, 255, 0.12);
-      border-color: #8ce0ff;
+    .nwm-preset::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--preset-accent, var(--hud-text-dim));
+      border-top-left-radius: calc(var(--hud-radius) * 0.6);
+      border-top-right-radius: calc(var(--hud-radius) * 0.6);
+      opacity: 0.55;
+      transition: opacity 140ms ease, height 140ms ease;
     }
+    .nwm-preset:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    .nwm-preset:hover::before { opacity: 1; height: 3px; }
+    .nwm-preset:active { transform: translateY(1px); }
+    .nwm-preset.selected {
+      background: rgba(255, 255, 255, 0.10);
+      border-color: #fff;
+      transform: translateY(-1px);
+    }
+    .nwm-preset.selected::before { opacity: 1; height: 3px; }
     .nwm-preset-title {
       font-family: var(--hud-font-display);
-      font-size: calc(var(--hud-unit) * 0.88);
-      letter-spacing: 0.08em;
+      font-size: calc(var(--hud-unit) * 0.92);
+      letter-spacing: 0.1em;
       text-transform: uppercase;
+      line-height: 1;
     }
     .nwm-preset-desc {
       font-size: calc(var(--hud-unit) * 0.72);
       color: var(--hud-text-dim);
       line-height: 1.35;
     }
+    .nwm-preset.selected .nwm-preset-desc { color: var(--hud-text); }
 
     /* ─ Axis sliders (spectrum ends labeled) ─ */
     .nwm-axis-list {
@@ -954,6 +979,17 @@ function mountStepPersonalidade(body: HTMLDivElement, state: WizardState, onChan
   const currentEixos: EixosPersonalidade = eixosDePesos(state.imperio.pesos);
   const axisSliders = new Map<keyof EixosPersonalidade, HTMLInputElement>();
 
+  // Per-preset accent colors. Map known preset ids to a semantic
+  // ramp — cool for builders, warm for conquerors, white for neutral.
+  // Unknown ids fall back to a dim default so new presets still render.
+  const PRESET_ACCENTS: Record<string, string> = {
+    balanceado:   '#cfe3ff',
+    conquistador: '#ff5566',
+    mercador:     '#8ee0b0',
+    erudito:      '#8ce0ff',
+    fortaleza:    '#ffcc66',
+  };
+
   function rebuildPresets(): void {
     presets.replaceChildren();
     for (const p of EIXOS_PRESETS) {
@@ -964,6 +1000,7 @@ function mountStepPersonalidade(body: HTMLDivElement, state: WizardState, onChan
         Math.abs(currentEixos.foco    - p.eixos.foco)    < 0.08 &&
         Math.abs(currentEixos.ritmo   - p.eixos.ritmo)   < 0.08;
       btn.className = `nwm-preset${match ? ' selected' : ''}`;
+      btn.style.setProperty('--preset-accent', PRESET_ACCENTS[p.id] ?? '#cfe3ff');
       const title = document.createElement('div');
       title.className = 'nwm-preset-title';
       title.textContent = p.nome;
