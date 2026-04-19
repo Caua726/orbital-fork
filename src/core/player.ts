@@ -496,6 +496,7 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
       if (clickInfo?.nave) {
         cancelarComandoNave();
         selecionarNave(mundo, clickInfo.nave);
+        setCameraPos(clickInfo.nave.x, clickInfo.nave.y);
         somClique();
       } else if (
         naveSelecionada
@@ -521,6 +522,7 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
       } else if (clickInfo?.planeta) {
         cancelarComandoNave();
         selecionarPlaneta(mundo, clickInfo.planeta);
+        setCameraPos(clickInfo.planeta.x, clickInfo.planeta.y);
         somClique();
         fecharStarDrawer();
         if (isTouchMode()) {
@@ -533,6 +535,7 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
         limparSelecoes(mundo);
         if (isTouchMode()) fecharMobilePlanetaDrawer();
         else fecharPlanetaDrawer();
+        setCameraPos(clickInfo.sol.x, clickInfo.sol.y);
         void abrirStarDrawer(clickInfo.sol, mundo);
         somClique();
       } else {
