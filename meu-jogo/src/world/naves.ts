@@ -25,7 +25,7 @@ export function capacidadeCargaCargueira(tier: number): number {
   return 30 * (2 ** Math.max(0, tier - 1));
 }
 
-function carregarRecursosPlaneta(planeta: Planeta, capacidade: number): Recursos {
+function _carregarRecursosPlaneta(planeta: Planeta, capacidade: number): Recursos {
   const carga = criarCargaVazia();
   let restante = capacidade;
   for (const tipo of ['comum', 'raro', 'combustivel'] as const) {

@@ -1,4 +1,4 @@
-import type { Container, Graphics, AnimatedSprite, Sprite, Filter, Application, Texture } from 'pixi.js';
+import type { Container, Graphics, AnimatedSprite, Filter, Application, Texture } from 'pixi.js';
 
 // === Recursos ===
 export interface Recursos {

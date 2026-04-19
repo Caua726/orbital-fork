@@ -12,7 +12,7 @@ export const SPRITE_PLANETA_POR_TIPO: Record<string, string> = {
   [TIPO_PLANETA.GASOSO]: '/assets/planeta-gasoso.png',
 };
 
-export function aplicarAparenciaTipoPlaneta(sprite: AnimatedSprite, tipoPlaneta: string): void {
+export function aplicarAparenciaTipoPlaneta(sprite: AnimatedSprite, _tipoPlaneta: string): void {
   sprite.tint = 0xffffff;
 }
 
