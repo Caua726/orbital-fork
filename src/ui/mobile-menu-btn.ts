@@ -1,4 +1,4 @@
-import { abrirMobileNav } from './mobile-nav-sheet';
+import { abrirPauseMenu } from './pause-menu';
 import { marcarInteracaoUi } from './interacao-ui';
 import { pulseElement } from './animations.css';
 
@@ -57,7 +57,7 @@ export function criarMobileMenuBtn(): HTMLButtonElement {
     e.preventDefault();
     marcarInteracaoUi();
     pulseElement(btn);
-    abrirMobileNav();
+    abrirPauseMenu();
   });
   document.body.appendChild(btn);
   _button = btn;

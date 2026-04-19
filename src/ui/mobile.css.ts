@@ -129,9 +129,23 @@ export function injectMobileStyles(): void {
     body.size-sm .nwm-btn,
     body.size-sm .confirm-btn,
     body.size-sm .menu-btn {
-      min-height: 52px !important;
+      min-height: 56px !important;
+      font-size: 18px !important;
+      padding: 14px 20px !important;
+      letter-spacing: 0.04em !important;
+    }
+    body.size-sm .pm-card {
+      padding: 24px 18px !important;
+      gap: 12px !important;
+      width: min(92vw, 360px) !important;
+    }
+    body.size-sm .pm-title {
+      font-size: 22px !important;
+      margin-bottom: 18px !important;
+    }
+    body.size-sm .pm-confirm-msg {
       font-size: 16px !important;
-      padding: 12px 18px !important;
+      line-height: 1.4 !important;
     }
 
     /* ── Build panel cards + tabs: finger-friendly. */
@@ -247,16 +261,52 @@ export function injectMobileStyles(): void {
       display: none !important;
     }
 
-    /* ── Planet drawer text + pills. */
+    /* ── Planet drawer text + pills. Fixed px, independent of --hud-unit. */
     body.size-sm .planeta-drawer {
-      font-size: 15px !important;
+      font-size: 16px !important;
       display: flex !important;
       flex-direction: column !important;
+    }
+    body.size-sm .planeta-drawer-name {
+      font-size: 22px !important;
+    }
+    body.size-sm .planeta-drawer-tipo {
+      font-size: 13px !important;
+      letter-spacing: 0.06em !important;
+    }
+    body.size-sm .planeta-drawer-owner,
+    body.size-sm .planeta-drawer-owner-name {
+      font-size: 14px !important;
+    }
+    body.size-sm .planeta-card-title {
+      font-size: 14px !important;
+      letter-spacing: 0.06em !important;
+    }
+    body.size-sm .planeta-resource-value {
+      font-size: 22px !important;
+    }
+    body.size-sm .planeta-resource-label {
+      font-size: 12px !important;
+      letter-spacing: 0.04em !important;
+    }
+    body.size-sm .planeta-stats-row,
+    body.size-sm .planeta-stats-label,
+    body.size-sm .planeta-stats-value {
+      font-size: 15px !important;
     }
     body.size-sm .planeta-drawer button,
     body.size-sm .planeta-drawer .drawer-pill {
       min-height: 44px !important;
       font-size: 14px !important;
+    }
+
+    /* ── Build panel cards: readable labels, not just icons. */
+    body.size-sm .build-card {
+      font-size: 13px !important;
+    }
+    body.size-sm .build-card-name,
+    body.size-sm .build-card-cost {
+      font-size: 13px !important;
     }
 
     /* ── Ship panel action icons need bigger tap targets. */

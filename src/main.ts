@@ -64,6 +64,7 @@ let _fimTocado = false;
 let _cinematicTime = 0;
 
 const _panState = { up: false, down: false, left: false, right: false };
+let _hudAcumMs = 0;
 
 // ─── Feature flags ──────────────────────────────────────────────────
 // All flags use the HABILITADO suffix for consistency with credits-bar.
@@ -772,16 +773,23 @@ function startTicker(): void {
 
     atualizarMundo(mundo, app, camera);
 
-    atualizarMinimap(camera);
-    atualizarPlanetPanel(mundo, app);
-    atualizarPlanetaDrawer();
-    atualizarResourceBar(mundo);
-    atualizarBuildPanel(mundo);
-    atualizarShipPanel(mundo);
-    atualizarColonizerPanel(mundo);
-    atualizarColonyModal(mundo);
-    atualizarDebugMenu();
-    atualizarHudBannerErro();
+    // HUD refresh throttle — DOM mutations don't need 60 Hz. Cap to ~30 Hz
+    // (33 ms) so heavy panels (resource-bar, build-panel, ship-panel) run
+    // half as often without any visible lag.
+    _hudAcumMs += app.ticker.deltaMS;
+    if (_hudAcumMs >= 33) {
+      _hudAcumMs = 0;
+      atualizarMinimap(camera);
+      atualizarPlanetPanel(mundo, app);
+      atualizarPlanetaDrawer();
+      atualizarResourceBar(mundo);
+      atualizarBuildPanel(mundo);
+      atualizarShipPanel(mundo);
+      atualizarColonizerPanel(mundo);
+      atualizarColonyModal(mundo);
+      atualizarDebugMenu();
+      atualizarHudBannerErro();
+    }
 
     const estado = getEstadoJogo();
     if (estado === 'vitoria' && !_fimTocado) {
