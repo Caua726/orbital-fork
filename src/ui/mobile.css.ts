@@ -17,8 +17,9 @@ export function injectMobileStyles(): void {
       --hud-margin: clamp(12px, 2.4vmin, 22px) !important;
     }
 
-    /* ── Hide minimap on small screens — not useful and steals space. */
-    body.size-sm .minimap {
+    /* ── Hide minimap + zoom controls on small screens — pinça/duplo-toque substituem. */
+    body.size-sm .minimap,
+    body.size-sm .zoom-controls {
       display: none !important;
     }
 
@@ -107,18 +108,6 @@ export function injectMobileStyles(): void {
       min-height: 52px !important;
       font-size: 16px !important;
       padding: 12px 18px !important;
-    }
-
-    /* ── Zoom controls: larger and centered vertical on the right edge. */
-    body.size-sm .zoom-controls {
-      right: 12px !important;
-      bottom: 24vh !important;
-    }
-    body.size-sm .zoom-controls button {
-      width: 56px !important;
-      height: 56px !important;
-      font-size: 26px !important;
-      border-radius: 12px !important;
     }
 
     /* ── Build panel cards + tabs: finger-friendly. */
