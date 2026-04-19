@@ -416,12 +416,24 @@ function injectStyles(): void {
        card a pixel, thickens the accent and brightens text. */
     .nwm-preset-grid {
       display: grid;
-      /* 5 presets fit in one row on standard modal width (~34u inside)
-         with minmax(5.6u) = ~28u worth of cards + 4×0.5u gap + slack.
-         Reflows to 3 then 2 columns on narrow viewports naturally. */
-      grid-template-columns: repeat(auto-fit, minmax(calc(var(--hud-unit) * 5.6), 1fr));
+      /* Force exactly 5 columns so FORTALEZA doesn't get orphaned on a
+         second row when the modal is narrower than auto-fit expected.
+         minmax(0, 1fr) lets each column shrink below its content size
+         (combined with overflow-hidden + word-break on the card
+         itself) instead of flipping back to a wrapped layout. On very
+         narrow viewports the text wraps inside each cell. */
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: calc(var(--hud-unit) * 0.5);
       width: 100%;
+    }
+    /* Below ~460px the five columns get too squished to read — drop
+       to 3 then 2. Using a grid-breakpoint @media is cleaner than
+       auto-fit because it stays deterministic. */
+    @media (max-width: 560px) {
+      .nwm-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 380px) {
+      .nwm-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     .nwm-preset {
       position: relative;
