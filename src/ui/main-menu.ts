@@ -104,7 +104,7 @@ function injectStyles(): void {
       color: var(--hud-text);
       text-align: center;
       margin: 0 0 calc(var(--hud-unit) * 0.55);
-      line-height: 1;
+      line-height: 1.25;
     }
 
     .menu-subtitle {
