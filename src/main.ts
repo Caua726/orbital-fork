@@ -604,6 +604,23 @@ async function bootstrap(): Promise<void> {
   onAction('zoom_in', () => zoomIn());
   onAction('zoom_out', () => zoomOut());
 
+  // Focus selection: center the camera on whatever the player has
+  // selected right now. Ship > planet > sun priority — if nothing is
+  // selected, fall back to the player's home planet so the key never
+  // does nothing. Useful when piloting a ship (camera snaps back to
+  // the ship after panning away).
+  onAction('focar_alvo', () => {
+    if (!_mundo) return;
+    const nave = _mundo.naves.find((n) => n.selecionado && n.dono === 'jogador');
+    if (nave) { setCameraPos(nave.x, nave.y); return; }
+    const planeta = _mundo.planetas.find((p) => p.dados.selecionado);
+    if (planeta) { setCameraPos(planeta.x, planeta.y); return; }
+    const sol = _mundo.sois.find((s) => (s as any)._selecionado);
+    if (sol) { setCameraPos(sol.x, sol.y); return; }
+    const home = _mundo.planetas.find((p) => p.dados.dono === 'jogador');
+    if (home) setCameraPos(home.x, home.y);
+  });
+
   onAction('cancel_or_menu', () => {
     if (cancelarComandoNaveSeAtivo()) return;
     if (fecharDebugOverlays()) return;
