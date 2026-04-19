@@ -72,6 +72,65 @@ export function clampPeso(v: number): number {
   return Math.max(PESOS_MIN, Math.min(PESOS_MAX, v));
 }
 
+/**
+ * High-level personality axes exposed in the UI. Each is 0..1 and
+ * expands into the 6 underlying weights via pesosDeEixos().
+ *
+ *   postura: defensivo (0) ↔ agressivo (1)
+ *   foco:    econômico (0) ↔ científico (1)
+ *   ritmo:   contido (0) ↔ expansivo (1)
+ *
+ * The lore generator still reads the 6-weight genome; this is purely
+ * an authoring simplification.
+ */
+export interface EixosPersonalidade {
+  postura: number;
+  foco: number;
+  ritmo: number;
+}
+
+/** Convert high-level axes into the full 6-weight vector. */
+export function pesosDeEixos(eixos: EixosPersonalidade): PesosImperio {
+  const clamp = (v: number): number => Math.max(0, Math.min(1, v));
+  const p = clamp(eixos.postura);
+  const f = clamp(eixos.foco);
+  const r = clamp(eixos.ritmo);
+  return {
+    agressao: 0.3 + p * 1.2,                     // 0.3 .. 1.5
+    defesa:   1.4 - p * 1.0,                     // 1.4 .. 0.4
+    vinganca: 0.45 + p * 1.0,                    // 0.45 .. 1.45
+    economia: 1.45 - f * 1.0,                    // 1.45 .. 0.45
+    ciencia:  0.45 + f * 1.05,                   // 0.45 .. 1.5
+    expansao: 0.3 + r * 1.2,                     // 0.3 .. 1.5
+  };
+}
+
+/** Best-effort inverse of pesosDeEixos — used to seed the sliders from
+ *  an existing pesos state (so editing a random initial empire doesn't
+ *  snap all axes to 0.5). */
+export function eixosDePesos(pesos: PesosImperio): EixosPersonalidade {
+  const clamp = (v: number): number => Math.max(0, Math.min(1, v));
+  // Each axis recovered by inverting one of the linear forms.
+  const postura = (pesos.agressao - 0.3) / 1.2;
+  const foco = (pesos.ciencia - 0.45) / 1.05;
+  const ritmo = (pesos.expansao - 0.3) / 1.2;
+  return {
+    postura: clamp(postura),
+    foco: clamp(foco),
+    ritmo: clamp(ritmo),
+  };
+}
+
+/** Named quick-start presets — same concept as archetypes internally
+ *  but exposed to the player as "flavors" without the RPG vocabulary. */
+export const EIXOS_PRESETS: Array<{ id: string; nome: string; desc: string; eixos: EixosPersonalidade }> = [
+  { id: 'balanceado',   nome: 'Balanceado',   desc: 'Sem preferência forte em nenhum eixo.', eixos: { postura: 0.5, foco: 0.5, ritmo: 0.5 } },
+  { id: 'conquistador', nome: 'Conquistador', desc: 'Ataca primeiro. Expande rápido.',      eixos: { postura: 0.9, foco: 0.25, ritmo: 0.75 } },
+  { id: 'mercador',     nome: 'Mercador',     desc: 'Economia forte, crescimento calmo.',   eixos: { postura: 0.2, foco: 0.25, ritmo: 0.7 } },
+  { id: 'erudito',      nome: 'Erudito',      desc: 'Ciência primeiro. Defesa sólida.',     eixos: { postura: 0.35, foco: 0.9, ritmo: 0.4 } },
+  { id: 'fortaleza',    nome: 'Fortaleza',    desc: 'Defesa máxima. Pouca expansão.',       eixos: { postura: 0.2, foco: 0.45, ritmo: 0.25 } },
+];
+
 export function imperioJogadorDefault(): ImperioJogador {
   const imperio: ImperioJogador = {
     nome: 'Meu Império',

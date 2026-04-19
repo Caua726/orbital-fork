@@ -5,15 +5,15 @@ import { t } from '../core/i18n/t';
 import type { Dificuldade } from '../world/personalidade-ia';
 import {
   type ImperioJogador,
-  type PesosImperio,
   type ObjetivoImperio,
+  type EixosPersonalidade,
   imperioJogadorDefault,
-  clampPeso,
-  PESOS_MIN,
-  PESOS_MAX,
   derivarBonus,
   gerarLoreDoJogador,
   COR_JOGADOR_DEFAULT,
+  pesosDeEixos,
+  eixosDePesos,
+  EIXOS_PRESETS,
 } from '../world/imperio-jogador';
 import {
   gerarSigilo, gerarSigiloManual, seedVariacoes, novaSeed,
@@ -409,6 +409,80 @@ function injectStyles(): void {
       margin-top: calc(var(--hud-unit) * -0.4);
     }
 
+    /* ─ Personality quick-start presets ─ */
+    .nwm-preset-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(calc(var(--hud-unit) * 8), 1fr));
+      gap: calc(var(--hud-unit) * 0.35);
+    }
+    .nwm-preset {
+      text-align: left;
+      padding: calc(var(--hud-unit) * 0.45) calc(var(--hud-unit) * 0.55);
+      background: rgba(0,0,0,0.25);
+      border: 1px solid var(--hud-line);
+      border-radius: calc(var(--hud-radius) * 0.6);
+      color: var(--hud-text);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--hud-unit) * 0.15);
+      transition: background 120ms ease, border-color 120ms ease;
+      font-family: inherit;
+    }
+    .nwm-preset:hover { background: rgba(255,255,255,0.06); }
+    .nwm-preset.selected {
+      background: rgba(140, 224, 255, 0.12);
+      border-color: #8ce0ff;
+    }
+    .nwm-preset-title {
+      font-family: var(--hud-font-display);
+      font-size: calc(var(--hud-unit) * 0.88);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .nwm-preset-desc {
+      font-size: calc(var(--hud-unit) * 0.72);
+      color: var(--hud-text-dim);
+      line-height: 1.35;
+    }
+
+    /* ─ Axis sliders (spectrum ends labeled) ─ */
+    .nwm-axis-list {
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--hud-unit) * 0.6);
+    }
+    .nwm-axis-row {
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--hud-unit) * 0.2);
+    }
+    .nwm-axis-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: calc(var(--hud-unit) * 0.5);
+    }
+    .nwm-axis-name {
+      font-family: var(--hud-font);
+      font-size: calc(var(--hud-unit) * 0.82);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--hud-text);
+    }
+    .nwm-axis-ends {
+      display: flex;
+      gap: calc(var(--hud-unit) * 0.3);
+      align-items: baseline;
+      font-size: calc(var(--hud-unit) * 0.72);
+      color: var(--hud-text-dim);
+    }
+    .nwm-axis-end-sep { opacity: 0.5; }
+    .nwm-axis-hint {
+      font-size: calc(var(--hud-unit) * 0.7);
+      color: var(--hud-text-dim);
+    }
+
     /* ─ Objetivo cards ─ */
     .nwm-objetivo-grid {
       display: grid;
@@ -562,15 +636,6 @@ const DIFICULDADES: ReadonlyArray<[Dificuldade, string]> = [
   ['dificil',  'dificil'],
   ['brutal',   'brutal'],
   ['infernal', 'infernal'],
-];
-
-const PESOS_METADATA: ReadonlyArray<{ key: keyof PesosImperio; label: string; hint: string }> = [
-  { key: 'agressao', label: 'Agressão',  hint: 'Inclinação a atacar primeiro.' },
-  { key: 'expansao', label: 'Expansão',  hint: 'Velocidade para colonizar.' },
-  { key: 'economia', label: 'Economia',  hint: 'Prioridade a fábricas e produção.' },
-  { key: 'ciencia',  label: 'Ciência',   hint: 'Ritmo de pesquisa tecnológica.' },
-  { key: 'defesa',   label: 'Defesa',    hint: 'Peso em torretas e infraestrutura.' },
-  { key: 'vinganca', label: 'Vingança',  hint: 'Persistência contra agressores.' },
 ];
 
 const OBJETIVOS: ReadonlyArray<{ id: ObjetivoImperio; titulo: string; desc: string }> = [
@@ -840,56 +905,136 @@ function mountStepImperio(body: HTMLDivElement, state: WizardState, onChange: ()
   setTimeout(() => input.focus(), 0);
 }
 
+const AXIS_METADATA: ReadonlyArray<{
+  key: keyof EixosPersonalidade;
+  label: string;
+  low: string;
+  high: string;
+  hint: string;
+}> = [
+  { key: 'postura', label: 'Postura', low: 'Defensivo',  high: 'Agressivo',   hint: 'Quão cedo o império ataca — e quanto resiste.' },
+  { key: 'foco',    label: 'Foco',    low: 'Econômico',  high: 'Científico',  hint: 'Prioriza produção de recursos ou avanços de pesquisa.' },
+  { key: 'ritmo',   label: 'Ritmo',   low: 'Contido',    high: 'Expansivo',   hint: 'Velocidade com que coloniza novos mundos.' },
+];
+
+function applyEixos(state: WizardState, eixos: EixosPersonalidade): void {
+  state.imperio.pesos = pesosDeEixos(eixos);
+  state.imperio.bonus = derivarBonus(state.imperio.pesos);
+  state.loreCache = null;
+}
+
 function mountStepPersonalidade(body: HTMLDivElement, state: WizardState, onChange: () => void): void {
   const preview = buildEmpirePreview(state);
   body.appendChild(preview);
 
   const intro = document.createElement('div');
   intro.className = 'nwm-hint';
-  intro.textContent = `Valores entre ${PESOS_MIN.toFixed(1)} e ${PESOS_MAX.toFixed(1)}. Ajuste como prefere jogar — depois pode dar aleatório.`;
+  intro.textContent = 'Escolha um preset rápido ou ajuste os 3 eixos abaixo. Nada aqui é irreversível.';
   body.appendChild(intro);
 
-  const wrap = document.createElement('div');
-  wrap.className = 'nwm-sliders';
-  body.appendChild(wrap);
+  const presetsLabel = document.createElement('div');
+  presetsLabel.className = 'nwm-label';
+  presetsLabel.textContent = 'Preset rápido';
+  body.appendChild(presetsLabel);
 
-  for (const meta of PESOS_METADATA) {
+  const presets = document.createElement('div');
+  presets.className = 'nwm-preset-grid';
+  body.appendChild(presets);
+
+  const axisLabel = document.createElement('div');
+  axisLabel.className = 'nwm-label';
+  axisLabel.style.marginTop = 'calc(var(--hud-unit) * 0.3)';
+  axisLabel.textContent = 'Ajuste por eixo';
+  body.appendChild(axisLabel);
+
+  const axisWrap = document.createElement('div');
+  axisWrap.className = 'nwm-axis-list';
+  body.appendChild(axisWrap);
+
+  const currentEixos: EixosPersonalidade = eixosDePesos(state.imperio.pesos);
+  const axisSliders = new Map<keyof EixosPersonalidade, HTMLInputElement>();
+
+  function rebuildPresets(): void {
+    presets.replaceChildren();
+    for (const p of EIXOS_PRESETS) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const match =
+        Math.abs(currentEixos.postura - p.eixos.postura) < 0.08 &&
+        Math.abs(currentEixos.foco    - p.eixos.foco)    < 0.08 &&
+        Math.abs(currentEixos.ritmo   - p.eixos.ritmo)   < 0.08;
+      btn.className = `nwm-preset${match ? ' selected' : ''}`;
+      const title = document.createElement('div');
+      title.className = 'nwm-preset-title';
+      title.textContent = p.nome;
+      const desc = document.createElement('div');
+      desc.className = 'nwm-preset-desc';
+      desc.textContent = p.desc;
+      btn.append(title, desc);
+      btn.addEventListener('click', () => {
+        Object.assign(currentEixos, p.eixos);
+        applyEixos(state, currentEixos);
+        syncAll();
+      });
+      presets.appendChild(btn);
+    }
+  }
+
+  function syncAll(): void {
+    rebuildPresets();
+    for (const meta of AXIS_METADATA) {
+      const sl = axisSliders.get(meta.key);
+      if (sl) sl.value = String(currentEixos[meta.key]);
+    }
+    onChange();
+  }
+
+  for (const meta of AXIS_METADATA) {
     const row = document.createElement('div');
-    row.className = 'nwm-slider-row';
+    row.className = 'nwm-axis-row';
 
-    const label = document.createElement('div');
-    label.className = 'nwm-slider-label';
-    label.textContent = meta.label;
+    const labelRow = document.createElement('div');
+    labelRow.className = 'nwm-axis-label-row';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'nwm-axis-name';
+    nameEl.textContent = meta.label;
+    const endsEl = document.createElement('div');
+    endsEl.className = 'nwm-axis-ends';
+    const low = document.createElement('span');
+    low.className = 'nwm-axis-end';
+    low.textContent = meta.low;
+    const mid = document.createElement('span');
+    mid.className = 'nwm-axis-end-sep';
+    mid.textContent = '↔';
+    const high = document.createElement('span');
+    high.className = 'nwm-axis-end';
+    high.textContent = meta.high;
+    endsEl.append(low, mid, high);
+    labelRow.append(nameEl, endsEl);
+    row.appendChild(labelRow);
 
     const slider = document.createElement('input');
     slider.className = 'nwm-slider';
     slider.type = 'range';
-    slider.min = String(PESOS_MIN);
-    slider.max = String(PESOS_MAX);
-    slider.step = '0.05';
-    slider.value = String(state.imperio.pesos[meta.key]);
-
-    const value = document.createElement('div');
-    value.className = 'nwm-slider-value';
-    value.textContent = state.imperio.pesos[meta.key].toFixed(2);
-
+    slider.min = '0';
+    slider.max = '1';
+    slider.step = '0.01';
+    slider.value = String(currentEixos[meta.key]);
     slider.addEventListener('input', () => {
-      const v = clampPeso(parseFloat(slider.value));
-      state.imperio.pesos[meta.key] = v;
-      value.textContent = v.toFixed(2);
-      state.imperio.bonus = derivarBonus(state.imperio.pesos);
-      // Personality changes invalidate the lore cache — regen on lore step.
-      state.loreCache = null;
+      currentEixos[meta.key] = parseFloat(slider.value);
+      applyEixos(state, currentEixos);
+      rebuildPresets();
       onChange();
     });
-
-    row.append(label, slider, value);
-    wrap.appendChild(row);
+    row.appendChild(slider);
+    axisSliders.set(meta.key, slider);
 
     const hint = document.createElement('div');
-    hint.className = 'nwm-slider-hint';
+    hint.className = 'nwm-axis-hint';
     hint.textContent = meta.hint;
-    wrap.appendChild(hint);
+    row.appendChild(hint);
+
+    axisWrap.appendChild(row);
   }
 
   const randomBtn = document.createElement('button');
@@ -898,17 +1043,15 @@ function mountStepPersonalidade(body: HTMLDivElement, state: WizardState, onChan
   randomBtn.style.alignSelf = 'flex-end';
   randomBtn.textContent = 'Aleatorizar';
   randomBtn.addEventListener('click', () => {
-    for (const meta of PESOS_METADATA) {
-      state.imperio.pesos[meta.key] = clampPeso(Math.random() * PESOS_MAX);
-    }
-    state.imperio.bonus = derivarBonus(state.imperio.pesos);
-    state.loreCache = null;
-    // Rebuild the step to reflect new values.
-    body.replaceChildren();
-    mountStepPersonalidade(body, state, onChange);
-    onChange();
+    currentEixos.postura = Math.random();
+    currentEixos.foco = Math.random();
+    currentEixos.ritmo = Math.random();
+    applyEixos(state, currentEixos);
+    syncAll();
   });
   body.appendChild(randomBtn);
+
+  rebuildPresets();
 }
 
 function mountStepObjetivo(body: HTMLDivElement, state: WizardState, onChange: () => void): void {
