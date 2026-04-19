@@ -546,8 +546,19 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   profileAcumular('render_sois', tSois0);
 
   const tNaves0 = profileMark();
+  // Ship culling uses a wider margin than the planet/sun check: the
+  // existing bounds margin is already 600 world units, but we add a
+  // further 64px here for ships specifically. Ship sprites are up to
+  // 48px and the point position is the ship's CENTER — culling off
+  // the raw center produced a visible "pop" when the camera tracked
+  // a ship that crossed the cull threshold mid-frame.
+  const SHIP_CULL_PAD = 64;
   for (const nave of mundo.naves) {
-    const visNaTela = nave.x > esq && nave.x < dir && nave.y > cima && nave.y < baixo;
+    const visNaTela =
+      nave.x > esq - SHIP_CULL_PAD
+      && nave.x < dir + SHIP_CULL_PAD
+      && nave.y > cima - SHIP_CULL_PAD
+      && nave.y < baixo + SHIP_CULL_PAD;
     nave.gfx.visible = visNaTela;
     if (nave._selecaoAnterior !== nave.selecionado) {
       nave._selecaoAnterior = nave.selecionado;
