@@ -230,30 +230,43 @@ async function bootstrap(): Promise<void> {
     // WebGL drawCall + texture upload counters. We intercept the GL
     // context's draw*/tex*Image2D methods so the debug HUD knows exactly
     // what Pixi submitted this frame. Zero overhead when profiling is
-    // off because the HUD just reads the accumulator; incrementing a
-    // number inside a method wrap is a few ns.
+    // off — the HUD just reads the accumulator.
+    //
+    // Context-loss guard: if the canvas gets webglcontextlost, the
+    // wrapped draw/tex calls would keep firing into a dead context
+    // (spamming console errors). `_glHooksActive` disables the
+    // counter increments without un-wrapping the methods.
     const gl = (app.renderer as any).gl as (WebGL2RenderingContext | WebGLRenderingContext | undefined);
     if (gl && typeof gl.drawElements === 'function') {
+      let _glHooksActive = true;
+      const canvas = (app.renderer as any).canvas as HTMLCanvasElement | undefined;
+      canvas?.addEventListener('webglcontextlost', () => { _glHooksActive = false; });
+      canvas?.addEventListener('webglcontextrestored', () => { _glHooksActive = true; });
+
       const origDE = gl.drawElements.bind(gl);
       const origDA = gl.drawArrays.bind(gl);
       const origTI = gl.texImage2D.bind(gl);
       const origTS = gl.texSubImage2D.bind(gl);
       (gl as any).drawElements = (mode: number, count: number, type: number, offset: number) => {
-        profileContar('drawCalls', 1);
-        profileContar('triangles', (count / 3) | 0);
+        if (_glHooksActive) {
+          profileContar('drawCalls', 1);
+          profileContar('triangles', (count / 3) | 0);
+        }
         return origDE(mode, count, type, offset);
       };
       (gl as any).drawArrays = (mode: number, first: number, count: number) => {
-        profileContar('drawCalls', 1);
-        profileContar('triangles', (count / 3) | 0);
+        if (_glHooksActive) {
+          profileContar('drawCalls', 1);
+          profileContar('triangles', (count / 3) | 0);
+        }
         return origDA(mode, first, count);
       };
       (gl as any).texImage2D = (...args: unknown[]) => {
-        profileContar('textureUploads', 1);
+        if (_glHooksActive) profileContar('textureUploads', 1);
         return (origTI as any)(...args);
       };
       (gl as any).texSubImage2D = (...args: unknown[]) => {
-        profileContar('textureUploads', 1);
+        if (_glHooksActive) profileContar('textureUploads', 1);
         return (origTS as any)(...args);
       };
       const gl2 = gl as WebGL2RenderingContext;
@@ -262,8 +275,10 @@ async function bootstrap(): Promise<void> {
         (gl2 as any).drawElementsInstanced = (
           mode: number, count: number, type: number, offset: number, instanceCount: number,
         ) => {
-          profileContar('drawCalls', 1);
-          profileContar('triangles', ((count / 3) | 0) * instanceCount);
+          if (_glHooksActive) {
+            profileContar('drawCalls', 1);
+            profileContar('triangles', ((count / 3) | 0) * instanceCount);
+          }
           return origDEI(mode, count, type, offset, instanceCount);
         };
       }

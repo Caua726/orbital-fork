@@ -549,4 +549,9 @@ export function destruirFog(): void {
   _fogCanvas = null;
   _fogCtx = null;
   _fogFrame = 0;
+  // Reset the cached dims so the next session's preset-switch guard
+  // compares against a clean baseline instead of whatever the last
+  // session happened to leave behind.
+  _fogW = FOG_BASE_W;
+  _fogH = FOG_BASE_H;
 }

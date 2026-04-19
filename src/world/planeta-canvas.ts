@@ -605,6 +605,12 @@ export function renderPlanetParaImageData(
       const uvx = (px + 0.5) * uvStepX;
       const uvRawX = uvx;
       const uvPixX = Math.floor(uvx * uPixels) / uPixels;
+      // Zero the scratch so any pixel function that early-exits on
+      // outside-disc (setting only alpha=0) doesn't leak RGB from
+      // the previously-rendered pixel. Pixi premultiplies on upload
+      // so RGB is visually hidden anyway, but the leak kills the
+      // determinism guarantee we lean on for shader-parity tests.
+      _pixelOut[0] = 0; _pixelOut[1] = 0; _pixelOut[2] = 0; _pixelOut[3] = 0;
       switch (paleta.planetType) {
         case 0: terranPixel(ctx, uvPixX, uvPixY, uvRawX, uvRawY, _pixelOut); break;
         case 1: dryPixel(ctx, uvPixX, uvPixY, uvRawX, uvRawY, _pixelOut); break;
