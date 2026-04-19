@@ -160,6 +160,9 @@ export function setZoom(zoom: number): void {
 export function setCameraPos(x: number, y: number): void {
   camera.x = x;
   camera.y = y;
+  // Cancel any in-flight zoom tween — otherwise the next frame's lerp
+  // overwrites the explicit position (e.g. F-focus firing mid-tween).
+  cancelarZoomTween();
 }
 
 export function iniciarComandoNave(tipo: ComandoTipo, nave: Nave | null): void {
