@@ -216,7 +216,8 @@ export function injectMobileStyles(): void {
 
     /* ── FULLSCREEN MODAL for planet-drawer on mobile.
        Overrides all bottom-sheet rules. No slide-from-bottom,
-       no 85vh cap — covers the entire viewport. */
+       no 85vh cap — covers the entire viewport. Fully opaque bg
+       so the canvas game doesn't bleed through. */
     body.size-sm .planeta-drawer,
     body.portrait.size-md .planeta-drawer {
       position: fixed !important;
@@ -236,7 +237,8 @@ export function injectMobileStyles(): void {
       display: none !important;
       flex-direction: column !important;
       z-index: 950 !important;
-      overflow-y: auto !important;
+      overflow: hidden !important;
+      background: #050812 !important;
       animation: orbital-modal-fade-in 180ms ease !important;
       transition: opacity 180ms ease !important;
     }

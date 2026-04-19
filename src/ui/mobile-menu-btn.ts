@@ -36,6 +36,10 @@ function injectStyles(): void {
     body.portrait.size-md .mobile-menu-btn {
       display: flex;
     }
+    /* Hide while the main menu is showing — only relevant in-game. */
+    body:has(.main-menu:not(.hidden)) .mobile-menu-btn {
+      display: none !important;
+    }
     .mobile-menu-btn:active {
       transform: scale(0.92);
       background: rgba(30,60,100,0.95);
