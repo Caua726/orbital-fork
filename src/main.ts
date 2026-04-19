@@ -24,6 +24,7 @@ import { criarMinimap, atualizarMinimap, onMinimapClick, onMinimapZoomIn, onMini
 import { criarDebugMenu, atualizarDebugMenu, getDebugState, getCheats, destruirDebugMenu, setGameSpeed, fecharDebugOverlays, toggleDebugFast, toggleDebugFull } from './ui/debug-menu';
 import { installRootVariables } from './ui/hud-layout';
 import { instalarUiMode } from './core/ui-mode';
+import { criarZoomControls } from './ui/zoom-controls';
 import { criarPlanetPanel, atualizarPlanetPanel, destruirPlanetPanel } from './ui/planet-panel';
 import { atualizarPlanetaDrawer, destruirPlanetaDrawer } from './ui/planet-drawer';
 import { criarBuildPanel, atualizarBuildPanel, destruirBuildPanel } from './ui/build-panel';
@@ -777,6 +778,7 @@ async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJ
   if (planetaJogador) setCameraPos(planetaJogador.x, planetaJogador.y);
   setZoom(1.0);
   configurarCamera(app, mundo);
+  criarZoomControls();
 
   if (!_hudInstalled) {
     _hudInstalled = true;
