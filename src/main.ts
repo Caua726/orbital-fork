@@ -31,6 +31,7 @@ import { injectMobileStyles } from './ui/mobile.css';
 import { injectAnimations } from './ui/animations.css';
 import { criarPlanetPanel, atualizarPlanetPanel, destruirPlanetPanel } from './ui/planet-panel';
 import { atualizarPlanetaDrawer, destruirPlanetaDrawer } from './ui/planet-drawer';
+import { atualizarPlanetDetailsModal, destruirPlanetDetailsModal } from './ui/planet-details-modal';
 import { atualizarMobilePlanetaDrawer, destruirMobilePlanetaDrawer } from './ui/mobile-planet-drawer';
 import { atualizarStarDrawer } from './ui/star-drawer';
 import { criarBuildPanel, atualizarBuildPanel, destruirBuildPanel } from './ui/build-panel';
@@ -812,6 +813,7 @@ function startTicker(): void {
       atualizarPlanetPanel(mundo, app);
       if (isMobileRuntime()) atualizarMobilePlanetaDrawer();
       else atualizarPlanetaDrawer();
+      atualizarPlanetDetailsModal();
       atualizarStarDrawer();
       atualizarResourceBar(mundo);
       atualizarBuildPanel(mundo);
@@ -1200,6 +1202,7 @@ async function voltarAoMenu(): Promise<void> {
     destruirPlanetPanel();
     destruirPlanetaDrawer();
     destruirMobilePlanetaDrawer();
+    destruirPlanetDetailsModal();
     destruirBuildPanel();
     destruirShipPanel();
     destruirMobileShipPanel();

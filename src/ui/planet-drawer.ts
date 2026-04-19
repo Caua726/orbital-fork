@@ -22,6 +22,7 @@ import { abrirImperioLore } from './lore-modal';
 import { oreIcon, alloyIcon, fuelIcon } from './resource-bar';
 import { renderPlanetaParaCanvas, liberarPortraitPlaneta } from '../world/planeta-procedural';
 import { setCameraFollow } from '../core/player';
+import { abrirPlanetDetailsModal } from './planet-details-modal';
 
 let _modal: HTMLDivElement | null = null;
 let _bodyEl: HTMLDivElement | null = null;
@@ -183,6 +184,39 @@ function injectStyles(): void {
       border-color: var(--hud-border);
     }
     .planeta-drawer-focus svg { width: 60%; height: 60%; display: block; }
+
+    /* Header button row — keeps the focus + details buttons grouped
+       on the right side of the planet-drawer header so they share a
+       visual lane instead of floating inconsistently. */
+    .planeta-drawer-head-actions {
+      display: flex;
+      gap: calc(var(--hud-unit) * 0.3);
+      align-self: flex-start;
+      flex-shrink: 0;
+    }
+
+    /* "Ver detalhes" button — full-width below the header metadata so
+       it reads as a primary CTA without fighting the compact focus
+       icon. Same token family as other drawer buttons. */
+    .planeta-drawer-details-btn {
+      appearance: none;
+      margin: 0 calc(var(--hud-unit) * 0.8) calc(var(--hud-unit) * 0.4);
+      padding: calc(var(--hud-unit) * 0.55) calc(var(--hud-unit) * 0.9);
+      background: rgba(140, 190, 255, 0.10);
+      border: 1px solid rgba(140, 190, 255, 0.35);
+      color: var(--hud-text);
+      font-family: var(--hud-font);
+      font-size: calc(var(--hud-unit) * 0.78);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: calc(var(--hud-radius) * 0.5);
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+    .planeta-drawer-details-btn:hover {
+      background: rgba(140, 190, 255, 0.22);
+      border-color: rgba(140, 190, 255, 0.55);
+    }
 
     .planeta-drawer-body {
       padding: calc(var(--hud-unit) * 0.6) calc(var(--hud-unit) * 0.8) calc(var(--hud-unit) * 0.7);
@@ -495,6 +529,22 @@ function buildHeader(p: Planeta): HTMLDivElement {
   return head;
 }
 
+/** Primary "Ver detalhes" CTA rendered between the header and the
+ *  body cards. Opens the semi-fullscreen planet-details-modal with
+ *  the richer layout — two-column identity + resources + infra +
+ *  research, portrait on the left, live stats on the right. */
+function buildDetailsButton(p: Planeta, mundo: Mundo): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'planeta-drawer-details-btn';
+  btn.textContent = 'Ver detalhes';
+  btn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    void abrirPlanetDetailsModal(p, mundo);
+  });
+  return btn;
+}
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 export function buildFocusIcon(): SVGSVGElement {
@@ -637,6 +687,7 @@ export function abrirPlanetaDrawer(planeta: Planeta, mundo: Mundo): Promise<void
   _portraitCanvas = null;
   removeAllChildren(_modal);
   _modal.appendChild(buildHeader(planeta));
+  _modal.appendChild(buildDetailsButton(planeta, mundo));
   const body = document.createElement('div');
   body.className = 'planeta-drawer-body';
   _bodyEl = body;
