@@ -10,11 +10,27 @@ export function injectMobileStyles(): void {
   _injected = true;
   const style = document.createElement('style');
   style.textContent = `
-    /* ── HUD base unit: aggressive bump so derived text is readable. */
+    /* ── HUD base unit: 20px was too big — empire-badge ballooned to
+       108px tall and collided with resource-bar. Dial back and bump
+       specific text sizes in-place below. */
     body.size-sm,
     body.portrait.size-md {
-      --hud-unit: clamp(20px, 4vmin, 28px) !important;
-      --hud-margin: clamp(12px, 2.4vmin, 22px) !important;
+      --hud-unit: clamp(14px, 2.4vmin, 20px) !important;
+      --hud-margin: clamp(8px, 2vmin, 18px) !important;
+    }
+
+    /* Empire badge shrinks to fit the top strip without overlapping. */
+    body.size-sm .empire-badge {
+      min-height: 44px !important;
+      padding: 4px 10px !important;
+      font-size: 12px !important;
+    }
+    body.size-sm .empire-badge .empire-crest {
+      width: 26px !important;
+      height: 26px !important;
+    }
+    body.size-sm .empire-badge .empire-level {
+      font-size: 10px !important;
     }
 
     /* ── Hide minimap + zoom controls on small/portrait screens — pinça/duplo-toque substituem. */
@@ -65,10 +81,10 @@ export function injectMobileStyles(): void {
       height: 22px !important;
     }
 
-    /* Nudge top HUD below the hamburger strip. */
+    /* Nudge top HUD below the hamburger strip (64px btn + 14px top margin + 8px gap). */
     body.size-sm .resource-bar,
     body.size-sm .empire-badge {
-      top: 92px !important;
+      top: 88px !important;
     }
 
     /* ── Modal cards: card feel, not fullscreen slab. */
@@ -129,6 +145,45 @@ export function injectMobileStyles(): void {
       font-size: 14px !important;
     }
 
+    /* ── Drawer grabber + close button (mobile only). ─────────────── */
+    .planeta-drawer-grabber,
+    .planeta-drawer-close {
+      display: none;
+    }
+    body.size-sm .planeta-drawer-grabber,
+    body.portrait.size-md .planeta-drawer-grabber {
+      display: flex;
+      justify-content: center;
+      padding: 8px 0 4px;
+      cursor: grab;
+      touch-action: none;
+    }
+    .planeta-drawer-grabber-bar {
+      width: 48px;
+      height: 5px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.35);
+    }
+    body.size-sm .planeta-drawer-close,
+    body.portrait.size-md .planeta-drawer-close {
+      display: flex;
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 40px;
+      height: 40px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255,255,255,0.22);
+      background: rgba(10,20,35,0.6);
+      color: var(--hud-text, #e8f2ff);
+      border-radius: 10px;
+      font-size: 16px;
+      cursor: pointer;
+      touch-action: manipulation;
+      z-index: 3;
+    }
+
     /* ── Planeta drawer tabs (mobile only). ───────────────────────── */
     .planeta-drawer-tabs {
       display: none;
@@ -180,6 +235,11 @@ export function injectMobileStyles(): void {
       border: none !important;
       background: transparent !important;
       animation: none !important;
+      /* atualizarBuildPanel toggles .visible each frame; when embedded
+         the panel must always be visible regardless of its own class. */
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
     }
     /* Hide the standalone build-panel on mobile — lives inside drawer now */
     body.size-sm .build-panel:not(.embedded),

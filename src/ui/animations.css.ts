@@ -76,9 +76,11 @@ export function injectAnimations(): void {
       to   { opacity: 1; transform: translateX(0); }
     }
     /* Only applies when NOT in bottom-sheet mode (bottom-sheet has its
-       own slide-up keyframe in bottom-sheet.css). */
-    body:not(.size-sm.portrait) .bottom-sheet-capable,
-    body:not(.size-sm.portrait) .planeta-drawer {
+       own slide-up keyframe in bottom-sheet.css).
+       Note: :not(.a.b) matches elements missing EITHER class — we want
+       elements missing BOTH, which requires chained :not() (De Morgan). */
+    body:not(.size-sm):not(.portrait) .bottom-sheet-capable,
+    body:not(.size-sm):not(.portrait) .planeta-drawer {
       animation: orbital-slide-in-right 220ms cubic-bezier(0.2, 0, 0, 1);
     }
 
