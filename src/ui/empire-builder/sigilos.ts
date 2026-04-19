@@ -1,13 +1,17 @@
 /**
  * Procedural empire sigils.
  *
- * Composition: frame (outer enclosure) + motif (central symbol) +
- * optional ornament (rim flourish) + optional satellites (small
- * repeated elements orbiting the motif) + optional inner accent.
+ * Composition pipeline per seed:
+ *   1. Pick a base stroke width (used consistently across all layers).
+ *   2. Pick a frame (outer enclosure) — drives the dominant symmetry.
+ *   3. Pick a motif (central symbol), biased toward matching symmetry.
+ *   4. Optional inner thin ring between motif and frame (25%).
+ *   5. Optional satellites (dots/arcs) on that inner ring (35%).
+ *   6. Optional rim ornament (ticks/pips/corner brackets) (40%).
+ *   7. Optional center accent (tiny dot or ring at 24,24) (30%).
  *
- * Every parameter — which frame, which motif, whether satellites appear,
- * how many satellites, stroke width — is drawn from a seeded RNG so the
- * same seed always yields the same SVG. All strokes are pure white.
+ * Stroke width is constant within a single sigil for visual coherence;
+ * some motifs also use fill for weight contrast. All strokes white.
  */
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -29,6 +33,17 @@ function pick<T>(rng: () => number, arr: readonly T[]): T {
   return arr[Math.floor(rng() * arr.length)];
 }
 
+function pickWeighted<T>(rng: () => number, entries: ReadonlyArray<readonly [T, number]>): T {
+  let total = 0;
+  for (const [, w] of entries) total += w;
+  let r = rng() * total;
+  for (const [value, w] of entries) {
+    r -= w;
+    if (r <= 0) return value;
+  }
+  return entries[entries.length - 1][0];
+}
+
 // ─── SVG helpers ────────────────────────────────────────────────────
 
 function baseSvg(): SVGSVGElement {
@@ -41,379 +56,414 @@ function baseSvg(): SVGSVGElement {
   return svg;
 }
 
-function path(d: string, strokeWidth = 2): SVGPathElement {
+function strokedPath(d: string, strokeWidth: number): SVGPathElement {
   const p = document.createElementNS(SVG_NS, 'path');
   p.setAttribute('d', d);
   p.setAttribute('fill', 'none');
-  p.setAttribute('stroke-width', String(strokeWidth));
+  p.setAttribute('stroke-width', strokeWidth.toFixed(2));
   return p;
 }
 
-function circle(cx: number, cy: number, r: number, strokeWidth = 2): SVGCircleElement {
+function filledPath(d: string): SVGPathElement {
+  const p = document.createElementNS(SVG_NS, 'path');
+  p.setAttribute('d', d);
+  p.setAttribute('fill', '#ffffff');
+  p.setAttribute('stroke', 'none');
+  return p;
+}
+
+function strokedCircle(cx: number, cy: number, r: number, strokeWidth: number): SVGCircleElement {
   const c = document.createElementNS(SVG_NS, 'circle');
-  c.setAttribute('cx', String(cx));
-  c.setAttribute('cy', String(cy));
-  c.setAttribute('r', String(r));
+  c.setAttribute('cx', cx.toFixed(2));
+  c.setAttribute('cy', cy.toFixed(2));
+  c.setAttribute('r', r.toFixed(2));
   c.setAttribute('fill', 'none');
-  c.setAttribute('stroke-width', String(strokeWidth));
+  c.setAttribute('stroke-width', strokeWidth.toFixed(2));
   return c;
 }
 
-function dot(cx: number, cy: number, r: number): SVGCircleElement {
+function filledCircle(cx: number, cy: number, r: number): SVGCircleElement {
   const c = document.createElementNS(SVG_NS, 'circle');
-  c.setAttribute('cx', String(cx));
-  c.setAttribute('cy', String(cy));
-  c.setAttribute('r', String(r));
+  c.setAttribute('cx', cx.toFixed(2));
+  c.setAttribute('cy', cy.toFixed(2));
+  c.setAttribute('r', r.toFixed(2));
   c.setAttribute('fill', '#ffffff');
   c.setAttribute('stroke', 'none');
   return c;
 }
 
-// ─── Frames (outer enclosure) ───────────────────────────────────────
+// ─── Polygon builder ────────────────────────────────────────────────
+
+function regularPoly(cx: number, cy: number, r: number, sides: number, rot = 0): string {
+  const pts: string[] = [];
+  for (let i = 0; i < sides; i++) {
+    const a = rot + (i / sides) * Math.PI * 2;
+    pts.push(`${(cx + Math.cos(a) * r).toFixed(2)} ${(cy + Math.sin(a) * r).toFixed(2)}`);
+  }
+  return `M${pts.join(' L')} Z`;
+}
+
+function starPoly(cx: number, cy: number, r: number, rInner: number, points: number, rot = -Math.PI / 2): string {
+  const pts: string[] = [];
+  const n = points * 2;
+  for (let i = 0; i < n; i++) {
+    const a = rot + (i / n) * Math.PI * 2;
+    const rr = i % 2 === 0 ? r : rInner;
+    pts.push(`${(cx + Math.cos(a) * rr).toFixed(2)} ${(cy + Math.sin(a) * rr).toFixed(2)}`);
+  }
+  return `M${pts.join(' L')} Z`;
+}
+
+// ─── Frames ─────────────────────────────────────────────────────────
 
 type Frame =
   | 'nenhum'
   | 'circulo'
   | 'duplo-circulo'
-  | 'hex'
-  | 'hex-apontado'
+  | 'hex-pontudo'
+  | 'hex-chato'
   | 'escudo'
   | 'diamante'
-  | 'octogono';
+  | 'octogono'
+  | 'quadrado-rot';
+
+/** Symmetry order a motif should harmonize with when drawn inside the
+ *  given frame. 0 means "free" / any motif is fine. */
+const FRAME_SIMETRIA: Record<Frame, number> = {
+  'nenhum': 0,
+  'circulo': 0,
+  'duplo-circulo': 0,
+  'hex-pontudo': 6,
+  'hex-chato': 6,
+  'escudo': 0,
+  'diamante': 4,
+  'octogono': 8,
+  'quadrado-rot': 4,
+};
+
+/** Radial room the motif has inside the frame before colliding. */
+const FRAME_INNER: Record<Frame, number> = {
+  'nenhum': 19,
+  'circulo': 15,
+  'duplo-circulo': 13,
+  'hex-pontudo': 15,
+  'hex-chato': 14,
+  'escudo': 13.5,
+  'diamante': 13,
+  'octogono': 15,
+  'quadrado-rot': 13,
+};
 
 const FRAMES: readonly Frame[] = [
   'nenhum', 'circulo', 'duplo-circulo',
-  'hex', 'hex-apontado', 'escudo', 'diamante', 'octogono',
+  'hex-pontudo', 'hex-chato',
+  'escudo', 'diamante', 'octogono', 'quadrado-rot',
 ];
-
-/** How much radial room the frame leaves for the motif (percent of 22). */
-const FRAME_INNER_RADIUS: Record<Frame, number> = {
-  'nenhum': 18,
-  'circulo': 14,
-  'duplo-circulo': 12,
-  'hex': 14,
-  'hex-apontado': 14,
-  'escudo': 13,
-  'diamante': 13,
-  'octogono': 14,
-};
 
 function addFrame(svg: SVGSVGElement, kind: Frame, strokeWidth: number): void {
   switch (kind) {
     case 'nenhum':
       return;
     case 'circulo':
-      svg.appendChild(circle(24, 24, 20, strokeWidth));
+      svg.appendChild(strokedCircle(24, 24, 20, strokeWidth));
       return;
     case 'duplo-circulo':
-      svg.appendChild(circle(24, 24, 20, strokeWidth));
-      svg.appendChild(circle(24, 24, 17, strokeWidth * 0.7));
+      svg.appendChild(strokedCircle(24, 24, 20, strokeWidth));
+      svg.appendChild(strokedCircle(24, 24, 16.5, strokeWidth * 0.65));
       return;
-    case 'hex':
-    case 'hex-apontado': {
-      const pts: string[] = [];
-      const rot = kind === 'hex' ? Math.PI / 6 : 0;
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 + rot;
-        pts.push(`${(24 + Math.cos(a) * 20).toFixed(2)} ${(24 + Math.sin(a) * 20).toFixed(2)}`);
-      }
-      svg.appendChild(path(`M${pts.join(' L')} Z`, strokeWidth));
+    case 'hex-pontudo':
+      svg.appendChild(strokedPath(regularPoly(24, 24, 20, 6, -Math.PI / 2), strokeWidth));
       return;
-    }
+    case 'hex-chato':
+      svg.appendChild(strokedPath(regularPoly(24, 24, 20, 6, 0), strokeWidth));
+      return;
     case 'escudo':
-      svg.appendChild(path('M24 4 L42 10 L42 24 C42 33 34 42 24 44 C14 42 6 33 6 24 L6 10 Z', strokeWidth));
+      svg.appendChild(strokedPath(
+        'M24 4 L42 10 L42 24 C42 33 34 42 24 44 C14 42 6 33 6 24 L6 10 Z',
+        strokeWidth,
+      ));
       return;
     case 'diamante':
-      svg.appendChild(path('M24 4 L44 24 L24 44 L4 24 Z', strokeWidth));
+      svg.appendChild(strokedPath('M24 4 L44 24 L24 44 L4 24 Z', strokeWidth));
       return;
-    case 'octogono': {
-      const pts: string[] = [];
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-        pts.push(`${(24 + Math.cos(a) * 20).toFixed(2)} ${(24 + Math.sin(a) * 20).toFixed(2)}`);
-      }
-      svg.appendChild(path(`M${pts.join(' L')} Z`, strokeWidth));
+    case 'octogono':
+      svg.appendChild(strokedPath(regularPoly(24, 24, 20, 8, Math.PI / 8), strokeWidth));
       return;
-    }
+    case 'quadrado-rot':
+      svg.appendChild(strokedPath(regularPoly(24, 24, 19, 4, Math.PI / 4), strokeWidth));
+      return;
   }
 }
 
-// ─── Motifs (central symbol) ────────────────────────────────────────
+// ─── Motifs ─────────────────────────────────────────────────────────
 
-type Motif =
-  | 'estrela-4'
-  | 'estrela-5'
-  | 'estrela-6'
-  | 'estrela-8'
-  | 'cruz'
-  | 'cruz-pomada'
-  | 'triangulo'
-  | 'triangulo-inv'
-  | 'triangulos-opostos'
-  | 'anel'
-  | 'anel-duplo'
+type MotifKind =
+  // radial, "symmetric N"
+  | 'estrela-4' | 'estrela-5' | 'estrela-6' | 'estrela-8'
+  | 'estrela-4-cheia' | 'estrela-6-cheia'
+  | 'triangulo' | 'triangulo-cheio'
+  | 'hexagrama'
+  | 'cruz-larga' | 'cruz-pomada'
+  | 'anel' | 'anel-duplo' | 'alvo'
   | 'orbe'
   | 'olho'
   | 'atomo'
   | 'engrenagem'
+  | 'sol-raiado'
+  | 'crescente'
+  | 'seta-para-cima'
   | 'asa'
-  | 'raio'
-  | 'seta'
-  | 'pontos-triangulo'
-  | 'barras-horiz'
-  | 'barras-diag'
-  | 'chevron'
-  | 'circulo-preenchido'
-  | 'crescente';
+  | 'chevron-triplo'
+  | 'disco';
 
-const MOTIFS: readonly Motif[] = [
-  'estrela-4', 'estrela-5', 'estrela-6', 'estrela-8',
-  'cruz', 'cruz-pomada',
-  'triangulo', 'triangulo-inv', 'triangulos-opostos',
-  'anel', 'anel-duplo', 'orbe', 'olho',
-  'atomo', 'engrenagem', 'asa',
-  'raio', 'seta', 'pontos-triangulo',
-  'barras-horiz', 'barras-diag', 'chevron',
-  'circulo-preenchido', 'crescente',
-];
+/** Natural symmetry order of each motif (0 = free / no strong order). */
+const MOTIF_SIM: Record<MotifKind, number> = {
+  'estrela-4': 4, 'estrela-5': 5, 'estrela-6': 6, 'estrela-8': 8,
+  'estrela-4-cheia': 4, 'estrela-6-cheia': 6,
+  'triangulo': 3, 'triangulo-cheio': 3,
+  'hexagrama': 6,
+  'cruz-larga': 4, 'cruz-pomada': 4,
+  'anel': 0, 'anel-duplo': 0, 'alvo': 0,
+  'orbe': 0,
+  'olho': 0,
+  'atomo': 3,
+  'engrenagem': 8,
+  'sol-raiado': 8,
+  'crescente': 0,
+  'seta-para-cima': 0,
+  'asa': 0,
+  'chevron-triplo': 0,
+  'disco': 0,
+};
 
-/** Build a motif scaled so its bounding radius is ≤ `r` around (24,24). */
-function addMotif(svg: SVGSVGElement, kind: Motif, r: number, strokeWidth: number): void {
-  // Helper to make star-shaped polygons at the current radius.
-  const starPoly = (points: number, innerRatio: number, rotate = -Math.PI / 2): string => {
-    const pts: string[] = [];
-    const n = points * 2;
-    for (let i = 0; i < n; i++) {
-      const a = rotate + (i / n) * Math.PI * 2;
-      const rr = i % 2 === 0 ? r : r * innerRatio;
-      pts.push(`${(24 + Math.cos(a) * rr).toFixed(2)} ${(24 + Math.sin(a) * rr).toFixed(2)}`);
-    }
-    return `M${pts.join(' L')} Z`;
-  };
+const MOTIFS: readonly MotifKind[] = Object.keys(MOTIF_SIM) as MotifKind[];
 
+function addMotif(svg: SVGSVGElement, kind: MotifKind, r: number, strokeWidth: number): void {
+  const cx = 24, cy = 24;
   switch (kind) {
     case 'estrela-4':
-      svg.appendChild(path(starPoly(4, 0.42), strokeWidth));
+      svg.appendChild(strokedPath(starPoly(cx, cy, r, r * 0.42, 4), strokeWidth));
       return;
     case 'estrela-5':
-      svg.appendChild(path(starPoly(5, 0.42), strokeWidth));
+      svg.appendChild(strokedPath(starPoly(cx, cy, r, r * 0.42, 5), strokeWidth));
       return;
     case 'estrela-6':
-      svg.appendChild(path(starPoly(6, 0.55), strokeWidth));
+      svg.appendChild(strokedPath(starPoly(cx, cy, r, r * 0.55, 6), strokeWidth));
       return;
     case 'estrela-8':
-      svg.appendChild(path(starPoly(8, 0.48), strokeWidth));
+      svg.appendChild(strokedPath(starPoly(cx, cy, r, r * 0.48, 8), strokeWidth));
       return;
-    case 'cruz':
-      svg.appendChild(path(
-        `M24 ${24 - r} L24 ${24 + r} M${24 - r} 24 L${24 + r} 24`,
-        strokeWidth * 1.2,
+    case 'estrela-4-cheia':
+      svg.appendChild(filledPath(starPoly(cx, cy, r, r * 0.38, 4)));
+      return;
+    case 'estrela-6-cheia':
+      svg.appendChild(filledPath(starPoly(cx, cy, r, r * 0.5, 6)));
+      return;
+    case 'triangulo':
+      svg.appendChild(strokedPath(regularPoly(cx, cy, r, 3, -Math.PI / 2), strokeWidth));
+      return;
+    case 'triangulo-cheio':
+      svg.appendChild(filledPath(regularPoly(cx, cy, r, 3, -Math.PI / 2)));
+      return;
+    case 'hexagrama':
+      svg.appendChild(strokedPath(regularPoly(cx, cy, r, 3, -Math.PI / 2), strokeWidth));
+      svg.appendChild(strokedPath(regularPoly(cx, cy, r, 3, Math.PI / 2), strokeWidth));
+      return;
+    case 'cruz-larga':
+      svg.appendChild(strokedPath(
+        `M${cx} ${cy - r} L${cx} ${cy + r} M${cx - r} ${cy} L${cx + r} ${cy}`,
+        strokeWidth * 1.3,
       ));
       return;
     case 'cruz-pomada': {
-      const a = r * 0.9;
-      svg.appendChild(path(
-        `M24 ${24 - a} L24 ${24 + a} M${24 - a} 24 L${24 + a} 24`,
+      const a = r * 0.92;
+      svg.appendChild(strokedPath(
+        `M${cx} ${cy - a} L${cx} ${cy + a} M${cx - a} ${cy} L${cx + a} ${cy}`,
         strokeWidth * 1.1,
       ));
       const b = r * 0.18;
-      svg.appendChild(circle(24, 24 - a, b, strokeWidth));
-      svg.appendChild(circle(24, 24 + a, b, strokeWidth));
-      svg.appendChild(circle(24 - a, 24, b, strokeWidth));
-      svg.appendChild(circle(24 + a, 24, b, strokeWidth));
+      svg.appendChild(filledCircle(cx, cy - a, b));
+      svg.appendChild(filledCircle(cx, cy + a, b));
+      svg.appendChild(filledCircle(cx - a, cy, b));
+      svg.appendChild(filledCircle(cx + a, cy, b));
       return;
     }
-    case 'triangulo':
-      svg.appendChild(path(starPoly(3, 1, -Math.PI / 2), strokeWidth));
-      return;
-    case 'triangulo-inv':
-      svg.appendChild(path(starPoly(3, 1, Math.PI / 2), strokeWidth));
-      return;
-    case 'triangulos-opostos':
-      svg.appendChild(path(starPoly(3, 1, -Math.PI / 2), strokeWidth * 0.9));
-      svg.appendChild(path(starPoly(3, 1, Math.PI / 2), strokeWidth * 0.9));
-      return;
     case 'anel':
-      svg.appendChild(circle(24, 24, r * 0.85, strokeWidth));
+      svg.appendChild(strokedCircle(cx, cy, r * 0.85, strokeWidth));
       return;
     case 'anel-duplo':
-      svg.appendChild(circle(24, 24, r * 0.85, strokeWidth));
-      svg.appendChild(circle(24, 24, r * 0.45, strokeWidth * 0.8));
+      svg.appendChild(strokedCircle(cx, cy, r * 0.9, strokeWidth));
+      svg.appendChild(strokedCircle(cx, cy, r * 0.5, strokeWidth * 0.85));
+      return;
+    case 'alvo':
+      svg.appendChild(strokedCircle(cx, cy, r * 0.9, strokeWidth));
+      svg.appendChild(strokedCircle(cx, cy, r * 0.55, strokeWidth * 0.8));
+      svg.appendChild(filledCircle(cx, cy, r * 0.2));
       return;
     case 'orbe': {
       const rr = r * 0.85;
-      svg.appendChild(circle(24, 24, rr, strokeWidth));
-      svg.appendChild(path(
-        `M${24 - rr} 24 L${24 + rr} 24 M24 ${24 - rr} Q${24 + rr * 0.6} 24 24 ${24 + rr} M24 ${24 - rr} Q${24 - rr * 0.6} 24 24 ${24 + rr}`,
+      svg.appendChild(strokedCircle(cx, cy, rr, strokeWidth));
+      svg.appendChild(strokedPath(
+        `M${cx - rr} ${cy} L${cx + rr} ${cy} M${cx} ${cy - rr} Q${cx + rr * 0.6} ${cy} ${cx} ${cy + rr} M${cx} ${cy - rr} Q${cx - rr * 0.6} ${cy} ${cx} ${cy + rr}`,
         strokeWidth * 0.8,
       ));
       return;
     }
     case 'olho': {
       const rr = r * 0.95;
-      svg.appendChild(path(
-        `M${24 - rr} 24 Q24 ${24 - rr * 0.6} ${24 + rr} 24 Q24 ${24 + rr * 0.6} ${24 - rr} 24 Z`,
+      svg.appendChild(strokedPath(
+        `M${cx - rr} ${cy} Q${cx} ${cy - rr * 0.6} ${cx + rr} ${cy} Q${cx} ${cy + rr * 0.6} ${cx - rr} ${cy} Z`,
         strokeWidth,
       ));
-      svg.appendChild(dot(24, 24, r * 0.22));
+      svg.appendChild(filledCircle(cx, cy, r * 0.22));
       return;
     }
     case 'atomo': {
-      svg.appendChild(dot(24, 24, r * 0.16));
+      svg.appendChild(filledCircle(cx, cy, r * 0.16));
       for (let i = 0; i < 3; i++) {
         const e = document.createElementNS(SVG_NS, 'ellipse');
-        e.setAttribute('cx', '24');
-        e.setAttribute('cy', '24');
-        e.setAttribute('rx', String(r * 0.9));
-        e.setAttribute('ry', String(r * 0.42));
+        e.setAttribute('cx', cx.toFixed(2));
+        e.setAttribute('cy', cy.toFixed(2));
+        e.setAttribute('rx', (r * 0.9).toFixed(2));
+        e.setAttribute('ry', (r * 0.4).toFixed(2));
         e.setAttribute('fill', 'none');
-        e.setAttribute('stroke-width', String(strokeWidth * 0.8));
-        e.setAttribute('transform', `rotate(${i * 60} 24 24)`);
+        e.setAttribute('stroke-width', (strokeWidth * 0.85).toFixed(2));
+        e.setAttribute('transform', `rotate(${i * 60} ${cx} ${cy})`);
         svg.appendChild(e);
       }
       return;
     }
     case 'engrenagem': {
-      const rr = r * 0.75;
-      svg.appendChild(circle(24, 24, rr * 0.45, strokeWidth));
-      svg.appendChild(circle(24, 24, rr, strokeWidth));
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        const x1 = 24 + Math.cos(a) * rr;
-        const y1 = 24 + Math.sin(a) * rr;
-        const x2 = 24 + Math.cos(a) * r;
-        const y2 = 24 + Math.sin(a) * r;
-        svg.appendChild(path(`M${x1.toFixed(2)} ${y1.toFixed(2)} L${x2.toFixed(2)} ${y2.toFixed(2)}`, strokeWidth));
+      const teeth = 8;
+      const rInner = r * 0.7;
+      const rOuter = r;
+      const rHub = r * 0.28;
+      const notchHalf = Math.PI / teeth * 0.45;
+      const pts: string[] = [];
+      for (let i = 0; i < teeth; i++) {
+        const a0 = (i / teeth) * Math.PI * 2 - notchHalf;
+        const a1 = (i / teeth) * Math.PI * 2 + notchHalf;
+        const a2 = ((i + 1) / teeth) * Math.PI * 2 - notchHalf;
+        pts.push(`${(cx + Math.cos(a0) * rOuter).toFixed(2)} ${(cy + Math.sin(a0) * rOuter).toFixed(2)}`);
+        pts.push(`${(cx + Math.cos(a1) * rOuter).toFixed(2)} ${(cy + Math.sin(a1) * rOuter).toFixed(2)}`);
+        pts.push(`${(cx + Math.cos(a2) * rInner).toFixed(2)} ${(cy + Math.sin(a2) * rInner).toFixed(2)}`);
       }
+      svg.appendChild(strokedPath(`M${pts.join(' L')} Z`, strokeWidth));
+      svg.appendChild(strokedCircle(cx, cy, rHub, strokeWidth * 0.9));
+      return;
+    }
+    case 'sol-raiado': {
+      const rays = 12;
+      svg.appendChild(strokedCircle(cx, cy, r * 0.45, strokeWidth));
+      for (let i = 0; i < rays; i++) {
+        const a = (i / rays) * Math.PI * 2;
+        const x1 = cx + Math.cos(a) * r * 0.6;
+        const y1 = cy + Math.sin(a) * r * 0.6;
+        const x2 = cx + Math.cos(a) * r * (i % 2 === 0 ? 1 : 0.85);
+        const y2 = cy + Math.sin(a) * r * (i % 2 === 0 ? 1 : 0.85);
+        svg.appendChild(strokedPath(`M${x1.toFixed(2)} ${y1.toFixed(2)} L${x2.toFixed(2)} ${y2.toFixed(2)}`, strokeWidth * 0.9));
+      }
+      return;
+    }
+    case 'crescente': {
+      const rr = r * 0.92;
+      // Outer circle minus inner offset circle via path.
+      svg.appendChild(filledPath(
+        `M${cx - rr * 0.2} ${cy - rr}
+         A${rr} ${rr} 0 1 0 ${cx - rr * 0.2} ${cy + rr}
+         A${rr * 0.78} ${rr * 0.92} 0 1 1 ${cx - rr * 0.2} ${cy - rr} Z`,
+      ));
+      return;
+    }
+    case 'seta-para-cima': {
+      const rr = r * 0.95;
+      svg.appendChild(filledPath(
+        `M${cx} ${cy - rr}
+         L${cx + rr * 0.85} ${cy - rr * 0.1}
+         L${cx + rr * 0.38} ${cy - rr * 0.1}
+         L${cx + rr * 0.38} ${cy + rr * 0.9}
+         L${cx - rr * 0.38} ${cy + rr * 0.9}
+         L${cx - rr * 0.38} ${cy - rr * 0.1}
+         L${cx - rr * 0.85} ${cy - rr * 0.1} Z`,
+      ));
       return;
     }
     case 'asa': {
       const rr = r * 0.95;
-      svg.appendChild(path(
-        `M24 ${24 - rr * 0.6} Q${24 - rr} ${24 - rr * 0.2} ${24 - rr} ${24 + rr * 0.3}
-         Q${24 - rr * 0.4} 24 24 ${24 + rr * 0.1}
-         Q${24 + rr * 0.4} 24 ${24 + rr} ${24 + rr * 0.3}
-         Q${24 + rr} ${24 - rr * 0.2} 24 ${24 - rr * 0.6} Z`,
+      svg.appendChild(strokedPath(
+        `M${cx} ${cy - rr * 0.55} Q${cx - rr * 1.05} ${cy - rr * 0.2} ${cx - rr * 0.95} ${cy + rr * 0.3}
+         Q${cx - rr * 0.45} ${cy - rr * 0.05} ${cx} ${cy + rr * 0.15}
+         Q${cx + rr * 0.45} ${cy - rr * 0.05} ${cx + rr * 0.95} ${cy + rr * 0.3}
+         Q${cx + rr * 1.05} ${cy - rr * 0.2} ${cx} ${cy - rr * 0.55} Z`,
         strokeWidth,
       ));
-      svg.appendChild(path(`M24 ${24 - rr * 0.6} L24 ${24 + rr}`, strokeWidth * 0.8));
+      svg.appendChild(strokedPath(`M${cx} ${cy - rr * 0.55} L${cx} ${cy + rr}`, strokeWidth * 0.85));
       return;
     }
-    case 'raio':
-      svg.appendChild(path(
-        `M${24 + r * 0.2} ${24 - r} L${24 - r * 0.6} ${24 + r * 0.2}
-         L${24 - r * 0.1} ${24 + r * 0.2} L${24 - r * 0.5} ${24 + r}
-         L${24 + r * 0.5} ${24 - r * 0.2} L${24} ${24 - r * 0.2}
-         L${24 + r * 0.4} ${24 - r} Z`,
-        strokeWidth,
-      ));
-      return;
-    case 'seta':
-      svg.appendChild(path(
-        `M24 ${24 - r} L${24 + r * 0.9} ${24} L${24 + r * 0.35} ${24}
-         L${24 + r * 0.35} ${24 + r} L${24 - r * 0.35} ${24 + r}
-         L${24 - r * 0.35} ${24} L${24 - r * 0.9} ${24} Z`,
-        strokeWidth,
-      ));
-      return;
-    case 'pontos-triangulo': {
-      const rr = r * 0.85;
-      const a1 = -Math.PI / 2;
-      const a2 = a1 + (2 * Math.PI) / 3;
-      const a3 = a1 + (4 * Math.PI) / 3;
-      const p1 = [24 + Math.cos(a1) * rr, 24 + Math.sin(a1) * rr];
-      const p2 = [24 + Math.cos(a2) * rr, 24 + Math.sin(a2) * rr];
-      const p3 = [24 + Math.cos(a3) * rr, 24 + Math.sin(a3) * rr];
-      svg.appendChild(path(`M${p1[0]} ${p1[1]} L${p2[0]} ${p2[1]} L${p3[0]} ${p3[1]} Z`, strokeWidth * 0.7));
-      svg.appendChild(dot(p1[0], p1[1], r * 0.18));
-      svg.appendChild(dot(p2[0], p2[1], r * 0.18));
-      svg.appendChild(dot(p3[0], p3[1], r * 0.18));
-      return;
-    }
-    case 'barras-horiz':
+    case 'chevron-triplo': {
+      const rr = r * 0.9;
       for (let i = 0; i < 3; i++) {
-        const y = 24 + (i - 1) * r * 0.5;
-        svg.appendChild(path(`M${24 - r * 0.9} ${y.toFixed(2)} L${24 + r * 0.9} ${y.toFixed(2)}`, strokeWidth * 1.2));
+        const y = cy - rr * 0.65 + i * rr * 0.55;
+        svg.appendChild(strokedPath(
+          `M${cx - rr} ${y + rr * 0.35} L${cx} ${y - rr * 0.15} L${cx + rr} ${y + rr * 0.35}`,
+          strokeWidth,
+        ));
       }
       return;
-    case 'barras-diag':
-      for (let i = 0; i < 3; i++) {
-        const o = (i - 1) * r * 0.45;
-        svg.appendChild(path(`M${(24 - r * 0.9 + o).toFixed(2)} ${(24 + r * 0.9).toFixed(2)} L${(24 + r * 0.9 + o).toFixed(2)} ${(24 - r * 0.9).toFixed(2)}`, strokeWidth * 1.2));
-      }
-      return;
-    case 'chevron': {
-      const rr = r * 0.9;
-      svg.appendChild(path(
-        `M${24 - rr} ${24 + rr * 0.4} L24 ${24 - rr * 0.4} L${24 + rr} ${24 + rr * 0.4} M${24 - rr} ${24 + rr * 0.95} L24 ${24 + rr * 0.15} L${24 + rr} ${24 + rr * 0.95}`,
-        strokeWidth,
-      ));
-      return;
     }
-    case 'circulo-preenchido':
-      svg.appendChild(dot(24, 24, r * 0.7));
+    case 'disco':
+      svg.appendChild(filledCircle(cx, cy, r * 0.72));
       return;
-    case 'crescente': {
-      const rr = r * 0.9;
-      // Crescent = big circle minus offset smaller circle, approximated
-      // with a path. The offset pushes the "bite" to the right.
-      svg.appendChild(path(
-        `M${24 - rr * 0.3} ${24 - rr} A${rr} ${rr} 0 1 0 ${24 - rr * 0.3} ${24 + rr} A${rr * 0.75} ${rr * 0.9} 0 1 1 ${24 - rr * 0.3} ${24 - rr} Z`,
-        strokeWidth,
-      ));
-      return;
-    }
   }
 }
 
-// ─── Ornaments (rim flourish) ───────────────────────────────────────
+// ─── Ornaments ──────────────────────────────────────────────────────
 
-type Ornament = 'nenhum' | 'ticks-4' | 'ticks-8' | 'ticks-12' | 'pontos-4' | 'pontos-8' | 'cantos';
+type Ornament = 'nenhum' | 'ticks-4' | 'ticks-6' | 'ticks-8' | 'ticks-12' | 'pontos-6' | 'pontos-8' | 'cantos';
 const ORNAMENTS: readonly Ornament[] = [
-  'nenhum', 'ticks-4', 'ticks-8', 'ticks-12',
-  'pontos-4', 'pontos-8', 'cantos',
+  'nenhum', 'ticks-4', 'ticks-6', 'ticks-8', 'ticks-12', 'pontos-6', 'pontos-8', 'cantos',
 ];
 
 function addOrnament(svg: SVGSVGElement, kind: Ornament, strokeWidth: number): void {
+  const cx = 24, cy = 24;
   switch (kind) {
     case 'nenhum':
       return;
     case 'ticks-4':
+    case 'ticks-6':
     case 'ticks-8':
     case 'ticks-12': {
-      const n = kind === 'ticks-4' ? 4 : kind === 'ticks-8' ? 8 : 12;
+      const n = kind === 'ticks-4' ? 4 : kind === 'ticks-6' ? 6 : kind === 'ticks-8' ? 8 : 12;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2;
-        const x1 = 24 + Math.cos(a) * 19;
-        const y1 = 24 + Math.sin(a) * 19;
-        const x2 = 24 + Math.cos(a) * 22;
-        const y2 = 24 + Math.sin(a) * 22;
-        svg.appendChild(path(`M${x1.toFixed(2)} ${y1.toFixed(2)} L${x2.toFixed(2)} ${y2.toFixed(2)}`, strokeWidth * 0.8));
+        const x1 = cx + Math.cos(a) * 19.2;
+        const y1 = cy + Math.sin(a) * 19.2;
+        const x2 = cx + Math.cos(a) * 22;
+        const y2 = cy + Math.sin(a) * 22;
+        svg.appendChild(strokedPath(`M${x1.toFixed(2)} ${y1.toFixed(2)} L${x2.toFixed(2)} ${y2.toFixed(2)}`, strokeWidth * 0.8));
       }
       return;
     }
-    case 'pontos-4':
+    case 'pontos-6':
     case 'pontos-8': {
-      const n = kind === 'pontos-4' ? 4 : 8;
+      const n = kind === 'pontos-6' ? 6 : 8;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2 + Math.PI / n;
-        const x = 24 + Math.cos(a) * 21;
-        const y = 24 + Math.sin(a) * 21;
-        svg.appendChild(dot(x, y, 0.9));
+        svg.appendChild(filledCircle(cx + Math.cos(a) * 21, cy + Math.sin(a) * 21, 0.9));
       }
       return;
     }
     case 'cantos': {
       const s = 5;
       const gap = 4;
-      const corners = [
+      const corners: Array<[number, number, number, number]> = [
         [gap, gap, 1, 1],
         [48 - gap, gap, -1, 1],
         [gap, 48 - gap, 1, -1],
         [48 - gap, 48 - gap, -1, -1],
       ];
       for (const [x, y, dx, dy] of corners) {
-        svg.appendChild(path(
+        svg.appendChild(strokedPath(
           `M${x} ${y + dy * s} L${x} ${y} L${x + dx * s} ${y}`,
           strokeWidth * 0.8,
         ));
@@ -423,37 +473,35 @@ function addOrnament(svg: SVGSVGElement, kind: Ornament, strokeWidth: number): v
   }
 }
 
-// ─── Satellites (small repeated marks at mid radius) ────────────────
-//
-// Satellites orbit between the motif's edge and the frame's inner edge.
-// They're a separate layer so the motif stays the visual anchor.
+// ─── Satellites ─────────────────────────────────────────────────────
 
-type Satelite = 'nenhum' | 'dots-3' | 'dots-4' | 'dots-6' | 'arcs-3' | 'arcs-4';
-const SATELITES: readonly Satelite[] = [
-  'nenhum', 'dots-3', 'dots-4', 'dots-6', 'arcs-3', 'arcs-4',
-];
-
-function addSatelites(svg: SVGSVGElement, kind: Satelite, radius: number, strokeWidth: number): void {
-  if (kind === 'nenhum') return;
-  const n = kind === 'dots-3' || kind === 'arcs-3' ? 3
-    : kind === 'dots-4' || kind === 'arcs-4' ? 4
-    : 6;
-  const isDot = kind.startsWith('dots');
-  for (let i = 0; i < n; i++) {
-    const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
-    const cx = 24 + Math.cos(a) * radius;
-    const cy = 24 + Math.sin(a) * radius;
-    if (isDot) {
-      svg.appendChild(dot(cx, cy, 1.1));
-    } else {
-      // Small arc facing outward.
-      const ax1 = 24 + Math.cos(a - 0.25) * radius;
-      const ay1 = 24 + Math.sin(a - 0.25) * radius;
-      const ax2 = 24 + Math.cos(a + 0.25) * radius;
-      const ay2 = 24 + Math.sin(a + 0.25) * radius;
-      svg.appendChild(path(`M${ax1.toFixed(2)} ${ay1.toFixed(2)} A${radius} ${radius} 0 0 1 ${ax2.toFixed(2)} ${ay2.toFixed(2)}`, strokeWidth * 0.9));
-    }
+function addSatellites(svg: SVGSVGElement, count: number, radius: number): void {
+  const cx = 24, cy = 24;
+  for (let i = 0; i < count; i++) {
+    const a = -Math.PI / 2 + (i / count) * Math.PI * 2;
+    svg.appendChild(filledCircle(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, 1.1));
   }
+}
+
+// ─── Composition ────────────────────────────────────────────────────
+
+/**
+ * Prefer motifs whose natural symmetry matches the frame. Same-symmetry
+ * pairings (hex frame + 6-star motif, diamond + 4-point cross, octagon
+ * + 8-star) read as intentional design; clashing pairings still occur
+ * occasionally so each seed isn't overly formulaic.
+ */
+function pickMotifFor(rng: () => number, frameSim: number): MotifKind {
+  const weights: Array<readonly [MotifKind, number]> = MOTIFS.map((m) => {
+    const s = MOTIF_SIM[m];
+    let w = 1;
+    if (frameSim === 0 || s === 0) w = 1;                // free pairing
+    else if (s === frameSim) w = 5;                       // strong match
+    else if (s === frameSim * 2 || s * 2 === frameSim) w = 3;  // harmonic
+    else w = 0.35;                                        // clash — rare
+    return [m, w] as const;
+  });
+  return pickWeighted(rng, weights);
 }
 
 // ─── Public API ─────────────────────────────────────────────────────
@@ -462,28 +510,51 @@ export function gerarSigilo(seed: number): SVGSVGElement {
   const rng = makeRng(seed);
   const svg = baseSvg();
 
-  const strokeWidth = 1.6 + rng() * 0.9;
-  const frame = pick(rng, FRAMES);
-  const motif = pick(rng, MOTIFS);
-  const ornament = rng() < 0.55 ? pick(rng, ORNAMENTS) : 'nenhum';
+  // One stroke width for the whole sigil — eliminates the "mixed weight"
+  // look that made some old outputs feel unpolished.
+  const strokeWidth = 1.8 + rng() * 0.6;   // 1.8..2.4
 
+  const frame = pick(rng, FRAMES);
   addFrame(svg, frame, strokeWidth);
 
-  // Frame affects motif size — tighter frames demand smaller motif so
-  // they don't collide with the enclosure.
-  const motifRadius = FRAME_INNER_RADIUS[frame] * (0.75 + rng() * 0.15);
-  addMotif(svg, motif, motifRadius, strokeWidth);
+  const motif = pickMotifFor(rng, FRAME_SIMETRIA[frame]);
+  const motifR = FRAME_INNER[frame] * (0.72 + rng() * 0.12);
+  addMotif(svg, motif, motifR, strokeWidth);
 
-  // Satellites only when there's room (frame present) AND the motif is
-  // compact enough — prevents visual crowding.
-  const hasSatellites = frame !== 'nenhum' && motifRadius < 15 && rng() < 0.45;
-  if (hasSatellites) {
-    const sat = pick(rng, SATELITES.filter((s) => s !== 'nenhum'));
-    const satRadius = (motifRadius + FRAME_INNER_RADIUS[frame] + 2) / 2 + 2;
-    addSatelites(svg, sat, satRadius, strokeWidth);
+  // Thin inner accent ring between motif and frame — only if there's
+  // space AND a frame to be between with. 25%.
+  const hasInnerRing = frame !== 'nenhum' && motifR < FRAME_INNER[frame] - 3 && rng() < 0.25;
+  let innerRingR = 0;
+  if (hasInnerRing) {
+    innerRingR = (motifR + FRAME_INNER[frame]) / 2;
+    svg.appendChild(strokedCircle(24, 24, innerRingR, strokeWidth * 0.55));
   }
 
-  addOrnament(svg, ornament, strokeWidth);
+  // Satellites on the inner ring (or midway if no ring) — 35%. Count
+  // matches frame symmetry where possible.
+  if (frame !== 'nenhum' && motifR < FRAME_INNER[frame] - 2 && rng() < 0.35) {
+    const satR = innerRingR || (motifR + FRAME_INNER[frame]) / 2;
+    const sym = FRAME_SIMETRIA[frame];
+    const count = sym === 0 ? pick(rng, [4, 6, 8]) : sym;
+    addSatellites(svg, count, satR);
+  }
+
+  // Rim ornament — 40%.
+  if (rng() < 0.4) {
+    addOrnament(svg, pick(rng, ORNAMENTS.filter((o) => o !== 'nenhum')), strokeWidth);
+  }
+
+  // Tiny center accent on top of motif (only on motifs that don't already
+  // own the center) — 30%.
+  const centerBusy: readonly MotifKind[] = [
+    'atomo', 'olho', 'orbe', 'alvo', 'anel-duplo',
+    'disco', 'crescente', 'estrela-4-cheia', 'estrela-6-cheia',
+    'triangulo-cheio', 'sol-raiado',
+  ];
+  if (!centerBusy.includes(motif) && rng() < 0.3) {
+    if (rng() < 0.5) svg.appendChild(filledCircle(24, 24, 1.2));
+    else svg.appendChild(strokedCircle(24, 24, 2, strokeWidth * 0.8));
+  }
 
   return svg;
 }
