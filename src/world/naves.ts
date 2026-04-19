@@ -36,7 +36,9 @@ const SHIP_DISPLAY_SIZE: Record<string, number> = {
 
 // Tint per ship type — overrides default sprite color. Used when a type
 // reuses another's row in the spritesheet to keep them visually distinct.
-const SHIP_TINT: Record<string, number> = {
+// Exported so combate-resolucao.ts can restore the correct tint after
+// a hit-flash without drifting from this table.
+export const SHIP_TINT: Record<string, number> = {
   fragata: 0xff7070, // hot red — combat ship
 };
 
@@ -383,11 +385,39 @@ export function entrarEmOrbita(nave: Nave, alvo: Planeta | Sol | AlvoPonto): voi
   };
 }
 
-export function criarNave(mundo: Mundo, planetaOrigem: Planeta, tipo: string, tier: number = 1): Nave {
-  const gfxContainer = new Container();
+/**
+ * Build the sprite + selection-ring pair that every Nave needs.
+ * Extracted from criarNave so reconstruirNave (save/load path) can
+ * call it too — without this, loaded ships had an empty Container
+ * as their gfx and rendered as "just the engine trail", which read
+ * as blue striped junk on screen.
+ */
+export function criarVisualNave(tipo: string, tier: number): {
+  gfx: Container;
+  sprite: Sprite;
+  ring: Graphics;
+} {
+  const gfx = new Container();
   const sprite = criarShipSprite(tipo, tier);
   const ring = new Graphics();
-  gfxContainer.addChild(sprite, ring);
+  gfx.addChild(sprite, ring);
+  return { gfx, sprite, ring };
+}
+
+/**
+ * Remove a sprite from the pending-swap queue. Call this before
+ * destroying a Sprite whose spritesheet hasn't loaded yet, otherwise
+ * the eventual load callback writes a texture onto a destroyed Pixi
+ * object (throws / corrupts batcher state).
+ */
+export function limparPendingSprite(sprite: Sprite | undefined): void {
+  if (!sprite) return;
+  const idx = _pendingSprites.findIndex((p) => p.sprite === sprite);
+  if (idx >= 0) _pendingSprites.splice(idx, 1);
+}
+
+export function criarNave(mundo: Mundo, planetaOrigem: Planeta, tipo: string, tier: number = 1): Nave {
+  const { gfx: gfxContainer, sprite, ring } = criarVisualNave(tipo, tier);
 
   const nave: Nave = {
     id: formatarId('nave'),

@@ -13,6 +13,7 @@ export const ACTIONS: ActionDef[] = [
   { id: 'pan_down',           labelKey: 'input.action.pan_down',           categoria: 'camera',    defaultKeys: ['KeyS', 'ArrowDown'] },
   { id: 'pan_left',           labelKey: 'input.action.pan_left',           categoria: 'camera',    defaultKeys: ['KeyA', 'ArrowLeft'] },
   { id: 'pan_right',          labelKey: 'input.action.pan_right',          categoria: 'camera',    defaultKeys: ['KeyD', 'ArrowRight'] },
+  { id: 'focar_alvo',         labelKey: 'input.action.focar_alvo',         categoria: 'camera',    defaultKeys: ['KeyF'] },
 
   // Interface
   { id: 'cancel_or_menu',     labelKey: 'input.action.cancel_or_menu',     categoria: 'interface', defaultKeys: ['Escape'] },

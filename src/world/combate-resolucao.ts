@@ -3,6 +3,9 @@ import type { Mundo, Nave } from '../types';
 import { saoHostis } from './constantes';
 import { getStatsCombate, podeAtacar } from './combate';
 import { somExplosao } from '../audio/som';
+import { SHIP_TINT, limparPendingSprite } from './naves';
+import { destruirTrail } from './engine-trails';
+import { esquecerLastSeen } from './last-seen';
 
 // ─── Hit-flash tracking ──────────────────────────────────────────────
 // When a ship takes damage, briefly tint its sprite white then fade back.
@@ -25,11 +28,10 @@ function aplicarFlashDeImpacto(nave: Nave, deltaMs: number): void {
       const b = 255 - Math.floor((1 - intensity) * 80);
       nave._sprite.tint = (r << 16) | (g << 8) | b;
     } else {
-      // Restore default tint
-      const SHIP_TINT_RESET: Record<string, number> = {
-        fragata: 0xff7070,
-      };
-      nave._sprite.tint = SHIP_TINT_RESET[nave.tipo] ?? 0xffffff;
+      // Restore default tint — pulled from the shared SHIP_TINT table
+      // in naves.ts so a new ship type added there doesn't silently
+      // reset to white here.
+      nave._sprite.tint = SHIP_TINT[nave.tipo] ?? 0xffffff;
     }
   }
 }
@@ -353,9 +355,17 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
 }
 
 function _removerNaveDoMundo(mundo: Mundo, nave: Nave): void {
-  // Mirror of removerNave from naves.ts but inlined to avoid circular import
+  // Mirror of removerNave from naves.ts — kept inline to avoid the
+  // naves → combate → naves circular import. Must stay in sync with
+  // removerNave; anything that needs cleaning up on normal destroy
+  // also needs cleaning up on combat-kill.
   const idx = mundo.naves.indexOf(nave);
   if (idx >= 0) mundo.naves.splice(idx, 1);
+  // Drain pending-spritesheet queue — otherwise a late-loading sheet
+  // callback writes a texture onto the destroyed Pixi Sprite.
+  limparPendingSprite(nave._sprite);
+  // Forget fog-of-war ghost entry for this ship id.
+  esquecerLastSeen(nave.id);
   if (nave.rotaGfx) {
     try {
       mundo.rotasContainer.removeChild(nave.rotaGfx);
@@ -368,4 +378,5 @@ function _removerNaveDoMundo(mundo: Mundo, nave: Nave): void {
       nave.gfx.destroy({ children: true });
     } catch { /* noop */ }
   }
+  destruirTrail(nave);
 }

@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Graphics } from 'pixi.js';
 import type { Application } from 'pixi.js';
 import type { Mundo, Sol, Planeta, Sistema, Nave, FonteVisao } from '../../types';
 import type { MundoDTO, SolDTO, PlanetaDTO, NaveDTO, AlvoDTO } from './dto';
@@ -7,6 +7,7 @@ import { criarEstrelaProcedural, criarPlanetaProceduralSprite } from '../planeta
 import { criarMemoriaVisualPlaneta, restaurarMemoriaPlaneta } from '../nevoa';
 import { resetarNomesPlanetas } from '../nomes';
 import { instalarTrail } from '../engine-trails';
+import { criarVisualNave } from '../naves';
 import { restaurarMemoriasIa, resetMemoriasIa } from '../ia-memoria';
 import { restaurarEventos, resetEventos } from '../eventos';
 import { restaurarStats, resetStats } from '../stats';
@@ -300,6 +301,10 @@ function reconstruirNave(
     };
   }
 
+  // Build the sprite + ring via the shared helper so loaded ships
+  // have the same visual structure as freshly-created ones.
+  const visual = criarVisualNave(dto.tipo, dto.tier);
+
   return {
     id: dto.id,
     tipo: dto.tipo,
@@ -319,9 +324,11 @@ function reconstruirNave(
     configuracaoCarga: { ...dto.configuracaoCarga },
     rotaManual: dto.rotaManual.map((p) => ({ _tipoAlvo: 'ponto' as const, x: p.x, y: p.y })),
     rotaCargueira,
-    gfx: new Container(),
+    gfx: visual.gfx,
     rotaGfx: new Graphics(),
     _tipoAlvo: 'nave',
+    _sprite: visual.sprite,
+    _ring: visual.ring,
     orbita: dto.orbita ? { ...dto.orbita } : null,
     hp: dto.hp,
     _ultimoTiroMs: dto.ultimoTiroMs,

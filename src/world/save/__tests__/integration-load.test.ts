@@ -41,6 +41,13 @@ vi.mock('../../naves', () => ({
   atualizarNaves: () => {},
   atualizarSelecaoNave: () => {},
   carregarSpritesheetNaves: () => Promise.resolve(),
+  criarVisualNave: () => ({
+    gfx: { addChild: () => {}, destroy: () => {} },
+    sprite: {},
+    ring: {},
+  }),
+  limparPendingSprite: () => {},
+  SHIP_TINT: {},
 }));
 
 vi.mock('../../sistema', () => ({ criarSistemaSolar: () => {} }));

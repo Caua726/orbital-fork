@@ -328,6 +328,7 @@ export const DICT: Record<string, { pt: string; en: string }> = {
   'input.action.pan_down': { pt: 'Câmera baixo', en: 'Camera down' },
   'input.action.pan_left': { pt: 'Câmera esquerda', en: 'Camera left' },
   'input.action.pan_right': { pt: 'Câmera direita', en: 'Camera right' },
+  'input.action.focar_alvo': { pt: 'Focar seleção', en: 'Focus selection' },
   'input.action.cancel_or_menu': { pt: 'Cancelar / Menu', en: 'Cancel / Menu' },
   'input.action.quicksave': { pt: 'Salvar rápido', en: 'Quick save' },
   'input.action.speed_pause': { pt: 'Pausar', en: 'Pause' },
