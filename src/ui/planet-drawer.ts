@@ -119,11 +119,17 @@ function injectStyles(): void {
       min-width: 0;
     }
     .planeta-drawer-name {
-      font-family: var(--hud-font-display);
-      font-size: calc(var(--hud-unit) * 1.1);
-      letter-spacing: 0.08em;
+      /* Using --hud-font (variable-width) not --hud-font-display
+         (Press Start 2P) because planet names are procedural and can
+         be long — the pixel font would force ellipsis-truncation on
+         most 2-word names even in the widest drawer. Keep uppercase +
+         tracking so the label-like feel survives. */
+      font-family: var(--hud-font);
+      font-weight: 600;
+      font-size: calc(var(--hud-unit) * 1.0);
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      line-height: 1.1;
+      line-height: 1.15;
       color: var(--hud-text);
       margin: 0;
       overflow: hidden;
@@ -300,7 +306,6 @@ function injectStyles(): void {
       background: transparent;
       border: 1px solid var(--hud-border);
       color: var(--hud-text);
-      font-size: calc(var(--hud-unit) * 0.8);
       font-family: var(--hud-font);
       font-size: calc(var(--hud-unit) * 0.75);
       letter-spacing: 0.1em;
@@ -318,10 +323,10 @@ function injectStyles(): void {
       font-size: calc(var(--hud-unit) * 0.95);
     }
 
-    @media (max-width: 600px) {
-      .planeta-drawer-body { grid-template-columns: 1fr; }
-      .planeta-card.span-2 { grid-column: span 1; }
-    }
+    /* NOTE: removed a stale @media (max-width: 600px) block that
+       applied grid properties to a flex container — dead rules. If
+       small-viewport adjustments are needed later, tune .planeta-drawer
+       width directly instead of toggling a non-existent grid. */
   `;
   document.head.appendChild(style);
 }
@@ -430,7 +435,12 @@ function buildHeader(p: Planeta): HTMLDivElement {
   meta.className = 'planeta-drawer-meta';
   const h = document.createElement('h2');
   h.className = 'planeta-drawer-name';
+  h.id = 'pd-title';
   h.textContent = p.dados.nome;
+  // Full name via native tooltip — long procedural names get
+  // ellipsis-clipped by the CSS, so exposing the full text on hover
+  // matches planet-panel's behaviour and keeps information parity.
+  h.title = p.dados.nome;
   meta.appendChild(h);
   const tipo = document.createElement('div');
   tipo.className = 'planeta-drawer-tipo';
@@ -581,6 +591,12 @@ function ensureModal(): void {
   const modal = document.createElement('div');
   modal.className = 'planeta-drawer';
   modal.setAttribute('data-ui', 'true');
+  // ARIA wiring mirrors mobile-planet-drawer so screen readers
+  // announce the drawer's purpose on open. aria-labelledby points
+  // to the h2 we render inside buildHeader (id="pd-title").
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'pd-title');
   modal.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     marcarInteracaoUi();
@@ -613,6 +629,12 @@ export function abrirPlanetaDrawer(planeta: Planeta, mundo: Mundo): Promise<void
   _currentMundo = mundo;
   _lastRebuildMs = performance.now();
 
+  // Clear the stale portrait-canvas ref BEFORE detaching children.
+  // Without this, a planet-switch leaves _portraitCanvas pointing at
+  // a now-detached node; the next refreshPortrait compares parents
+  // against it and takes the wrong branch. close() already nulls it,
+  // but close() isn't called during a planet switch.
+  _portraitCanvas = null;
   removeAllChildren(_modal);
   _modal.appendChild(buildHeader(planeta));
   const body = document.createElement('div');
