@@ -59,7 +59,7 @@ function injectStyles(): void {
       border: 1px solid var(--hud-border);
       border-radius: var(--hud-radius);
       box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 20px 60px rgba(0,0,0,0.7);
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(3px);
 
       opacity: 0;
       transform: translate(-50%, calc(-50% + var(--hud-unit) * 0.6)) scale(0.96);

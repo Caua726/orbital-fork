@@ -651,7 +651,7 @@ function renderGraphicsTab(body: HTMLDivElement): void {
         while (card.firstChild) card.removeChild(card.firstChild);
         card.style.cssText = [
           'background: linear-gradient(180deg, rgba(10,10,10,0.94), rgba(0,0,0,0.94))',
-          'backdrop-filter: blur(10px)',
+          'backdrop-filter: blur(3px)',
           'border: 1px solid rgba(255,255,255,0.3)',
           'box-shadow: 0 0 40px rgba(0,0,0,0.6), inset 0 0 20px rgba(255,255,255,0.03)',
           'padding: 20px 26px 18px',

@@ -33,6 +33,7 @@ import { diagnosticarFila, moverItemFila, removerItemFila } from '../world/const
 import { bindFilaDragDrop, isFilaDragging, isFilaInteracting } from './fila-dnd';
 import { attachTooltip } from './tooltip';
 import { aplicarTooltipsLore } from './lore-keywords';
+import { shouldRefresh, forceRefresh } from './hud-refresh';
 import { Application, Container, Ticker } from 'pixi.js';
 
 const TOOLTIPS: Record<string, string> = {
@@ -168,7 +169,7 @@ function injectStyles(): void {
     .planet-details-backdrop {
       position: fixed; inset: 0;
       background: rgba(0, 0, 0, 0.72);
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(3px);
       z-index: 980;
       opacity: 0;
       visibility: hidden;
@@ -192,7 +193,7 @@ function injectStyles(): void {
       border: 1px solid var(--hud-border);
       border-radius: var(--hud-radius);
       box-shadow: var(--hud-shadow);
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(3px);
       color: var(--hud-text);
       font-family: var(--hud-font);
       z-index: 981;
@@ -1914,6 +1915,8 @@ function ensureModal(): void {
     btn.addEventListener('click', () => {
       if (_activeTab === tab.id) return;
       _activeTab = tab.id;
+      // Bypass throttle — tab switch must render NOW.
+      forceRefresh('planet-details-modal');
       refreshContent();
       // Re-trigger the enter animation only on tab-switch — tick
       // refreshes reuse the same .pd-tab-content node without the
@@ -1953,6 +1956,7 @@ export function abrirPlanetDetailsModal(p: Planeta, mundo: Mundo): Promise<void>
 
   _current = p;
   _currentMundo = mundo;
+  forceRefresh('planet-details-modal');
   refreshContent();
 
   const modal = _modal;
@@ -1991,6 +1995,9 @@ export function atualizarPlanetDetailsModal(): void {
   // on the drag handle) — otherwise the tick would rebuild the
   // section and the click/drag target disappears before release.
   if (isFilaDragging() || isFilaInteracting()) return;
+  // Throttle to ~5 Hz. Numbers ticking faster than that aren't
+  // perceptibly smoother but the rebuild cost is linear in tick rate.
+  if (!shouldRefresh('planet-details-modal')) return;
   refreshContent();
 }
 

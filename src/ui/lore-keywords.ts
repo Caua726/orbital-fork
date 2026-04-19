@@ -170,8 +170,24 @@ function encontrarPrimeiroMatch(text: string): { start: number; end: number; tip
  * Walks `container` recursively and wraps any matched keyword in a
  * span with a tooltip bound. Already-wrapped spans are skipped so
  * it's safe to call after rebuilding the lore DOM on every tick.
+ *
+ * Text-content-based cache: the full text is hashed (via a small
+ * fnv-1a) and stashed on the container's dataset. If the hash
+ * matches the previous run, the TreeWalker + regex scan are skipped
+ * entirely — this function was previously doing ~50 regex passes on
+ * every section rebuild, even when the lore prose was static.
  */
+function hashText(s: string): string {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
+}
+
 export function aplicarTooltipsLore(container: HTMLElement): void {
+  const text = container.textContent ?? '';
+  const hash = hashText(text);
+  if (container.dataset.loreTooltipHash === hash) return;
+  container.dataset.loreTooltipHash = hash;
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement;

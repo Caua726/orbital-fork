@@ -65,7 +65,7 @@ function injectStyles(): void {
       opacity: 0;
       transform: translateY(3px);
       white-space: pre-line;
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(3px);
       transition: opacity 140ms ease, transform 160ms ease;
     }
     .ui-tooltip.show { opacity: 1; transform: translateY(0); }

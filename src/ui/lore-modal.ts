@@ -27,7 +27,7 @@ function injectStyles(): void {
     .lore-modal-backdrop {
       position: fixed; inset: 0;
       background: rgba(0,0,0,0.7);
-      backdrop-filter: blur(5px);
+      backdrop-filter: blur(3px);
       z-index: 970;
       display: none;
     }
@@ -43,7 +43,7 @@ function injectStyles(): void {
       border: 1px solid var(--hud-border);
       border-radius: var(--hud-radius);
       box-shadow: var(--hud-shadow);
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(3px);
       color: var(--hud-text);
       font-family: var(--hud-font-body);
       z-index: 971;

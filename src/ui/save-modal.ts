@@ -72,7 +72,7 @@ function injectStyles(): void {
       border: 1px solid var(--hud-border);
       border-radius: var(--hud-radius);
       box-shadow: var(--hud-shadow);
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(3px);
       color: var(--hud-text);
       font-family: var(--hud-font-body);
       z-index: 961;

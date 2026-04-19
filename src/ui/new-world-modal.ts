@@ -97,7 +97,7 @@ function injectStyles(): void {
       background: var(--hud-bg);
       border: 1px solid var(--hud-border);
       border-radius: var(--hud-radius);
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(3px);
       padding: calc(var(--hud-unit) * 1.6) calc(var(--hud-unit) * 2);
       width: clamp(calc(var(--hud-unit) * 24), 60vw, calc(var(--hud-unit) * 38));
       max-height: 90vh;

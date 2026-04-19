@@ -16,6 +16,7 @@ import { gerarSigilo, gerarSigiloManual } from './empire-builder/sigilos';
 import { inferirArquetipo } from '../world/imperio-jogador';
 import { attachTooltip } from './tooltip';
 import { aplicarTooltipsLore } from './lore-keywords';
+import { shouldRefresh, forceRefresh } from './hud-refresh';
 
 let _backdrop: HTMLDivElement | null = null;
 let _modal: HTMLDivElement | null = null;
@@ -69,7 +70,7 @@ function injectStyles(): void {
     .empire-modal-backdrop {
       position: fixed; inset: 0;
       background: rgba(0, 0, 0, 0.72);
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(3px);
       z-index: 980;
       opacity: 0;
       visibility: hidden;
@@ -90,7 +91,7 @@ function injectStyles(): void {
       border: 1px solid var(--hud-border);
       border-radius: var(--hud-radius);
       box-shadow: var(--hud-shadow);
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(3px);
       color: var(--hud-text);
       font-family: var(--hud-font);
       z-index: 981;
@@ -588,6 +589,7 @@ export function abrirEmpireModal(mundo: Mundo): Promise<void> {
   if (!_modal || !_backdrop) return Promise.resolve();
 
   _currentMundo = mundo;
+  forceRefresh('empire-modal');
   refreshContent();
 
   const modal = _modal;
@@ -611,6 +613,7 @@ export function abrirEmpireModal(mundo: Mundo): Promise<void> {
 export function atualizarEmpireModal(): void {
   if (!_modal || !_currentMundo) return;
   if (!_modal.classList.contains('visible')) return;
+  if (!shouldRefresh('empire-modal')) return;
   refreshContent();
 }
 

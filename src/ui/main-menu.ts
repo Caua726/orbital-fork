@@ -397,7 +397,7 @@ function buildSettingsScreen(): HTMLDivElement {
     border: 1px solid var(--hud-border);
     border-radius: var(--hud-radius);
     box-shadow: 0 calc(var(--hud-unit) * 0.4) calc(var(--hud-unit) * 1.2) rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
+    backdrop-filter: blur(3px);
     padding: calc(var(--hud-unit) * 1.2);
     max-height: 60dvh;
     overflow-y: auto;

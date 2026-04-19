@@ -195,7 +195,7 @@ function injectStyles(): void {
       width: min(94vw, 340px) !important;
       transform: translate(-50%, 0) !important;
       background: rgba(0, 0, 0, 0.72) !important;
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(3px);
     }
     .mcol-modal.visible.piloting {
       transform: translate(-50%, 0) scale(1) !important;
@@ -260,7 +260,7 @@ function injectStyles(): void {
       width: min(94vw, 340px) !important;
       transform: translate(-50%, 0) !important;
       background: rgba(0, 0, 0, 0.8) !important;
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(3px);
     }
     .mcol-modal.visible.targeting {
       transform: translate(-50%, 0) scale(1) !important;

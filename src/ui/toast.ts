@@ -22,7 +22,7 @@ function ensure(): HTMLDivElement {
         border: 1px solid var(--hud-border);
         border-left: 3px solid #8ce0ff;
         border-radius: var(--hud-radius);
-        backdrop-filter: blur(6px);
+        backdrop-filter: blur(3px);
         color: var(--hud-text);
         padding: calc(var(--hud-unit) * 0.7) calc(var(--hud-unit) * 1.2);
         font-family: var(--hud-font);
