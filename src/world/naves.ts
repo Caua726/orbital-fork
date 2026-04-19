@@ -316,12 +316,30 @@ function desenharRotaNave(nave: Nave): void {
   const g = nave.rotaGfx;
   g.clear();
 
-  // Only manual waypoint routes get a visible polyline. A planet/sol target
-  // is communicated through the ship's own orbit — no line or marker is
-  // drawn on top (matches the game's existing minimal aesthetic where
-  // ships simply enter orbit and are visible at the orbit radius).
+  // Trajectory rules:
+  //   - Manual waypoint targets (_tipoAlvo==='ponto') always get a
+  //     visible polyline so the player can confirm where they clicked.
+  //   - Planet/sun targets also get a line while the ship is actively
+  //     traveling ('viajando'). Once the ship reaches orbit we stop
+  //     drawing — the ship's presence at the orbit radius communicates
+  //     arrival and a static arrow would be redundant.
+  //   - All other states (orbitando, parado, fazendo_survey,
+  //     aguardando_decisao, pilotando): no line.
+  //   - Restricted to the player's own ships — AI trajectories must
+  //     stay hidden behind fog of war, or the player could read enemy
+  //     intent through a glowing line.
   const pontos: AlvoPonto[] = [];
-  if (nave.alvo?._tipoAlvo === 'ponto') pontos.push(nave.alvo);
+  if (nave.alvo?._tipoAlvo === 'ponto') {
+    pontos.push(nave.alvo);
+  } else if (
+    nave.dono === 'jogador'
+    && nave.estado === 'viajando'
+    && nave.alvo
+  ) {
+    // Synthesize a point at the target's current position so the draw
+    // path below is uniform across target kinds.
+    pontos.push({ _tipoAlvo: 'ponto', x: nave.alvo.x, y: nave.alvo.y });
+  }
   if (nave.rotaManual.length > 0) pontos.push(...nave.rotaManual);
   if (pontos.length <= 0) return;
 
