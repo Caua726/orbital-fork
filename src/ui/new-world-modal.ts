@@ -1424,9 +1424,18 @@ export function abrirNewWorldModal(opts: OpenOpts): void {
     refreshFooter();
   }
 
+  // Wired onChange callback — used by every step's inputs to push
+  // state mutations into the live preview without remounting the
+  // step. refreshEmpirePreview is a no-op when the current step
+  // doesn't render a preview card, so every step can share this.
+  function handleStateChange(): void {
+    const p = body.querySelector<HTMLDivElement>('[data-preview="empire"]');
+    if (p) refreshEmpirePreview(p, state);
+  }
+
   function goToStep(idx: number): void {
     state.stepIdx = Math.max(0, Math.min(STEP_ORDER.length - 1, idx));
-    mountStep(body, state, () => {});
+    mountStep(body, state, handleStateChange);
     refreshAll();
     body.scrollTop = 0;
   }
