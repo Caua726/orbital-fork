@@ -293,7 +293,17 @@ type MotifKind =
   | 'triangulo-olho'
   | 'flor-lis'
   | 'constelacao'
-  | 'coroa';
+  | 'coroa'
+  | 'ankh'
+  | 'trident'
+  | 'espada'
+  | 'machado-x'
+  | 'lua-fases'
+  | 'saturno'
+  | 'hex-cheio'
+  | 'roda-raios'
+  | 'vesica'
+  | 'garra';
 
 /** Natural symmetry order of each motif (0 = free / no strong order). */
 const MOTIF_SIM: Record<MotifKind, number> = {
@@ -324,6 +334,16 @@ const MOTIF_SIM: Record<MotifKind, number> = {
   'flor-lis': 0,
   'constelacao': 0,
   'coroa': 0,
+  'ankh': 0,
+  'trident': 0,
+  'espada': 0,
+  'machado-x': 2,
+  'lua-fases': 0,
+  'saturno': 0,
+  'hex-cheio': 6,
+  'roda-raios': 8,
+  'vesica': 2,
+  'garra': 0,
 };
 
 const MOTIFS: readonly MotifKind[] = Object.keys(MOTIF_SIM) as MotifKind[];
@@ -700,15 +720,173 @@ function addMotif(svg: SVGSVGElement, kind: MotifKind, r: number, strokeWidth: n
          L${cx + rr} ${base} Z`,
         strokeWidth,
       ));
-      // Finials on each peak
       svg.appendChild(filledCircle(cx - rr * 0.55, cy - rr * 0.6, rr * 0.13));
       svg.appendChild(filledCircle(cx, cy - rr * 0.05, rr * 0.13));
       svg.appendChild(filledCircle(cx + rr * 0.55, cy - rr * 0.6, rr * 0.13));
-      // Base line
       svg.appendChild(strokedPath(
         `M${cx - rr * 0.8} ${base + rr * 0.15} L${cx + rr * 0.8} ${base + rr * 0.15}`,
         strokeWidth * 0.9,
       ));
+      return;
+    }
+    case 'ankh': {
+      const rr = r * 0.95;
+      const loopR = rr * 0.35;
+      const loopCy = cy - rr * 0.45;
+      svg.appendChild(strokedCircle(cx, loopCy, loopR, strokeWidth));
+      // Vertical stem
+      svg.appendChild(strokedPath(
+        `M${cx} ${loopCy + loopR} L${cx} ${cy + rr}`,
+        strokeWidth * 1.2,
+      ));
+      // Horizontal arms
+      svg.appendChild(strokedPath(
+        `M${cx - rr * 0.6} ${cy + rr * 0.1} L${cx + rr * 0.6} ${cy + rr * 0.1}`,
+        strokeWidth * 1.2,
+      ));
+      return;
+    }
+    case 'trident': {
+      const rr = r * 0.95;
+      // Center prong
+      svg.appendChild(strokedPath(
+        `M${cx} ${cy - rr} L${cx} ${cy + rr * 0.7}`,
+        strokeWidth * 1.15,
+      ));
+      // Side prongs curving outward
+      svg.appendChild(strokedPath(
+        `M${cx - rr * 0.6} ${cy - rr * 0.6} Q${cx - rr * 0.75} ${cy - rr * 0.1} ${cx - rr * 0.2} ${cy - rr * 0.1}`,
+        strokeWidth,
+      ));
+      svg.appendChild(strokedPath(
+        `M${cx + rr * 0.6} ${cy - rr * 0.6} Q${cx + rr * 0.75} ${cy - rr * 0.1} ${cx + rr * 0.2} ${cy - rr * 0.1}`,
+        strokeWidth,
+      ));
+      // Cross-bar at base of prongs
+      svg.appendChild(strokedPath(
+        `M${cx - rr * 0.55} ${cy - rr * 0.1} L${cx + rr * 0.55} ${cy - rr * 0.1}`,
+        strokeWidth,
+      ));
+      // Pommel at bottom
+      svg.appendChild(filledCircle(cx, cy + rr * 0.8, rr * 0.15));
+      return;
+    }
+    case 'espada': {
+      const rr = r * 0.95;
+      // Blade
+      svg.appendChild(filledPath(
+        `M${cx} ${cy - rr}
+         L${cx + rr * 0.2} ${cy - rr * 0.7}
+         L${cx + rr * 0.15} ${cy + rr * 0.3}
+         L${cx - rr * 0.15} ${cy + rr * 0.3}
+         L${cx - rr * 0.2} ${cy - rr * 0.7} Z`,
+      ));
+      // Crossguard
+      svg.appendChild(strokedPath(
+        `M${cx - rr * 0.55} ${cy + rr * 0.3} L${cx + rr * 0.55} ${cy + rr * 0.3}`,
+        strokeWidth * 1.3,
+      ));
+      // Grip
+      svg.appendChild(strokedPath(
+        `M${cx} ${cy + rr * 0.3} L${cx} ${cy + rr * 0.8}`,
+        strokeWidth * 1.2,
+      ));
+      // Pommel
+      svg.appendChild(filledCircle(cx, cy + rr * 0.9, rr * 0.13));
+      return;
+    }
+    case 'machado-x': {
+      const rr = r * 0.95;
+      // Two crossed axe shafts (X) with axe heads on the upper corners.
+      svg.appendChild(strokedPath(
+        `M${cx - rr * 0.75} ${cy + rr * 0.75} L${cx + rr * 0.55} ${cy - rr * 0.75}`,
+        strokeWidth * 1.2,
+      ));
+      svg.appendChild(strokedPath(
+        `M${cx + rr * 0.75} ${cy + rr * 0.75} L${cx - rr * 0.55} ${cy - rr * 0.75}`,
+        strokeWidth * 1.2,
+      ));
+      // Axe heads (crescents at the upper ends)
+      const headR = rr * 0.28;
+      const h1x = cx + rr * 0.55, h1y = cy - rr * 0.75;
+      const h2x = cx - rr * 0.55, h2y = cy - rr * 0.75;
+      svg.appendChild(filledPath(
+        `M${(h1x - headR * 0.2).toFixed(2)} ${(h1y - headR).toFixed(2)} A${headR} ${headR} 0 1 0 ${(h1x - headR * 0.2).toFixed(2)} ${(h1y + headR).toFixed(2)} A${headR * 0.55} ${headR * 0.85} 0 1 1 ${(h1x - headR * 0.2).toFixed(2)} ${(h1y - headR).toFixed(2)} Z`,
+      ));
+      svg.appendChild(filledPath(
+        `M${(h2x + headR * 0.2).toFixed(2)} ${(h2y - headR).toFixed(2)} A${headR} ${headR} 0 1 1 ${(h2x + headR * 0.2).toFixed(2)} ${(h2y + headR).toFixed(2)} A${headR * 0.55} ${headR * 0.85} 0 1 0 ${(h2x + headR * 0.2).toFixed(2)} ${(h2y - headR).toFixed(2)} Z`,
+      ));
+      return;
+    }
+    case 'lua-fases': {
+      const rr = r * 0.28;
+      const spacing = r * 0.65;
+      // New moon (ring only)
+      svg.appendChild(strokedCircle(cx - spacing, cy, rr, strokeWidth));
+      // Half moon (filled semicircle)
+      svg.appendChild(filledPath(
+        `M${cx} ${cy - rr} A${rr} ${rr} 0 0 1 ${cx} ${cy + rr} Z`,
+      ));
+      svg.appendChild(strokedCircle(cx, cy, rr, strokeWidth * 0.8));
+      // Full moon (filled)
+      svg.appendChild(filledCircle(cx + spacing, cy, rr));
+      return;
+    }
+    case 'saturno': {
+      const rr = r * 0.45;
+      // Planet body
+      svg.appendChild(filledCircle(cx, cy, rr));
+      // Tilted ring (ellipse) overlapping the planet
+      const e = document.createElementNS(SVG_NS, 'ellipse');
+      e.setAttribute('cx', cx.toFixed(2));
+      e.setAttribute('cy', cy.toFixed(2));
+      e.setAttribute('rx', (r * 0.85).toFixed(2));
+      e.setAttribute('ry', (r * 0.18).toFixed(2));
+      e.setAttribute('fill', 'none');
+      e.setAttribute('stroke', '#ffffff');
+      e.setAttribute('stroke-width', strokeWidth.toFixed(2));
+      e.setAttribute('transform', `rotate(-18 ${cx} ${cy})`);
+      svg.appendChild(e);
+      return;
+    }
+    case 'hex-cheio':
+      svg.appendChild(filledPath(regularPoly(cx, cy, r * 0.85, 6, -Math.PI / 2)));
+      return;
+    case 'roda-raios': {
+      const rr = r * 0.9;
+      const spokes = 8;
+      svg.appendChild(strokedCircle(cx, cy, rr, strokeWidth));
+      svg.appendChild(strokedCircle(cx, cy, rr * 0.22, strokeWidth));
+      for (let i = 0; i < spokes; i++) {
+        const a = (i / spokes) * Math.PI * 2;
+        const x1 = cx + Math.cos(a) * rr * 0.22;
+        const y1 = cy + Math.sin(a) * rr * 0.22;
+        const x2 = cx + Math.cos(a) * rr;
+        const y2 = cy + Math.sin(a) * rr;
+        svg.appendChild(strokedPath(`M${x1.toFixed(2)} ${y1.toFixed(2)} L${x2.toFixed(2)} ${y2.toFixed(2)}`, strokeWidth * 0.85));
+      }
+      return;
+    }
+    case 'vesica': {
+      // Two overlapping circles ("vesica piscis").
+      const rr = r * 0.7;
+      const offset = rr * 0.55;
+      svg.appendChild(strokedCircle(cx - offset, cy, rr, strokeWidth));
+      svg.appendChild(strokedCircle(cx + offset, cy, rr, strokeWidth));
+      return;
+    }
+    case 'garra': {
+      // Three curved claws fanning outward.
+      const rr = r * 0.95;
+      for (let i = -1; i <= 1; i++) {
+        const baseX = cx + i * rr * 0.42;
+        const ctrlX = cx + i * rr * 0.85;
+        const tipX = cx + i * rr * 0.7;
+        svg.appendChild(strokedPath(
+          `M${baseX.toFixed(2)} ${cy + rr * 0.65} Q${ctrlX.toFixed(2)} ${cy - rr * 0.1} ${tipX.toFixed(2)} ${cy - rr * 0.85}`,
+          strokeWidth * 1.1,
+        ));
+      }
       return;
     }
   }
@@ -885,6 +1063,8 @@ export function gerarSigilo(seed: number): SVGSVGElement {
     'pentagrama', 'cruz-celta', 'cruz-mal', 'espiral',
     'ampulheta', 'chama', 'quincunx', 'raio', 'triangulo-olho',
     'flor-lis', 'coroa', 'losango-duplo',
+    'ankh', 'trident', 'espada', 'machado-x', 'saturno',
+    'hex-cheio', 'roda-raios', 'vesica', 'garra', 'lua-fases',
   ];
   if (!centerBusy.includes(motif) && rng() < 0.3) {
     if (rng() < 0.5) svg.appendChild(filledCircle(24, 24, 1.2));
