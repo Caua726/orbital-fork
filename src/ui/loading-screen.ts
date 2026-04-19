@@ -37,6 +37,15 @@ function injectStyles(): void {
       transition: opacity 260ms ease-out, visibility 0s linear 260ms;
     }
 
+    /* Pause all descendant CSS animations when loading screen is
+       hidden. Sem isso as 140 estrelas + scan + bar continuam girando
+       pra sempre no document.getAnimations() (cada uma é trabalho
+       ongoing pro compositor) — profiling mostrou 142 animações
+       permanentes mesmo com o loading screen fora de vista. */
+    .loading-screen:not(.visible) * {
+      animation-play-state: paused !important;
+    }
+
     /* Twinkling starfield layer (populated by JS at load time) */
     .loading-stars {
       position: absolute;

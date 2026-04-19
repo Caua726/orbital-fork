@@ -1,23 +1,54 @@
 /**
- * Pointer-based reorder para a fila.
+ * Fila reorder — pointer-based, EVENT DELEGATION.
  *
- * Desistimos da HTML5 drag API — depois de várias tentativas ela
- * continuava mostrando cursor de bloqueio em contextos que não pude
- * reproduzir sem browser em mãos. Voltei pra pointer events puros.
+ * Versões anteriores adicionavam listeners diretamente nos handles e
+ * no listEl por bind. Rebuild a 2Hz (drawer) vazava ~15-20 listeners
+ * por rebuild porque os elementos antigos ficavam detached na memória
+ * com seus listeners presos — o profiling mostrou +579 listeners em
+ * 20s de sessão (~29/seg de leak).
  *
- * Princípios:
- *   - SEM setPointerCapture (causa problemas em alguns contextos).
- *   - SEM HTML5 draggable attribute.
- *   - Listeners de move/up em `window`, adicionados sob demanda no
- *     pointerdown e removidos no pointerup. Garante que não vaza.
- *   - State todo em closures do handler de pointerdown (nada global
- *     além das flags de supressão de rebuild).
- *   - Esc cancela.
+ * Agora: UM SET de listeners globais no document, instalados uma
+ * única vez no primeiro bind. Cada bindFilaDragDrop só REGISTRA as
+ * opções num WeakMap indexado pelo listEl. Rebuild do cardFila cria
+ * listEl novo → WeakMap auto-GC'a a entrada velha quando o listEl
+ * vira detached. Zero vazamento.
  */
+
+export interface FilaDragOptions {
+  itemSelector: string;
+  handleSelector: string;
+  getIdx: (itemEl: HTMLElement) => number;
+  isLocked: (idx: number) => boolean;
+  onReorder: (fromIdx: number, toIdx: number) => void;
+}
 
 let _draggingActive = false;
 let _stylesInjected = false;
 let _pointerDownInsideFila = 0;
+let _globalInstalled = false;
+
+const _registrations = new WeakMap<HTMLElement, FilaDragOptions>();
+
+const DRAG_THRESHOLD_PX = 4;
+
+interface ActiveDrag {
+  listEl: HTMLElement;
+  options: FilaDragOptions;
+  item: HTMLElement;
+  sourceIdx: number;
+  startX: number;
+  startY: number;
+  pointerId: number;
+  committed: boolean;
+  indicator: HTMLDivElement | null;
+  targetInsertIdx: number;
+}
+let _active: ActiveDrag | null = null;
+
+export function isFilaDragging(): boolean { return _draggingActive; }
+export function isFilaInteracting(): boolean { return _pointerDownInsideFila > 0; }
+
+// ─── Styles (inject once) ─────────────────────────────────────────
 
 function injectFilaStyles(): void {
   if (_stylesInjected) return;
@@ -92,159 +123,159 @@ function injectFilaStyles(): void {
   document.head.appendChild(s);
 }
 
-export function isFilaDragging(): boolean {
-  return _draggingActive;
-}
+// ─── Delegated handlers (installed ONCE globally) ────────────────
 
-export function isFilaInteracting(): boolean {
-  return _pointerDownInsideFila > 0;
-}
+function installGlobalOnce(): void {
+  if (_globalInstalled) return;
+  _globalInstalled = true;
 
-export interface FilaDragOptions {
-  itemSelector: string;
-  handleSelector: string;
-  getIdx: (itemEl: HTMLElement) => number;
-  isLocked: (idx: number) => boolean;
-  onReorder: (fromIdx: number, toIdx: number) => void;
-}
+  // Walk up from event target to find a registered list.
+  const findRegisteredList = (target: EventTarget | null): HTMLElement | null => {
+    let el = target as HTMLElement | null;
+    while (el && el !== document.body) {
+      if (_registrations.has(el)) return el;
+      el = el.parentElement;
+    }
+    return null;
+  };
 
-// Drag threshold — pointer must move this many pixels before a drag
-// visually "commits" (so a tap-and-release on the handle doesn't look
-// like a botched drag).
-const DRAG_THRESHOLD_PX = 4;
+  document.addEventListener('pointerdown', (e) => {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    const listEl = findRegisteredList(target);
+    if (!listEl) return;
 
-export function bindFilaDragDrop(listEl: HTMLElement, options: FilaDragOptions): void {
-  injectFilaStyles();
-
-  if (getComputedStyle(listEl).position === 'static') {
-    listEl.style.position = 'relative';
-  }
-
-  const items = Array.from(listEl.querySelectorAll<HTMLElement>(options.itemSelector));
-  const itemMeta = items.map((el) => ({ el, idx: options.getIdx(el) }));
-
-  for (const { el: item, idx } of itemMeta) {
-    const locked = options.isLocked(idx);
-    const handle = item.querySelector<HTMLElement>(options.handleSelector);
-    // Keep the item NOT draggable — we're handling everything manually.
-    item.draggable = false;
-    if (!handle || locked) continue;
-
-    handle.addEventListener('pointerdown', (pdEvent) => {
-      if (pdEvent.button !== undefined && pdEvent.button !== 0 && pdEvent.pointerType === 'mouse') return;
-      pdEvent.preventDefault();
-      pdEvent.stopPropagation(); // don't trip the drawer's modal handler
-
-      const startX = pdEvent.clientX;
-      const startY = pdEvent.clientY;
-      const pid = pdEvent.pointerId;
-
-      let committed = false;
-      let indicator: HTMLDivElement | null = null;
-      let targetInsertIdx = idx;
-
-      const commit = (): void => {
-        if (committed) return;
-        committed = true;
-        _draggingActive = true;
-        item.classList.add('fila-dragging-source');
-        indicator = document.createElement('div');
-        indicator.className = 'fila-drop-indicator';
-        listEl.appendChild(indicator);
-      };
-
-      const positionIndicator = (clientY: number): void => {
-        if (!indicator) return;
-        const listRect = listEl.getBoundingClientRect();
-        const last = itemMeta[itemMeta.length - 1];
-        const lastRect = last.el.getBoundingClientRect();
-        let rawTarget = 0;
-        let indY = 0;
-        if (clientY >= lastRect.bottom) {
-          rawTarget = last.idx + 1;
-          indY = lastRect.bottom - listRect.top;
-        } else {
-          for (const m of itemMeta) {
-            const r = m.el.getBoundingClientRect();
-            const below = clientY > r.top + r.height / 2;
-            if (!below) { rawTarget = m.idx; indY = r.top - listRect.top; break; }
-            rawTarget = m.idx + 1;
-            indY = r.bottom - listRect.top;
-          }
-        }
-        // No drops in front of locked items.
-        for (const m of itemMeta) {
-          if (options.isLocked(m.idx)) rawTarget = Math.max(rawTarget, m.idx + 1);
-        }
-        // splice adjust: removing fromIdx shifts later by -1
-        targetInsertIdx = rawTarget > idx ? rawTarget - 1 : rawTarget;
-        indicator.style.top = `${indY - 1}px`;
-        indicator.style.display = 'block';
-      };
-
-      const onMove = (e: PointerEvent): void => {
-        if (e.pointerId !== pid) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        if (!committed) {
-          if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return;
-          commit();
-        }
-        positionIndicator(e.clientY);
-      };
-
-      const cleanup = (): void => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onCancel);
-        window.removeEventListener('keydown', onKey);
-        if (committed) {
-          _draggingActive = false;
-          item.classList.remove('fila-dragging-source');
-          if (indicator && indicator.parentElement) indicator.parentElement.removeChild(indicator);
-          indicator = null;
-        }
-      };
-
-      const onUp = (e: PointerEvent): void => {
-        if (e.pointerId !== pid) return;
-        const didCommit = committed;
-        const finalTarget = targetInsertIdx;
-        cleanup();
-        if (didCommit && finalTarget !== idx) {
-          options.onReorder(idx, finalTarget);
-        }
-      };
-
-      const onCancel = (e: PointerEvent): void => {
-        if (e.pointerId !== pid) return;
-        cleanup();
-      };
-
-      const onKey = (e: KeyboardEvent): void => {
-        if (e.key === 'Escape') {
-          targetInsertIdx = idx; // no-op reorder
-          cleanup();
-        }
-      };
-
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onCancel);
-      window.addEventListener('keydown', onKey);
-    });
-  }
-
-  // Track pointer-down inside the list for rebuild suppression
-  // (covers the remove button click too).
-  listEl.addEventListener('pointerdown', () => {
+    // Any pointerdown inside the list bumps the "interacting" counter
+    // so rebuild loops skip while the user is clicking/dragging.
     _pointerDownInsideFila++;
     const release = (): void => {
       _pointerDownInsideFila = Math.max(0, _pointerDownInsideFila - 1);
-      window.removeEventListener('pointerup', release);
-      window.removeEventListener('pointercancel', release);
+      window.removeEventListener('pointerup', release, true);
+      window.removeEventListener('pointercancel', release, true);
     };
-    window.addEventListener('pointerup', release);
-    window.addEventListener('pointercancel', release);
+    window.addEventListener('pointerup', release, true);
+    window.addEventListener('pointercancel', release, true);
+
+    const options = _registrations.get(listEl);
+    if (!options) return;
+    // Drag only starts when the press lands on a handle.
+    const handle = target.closest(options.handleSelector) as HTMLElement | null;
+    if (!handle) return;
+    const item = handle.closest(options.itemSelector) as HTMLElement | null;
+    if (!item || !listEl.contains(item)) return;
+    const idx = options.getIdx(item);
+    if (options.isLocked(idx)) return;
+    if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+
+    e.preventDefault();
+    // Don't stopPropagation — other global handlers (tooltips, drawer
+    // modal marcarInteracaoUi) need to see the pointerdown. We just
+    // make sure our global up/move handlers fire first via capture.
+
+    _active = {
+      listEl, options, item, sourceIdx: idx,
+      startX: e.clientX, startY: e.clientY,
+      pointerId: e.pointerId,
+      committed: false,
+      indicator: null,
+      targetInsertIdx: idx,
+    };
   });
+
+  window.addEventListener('pointermove', (e) => {
+    if (!_active) return;
+    if (e.pointerId !== _active.pointerId) return;
+    const dx = e.clientX - _active.startX;
+    const dy = e.clientY - _active.startY;
+    if (!_active.committed) {
+      if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return;
+      // Commit the drag: show indicator + source styling.
+      _active.committed = true;
+      _draggingActive = true;
+      _active.item.classList.add('fila-dragging-source');
+      const ind = document.createElement('div');
+      ind.className = 'fila-drop-indicator';
+      const listEl = _active.listEl;
+      if (getComputedStyle(listEl).position === 'static') {
+        listEl.style.position = 'relative';
+      }
+      listEl.appendChild(ind);
+      _active.indicator = ind;
+    }
+    positionIndicator(e.clientY);
+  }, true);
+
+  const finishDrag = (cancel: boolean): void => {
+    if (!_active) return;
+    const a = _active;
+    _active = null;
+    _draggingActive = false;
+    if (a.committed) {
+      a.item.classList.remove('fila-dragging-source');
+      if (a.indicator && a.indicator.parentElement) {
+        a.indicator.parentElement.removeChild(a.indicator);
+      }
+      if (!cancel && a.targetInsertIdx !== a.sourceIdx) {
+        a.options.onReorder(a.sourceIdx, a.targetInsertIdx);
+      }
+    }
+  };
+
+  window.addEventListener('pointerup', (e) => {
+    if (!_active || e.pointerId !== _active.pointerId) return;
+    finishDrag(false);
+  }, true);
+  window.addEventListener('pointercancel', (e) => {
+    if (!_active || e.pointerId !== _active.pointerId) return;
+    finishDrag(true);
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && _active) finishDrag(true);
+  });
+}
+
+function positionIndicator(clientY: number): void {
+  if (!_active || !_active.indicator) return;
+  const { listEl, options, sourceIdx } = _active;
+  const items = Array.from(listEl.querySelectorAll<HTMLElement>(options.itemSelector));
+  if (items.length === 0) return;
+  const listRect = listEl.getBoundingClientRect();
+  const lastRect = items[items.length - 1].getBoundingClientRect();
+  let rawTarget = 0;
+  let indY = 0;
+  if (clientY >= lastRect.bottom) {
+    rawTarget = options.getIdx(items[items.length - 1]) + 1;
+    indY = lastRect.bottom - listRect.top;
+  } else {
+    for (const el of items) {
+      const r = el.getBoundingClientRect();
+      const i = options.getIdx(el);
+      const below = clientY > r.top + r.height / 2;
+      if (!below) { rawTarget = i; indY = r.top - listRect.top; break; }
+      rawTarget = i + 1;
+      indY = r.bottom - listRect.top;
+    }
+  }
+  // Never allow inserting in front of locked items.
+  for (const el of items) {
+    const i = options.getIdx(el);
+    if (options.isLocked(i)) rawTarget = Math.max(rawTarget, i + 1);
+  }
+  _active.targetInsertIdx = rawTarget > sourceIdx ? rawTarget - 1 : rawTarget;
+  _active.indicator.style.top = `${indY - 1}px`;
+  _active.indicator.style.display = 'block';
+}
+
+// ─── Public API ──────────────────────────────────────────────────
+
+/**
+ * Register a fila list for drag reorder. No listeners are attached to
+ * listEl or its descendants — all interactions are handled via
+ * delegation at the document level. WeakMap keys GC automatically when
+ * the listEl is removed from the DOM and forgotten by its parent.
+ */
+export function bindFilaDragDrop(listEl: HTMLElement, options: FilaDragOptions): void {
+  injectFilaStyles();
+  installGlobalOnce();
+  _registrations.set(listEl, options);
 }

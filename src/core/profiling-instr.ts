@@ -11,12 +11,75 @@
  */
 
 // ─── Long tasks ────────────────────────────────────────────────────
+export interface LongTaskContext {
+  openModal: string | null;
+  drawerOpen: boolean;
+  focusedTag: string;
+  focusedClass: string;
+  nodeCount: number;
+  listeners: number;
+  animations: number;
+  visibleHudPanels: number;
+  backdropFilterCount: number;
+  timers: number;
+  rafs: number;
+  lastEventName: string;
+  lastEventTimeMs: number;
+}
+
 export interface LongTaskSample {
   t: number;          // performance.now() do início
   duration: number;   // ms
   name: string;       // tipo do entry (geralmente 'self')
   containerType?: string;
   containerName?: string;
+  /** Rich context — only captured for long tasks >=100ms to keep
+   *  the cost bounded. */
+  context?: LongTaskContext;
+}
+
+// Track last user event so long-task context can correlate "what did
+// the user just do". Updated at capture phase via document listener.
+let _lastEventName = '';
+let _lastEventTimeMs = 0;
+if (typeof document !== 'undefined') {
+  const trackEvents = ['click', 'pointerdown', 'pointerup', 'touchstart', 'touchend', 'keydown', 'wheel'];
+  for (const type of trackEvents) {
+    document.addEventListener(type, (e) => {
+      _lastEventName = e.type;
+      _lastEventTimeMs = performance.now();
+    }, { capture: true, passive: true });
+  }
+}
+
+function captureLongTaskContext(): LongTaskContext {
+  let openModal: string | null = null;
+  for (const cls of [
+    'planet-details-modal', 'empire-modal', 'colony-modal',
+    'settings-overlay', 'lore-modal', 'save-modal',
+    'renderer-info-modal', 'new-world-modal', 'pause-menu',
+  ]) {
+    const el = document.querySelector('.' + cls);
+    if (el && el.classList.contains('visible')) { openModal = cls; break; }
+  }
+  const drawerOpen = !!document.querySelector('.planeta-drawer, .mpd-container.visible');
+  const f = document.activeElement as HTMLElement | null;
+  const snap = snapshotDom();
+  return {
+    openModal,
+    drawerOpen,
+    focusedTag: f?.tagName ?? '',
+    focusedClass: typeof f?.className === 'string' ? f.className.slice(0, 80) : '',
+    nodeCount: snap.nodeCount,
+    listeners: _listenersActive,
+    animations: snap.animationCount,
+    visibleHudPanels: snap.visibleHudPanelCount,
+    backdropFilterCount: snap.backdropFilterCount,
+    timers: _timersActive,
+    rafs: _rafsActive,
+    lastEventName: _lastEventName,
+    lastEventTimeMs: _lastEventTimeMs,
+  };
 }
 
 const _longTasks: LongTaskSample[] = [];
@@ -73,13 +136,20 @@ export function instalarInstrumentacao(): void {
   trySubscribe('longtask', (list) => {
     if (!_enabled) return;
     for (const entry of list.getEntries()) {
-      _longTasks.push({
+      const sample: LongTaskSample = {
         t: entry.startTime,
         duration: entry.duration,
         name: entry.name,
         containerType: (entry as unknown as { containerType?: string }).containerType,
         containerName: (entry as unknown as { containerName?: string }).containerName,
-      });
+      };
+      // Capture rich context for any long task >=100ms — the really
+      // painful ones. Covers what the user was interacting with, which
+      // UI panel was open, DOM/listener counts at the moment.
+      if (entry.duration >= 100) {
+        sample.context = captureLongTaskContext();
+      }
+      _longTasks.push(sample);
       if (_longTasks.length > MAX_LONG_TASKS) _longTasks.shift();
     }
   });

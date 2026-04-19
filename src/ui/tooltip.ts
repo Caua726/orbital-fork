@@ -223,13 +223,135 @@ export function comTooltipHover(target: HTMLElement, getText: () => string): voi
  *   variant 'text' → dotted underline (use on inline text cells)
  *   variant 'box'  → dotted bottom-border (use on rows/chips/buttons)
  */
+// ─── Delegated tooltip (event delegation to avoid per-element leak) ─
+//
+// Todos os listeners ficam no document; cada chamada de attachTooltip
+// só seta `data-tooltip-text` no elemento. O handler global pega
+// pointerenter/leave/move via delegação e decide mostrar/esconder
+// baseado no `.has-tooltip` / `.has-tooltip-box` + data attribute.
+// Sem isso, cada attachTooltip vazava ~4 listeners quando o elemento
+// era removido do DOM e nunca GCd em sessão longa.
+
+let _delegatedInstalled = false;
+let _delegShowTimer: number | null = null;
+let _delegHideTimer: number | null = null;
+let _delegCursorX = 0;
+let _delegCursorY = 0;
+let _delegHasCursor = false;
+
+function installDelegatedListeners(): void {
+  if (_delegatedInstalled) return;
+  _delegatedInstalled = true;
+  injectStyles();
+  installGlobalLeaveGuard();
+  const DELAY_SHOW = 180;
+
+  const getTipTarget = (node: EventTarget | null): HTMLElement | null => {
+    if (!node || !(node as HTMLElement).closest) return null;
+    return (node as HTMLElement).closest('.has-tooltip, .has-tooltip-box') as HTMLElement | null;
+  };
+
+  const showFor = (target: HTMLElement): void => {
+    const txt = target.dataset.tooltipText;
+    if (!txt) return;
+    if (_delegHideTimer !== null) { clearTimeout(_delegHideTimer); _delegHideTimer = null; }
+    const tip = ensureTip();
+    tip.textContent = txt;
+    tip.classList.add('show');
+    _currentTargetEl = target;
+    requestAnimationFrame(() => {
+      if (_delegHasCursor) positionAtCursor();
+      else positionAtElement(target);
+    });
+  };
+
+  const positionAtCursor = (): void => {
+    if (!_tip) return;
+    const tr = _tip.getBoundingClientRect();
+    const OFFSET_X = 14, OFFSET_Y = 18;
+    let left = _delegCursorX + OFFSET_X;
+    let top = _delegCursorY + OFFSET_Y;
+    if (left + tr.width > window.innerWidth - 8) left = _delegCursorX - tr.width - OFFSET_X;
+    if (top + tr.height > window.innerHeight - 8) top = _delegCursorY - tr.height - OFFSET_Y;
+    if (left < 8) left = 8;
+    if (top < 8) top = 8;
+    _tip.style.left = `${left}px`;
+    _tip.style.top = `${top}px`;
+  };
+  const positionAtElement = (target: HTMLElement): void => {
+    if (!_tip) return;
+    const rect = target.getBoundingClientRect();
+    const tr = _tip.getBoundingClientRect();
+    const above = rect.top > tr.height + 16 || rect.top > window.innerHeight - rect.bottom;
+    const top = above ? rect.top - tr.height - 8 : rect.bottom + 8;
+    let left = rect.left + rect.width / 2 - tr.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tr.width - 8));
+    _tip.style.left = `${left}px`;
+    _tip.style.top = `${top}px`;
+  };
+
+  const hideSoon = (): void => {
+    if (_delegShowTimer !== null) { clearTimeout(_delegShowTimer); _delegShowTimer = null; }
+    if (_delegHideTimer !== null) clearTimeout(_delegHideTimer);
+    _delegHideTimer = window.setTimeout(() => {
+      _tip?.classList.remove('show');
+      _currentTargetEl = null;
+      _delegHideTimer = null;
+    }, 60);
+  };
+
+  document.addEventListener('pointerover', (e) => {
+    const target = getTipTarget(e.target);
+    if (!target) return;
+    _delegCursorX = e.clientX; _delegCursorY = e.clientY; _delegHasCursor = true;
+    if (_delegShowTimer !== null) clearTimeout(_delegShowTimer);
+    _delegShowTimer = window.setTimeout(() => {
+      _delegShowTimer = null;
+      showFor(target);
+    }, DELAY_SHOW);
+  });
+
+  document.addEventListener('pointerout', (e) => {
+    const target = getTipTarget(e.target);
+    if (!target) return;
+    // If relatedTarget is still inside the same tooltipped element, ignore.
+    const rel = (e as PointerEvent).relatedTarget as Node | null;
+    if (rel && target.contains(rel)) return;
+    hideSoon();
+  });
+
+  document.addEventListener('pointermove', (e) => {
+    _delegCursorX = e.clientX; _delegCursorY = e.clientY; _delegHasCursor = true;
+    if (_tip?.classList.contains('show') && _currentTargetEl) {
+      positionAtCursor();
+    }
+  }, { passive: true });
+
+  document.addEventListener('focusin', (e) => {
+    const target = getTipTarget(e.target);
+    if (!target) return;
+    _delegHasCursor = false;
+    showFor(target);
+  });
+  document.addEventListener('focusout', (e) => {
+    const target = getTipTarget(e.target);
+    if (!target) return;
+    hideSoon();
+  });
+}
+
+/**
+ * Attach a tooltip to an element. Zero listeners added per call —
+ * listeners are delegated at document level (installed once). The
+ * affordance class (.has-tooltip / .has-tooltip-box) + the
+ * `data-tooltip-text` attribute are all that's needed.
+ */
 export function attachTooltip(
   el: HTMLElement,
   text: string | null | undefined,
   variant: 'text' | 'box' = 'text',
 ): void {
-  injectStyles();
-  installGlobalLeaveGuard();
+  installDelegatedListeners();
   if (!text) {
     delete el.dataset.tooltipText;
     el.classList.remove('has-tooltip', 'has-tooltip-box');
@@ -238,107 +360,7 @@ export function attachTooltip(
   el.dataset.tooltipText = text;
   el.classList.remove('has-tooltip', 'has-tooltip-box');
   el.classList.add(variant === 'box' ? 'has-tooltip-box' : 'has-tooltip');
-
-  if (el.dataset.tooltipBound === '1') return;
-  el.dataset.tooltipBound = '1';
-  // Make focusable for keyboard users without clobbering an existing tabindex.
   if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
-
-  let hideDelay: number | null = null;
-  let showDelay: number | null = null;
-  const DELAY_SHOW = 180;
-  // Last known cursor position so positionAtCursor() can run without
-  // a pointer event (e.g. keyboard focus still centers on the target).
-  let cursorX = 0, cursorY = 0;
-  let hasCursor = false;
-
-  const positionAtCursor = (): void => {
-    if (!_tip) return;
-    const tr = _tip.getBoundingClientRect();
-    const OFFSET_X = 14;
-    const OFFSET_Y = 18;
-    // Default: down-right of the cursor so the tooltip doesn't cover
-    // the element being hovered. Flip if there isn't room.
-    let left = cursorX + OFFSET_X;
-    let top = cursorY + OFFSET_Y;
-    if (left + tr.width > window.innerWidth - 8) {
-      left = cursorX - tr.width - OFFSET_X;
-    }
-    if (top + tr.height > window.innerHeight - 8) {
-      top = cursorY - tr.height - OFFSET_Y;
-    }
-    if (left < 8) left = 8;
-    if (top < 8) top = 8;
-    _tip.style.left = `${left}px`;
-    _tip.style.top = `${top}px`;
-  };
-
-  const positionAtElement = (): void => {
-    if (!_tip) return;
-    const rect = el.getBoundingClientRect();
-    const tr = _tip.getBoundingClientRect();
-    const spaceAbove = rect.top;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const above = spaceAbove > tr.height + 16 || spaceAbove > spaceBelow;
-    const top = above ? rect.top - tr.height - 8 : rect.bottom + 8;
-    let left = rect.left + rect.width / 2 - tr.width / 2;
-    left = Math.max(8, Math.min(left, window.innerWidth - tr.width - 8));
-    _tip.style.left = `${left}px`;
-    _tip.style.top = `${top}px`;
-  };
-
-  const doShow = (): void => {
-    const txt = el.dataset.tooltipText;
-    if (!txt) return;
-    if (hideDelay !== null) { clearTimeout(hideDelay); hideDelay = null; }
-    const tip = ensureTip();
-    tip.textContent = txt;
-    tip.classList.add('show');
-    // Measure AFTER content is set. rAF ensures the browser has
-    // computed the size before we read the rect.
-    requestAnimationFrame(() => {
-      if (hasCursor) positionAtCursor();
-      else positionAtElement();
-    });
-  };
-
-  const onEnter = (e: PointerEvent | FocusEvent): void => {
-    if ('clientX' in e) {
-      cursorX = e.clientX;
-      cursorY = e.clientY;
-      hasCursor = true;
-    } else {
-      hasCursor = false;
-    }
-    if (showDelay !== null) clearTimeout(showDelay);
-    showDelay = window.setTimeout(() => {
-      showDelay = null;
-      doShow();
-    }, DELAY_SHOW);
-  };
-  const onMove = (e: PointerEvent): void => {
-    cursorX = e.clientX;
-    cursorY = e.clientY;
-    hasCursor = true;
-    // Only reposition while the tooltip is actually showing.
-    if (_tip?.classList.contains('show') && _currentTargetEl === el) {
-      positionAtCursor();
-    }
-  };
-  const onLeave = (): void => {
-    if (showDelay !== null) { clearTimeout(showDelay); showDelay = null; }
-    if (hideDelay !== null) clearTimeout(hideDelay);
-    hideDelay = window.setTimeout(() => {
-      _tip?.classList.remove('show');
-      _currentTargetEl = null;
-      hideDelay = null;
-    }, 60);
-  };
-  el.addEventListener('pointerenter', (e) => { _currentTargetEl = el; onEnter(e); });
-  el.addEventListener('pointermove', onMove);
-  el.addEventListener('pointerleave', onLeave);
-  el.addEventListener('focus', (e) => { _currentTargetEl = el; onEnter(e); });
-  el.addEventListener('blur', onLeave);
 }
 
 export function comHelp(label: HTMLElement, text: string): void {
