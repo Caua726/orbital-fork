@@ -62,6 +62,8 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 let _container: HTMLDivElement | null = null;
+let _hamburger: HTMLButtonElement | null = null;
+let _backdrop: HTMLDivElement | null = null;
 let _activeId = '';
 let _onNavigate: ((id: string) => void) | null = null;
 let _styleInjected = false;
@@ -313,6 +315,7 @@ export function criarSidebar(): HTMLDivElement {
     document.body.classList.toggle('sidebar-open');
   });
   document.body.appendChild(hamburger);
+  _hamburger = hamburger;
 
   const backdrop = document.createElement('div');
   backdrop.className = 'sidebar-backdrop';
@@ -321,6 +324,7 @@ export function criarSidebar(): HTMLDivElement {
     document.body.classList.remove('sidebar-open');
   });
   document.body.appendChild(backdrop);
+  _backdrop = backdrop;
 
   sidebar.addEventListener('click', (e) => {
     const target = e.target as HTMLElement | null;
@@ -355,6 +359,11 @@ export function destruirSidebar(): void {
     _container.remove();
     _container = null;
   }
+  _hamburger?.remove();
+  _hamburger = null;
+  _backdrop?.remove();
+  _backdrop = null;
+  document.body.classList.remove('sidebar-open');
   _unsubConfig?.();
   _unsubConfig = null;
   _unsubLayout?.();

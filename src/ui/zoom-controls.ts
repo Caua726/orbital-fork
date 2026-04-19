@@ -72,4 +72,5 @@ export function destruirZoomControls(): void {
     _container.remove();
     _container = null;
   }
+  _styleInjected = false;
 }

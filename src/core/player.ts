@@ -251,8 +251,11 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
         cameraLastMouse.y = e.clientY;
       }
     } else if (activePointers.size === 2) {
-      // Second pointer: start pinch. Cancel any in-progress drag.
+      // Second pointer: start pinch. Cancel any in-progress drag and
+      // wipe clickInfo so that when BOTH fingers lift, neither pointerup
+      // can run click-arbitration on stale hit data from the first touch.
       cameraDragging = false;
+      clickInfo = null;
       const [a, b] = Array.from(activePointers.values());
       const mid = midpoint(a, b);
       pinch = {
@@ -261,6 +264,9 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
         anchorSx: mid.x,
         anchorSy: mid.y,
       };
+      // Mark both pointers so their eventual up/cancel won't count as taps.
+      a.button = -1;
+      b.button = -1;
     }
   }, { signal });
 

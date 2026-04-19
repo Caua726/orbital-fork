@@ -37,7 +37,8 @@ export function injectMobileStyles(): void {
     body.touch.size-sm .new-world-modal,
     body.touch.size-sm .save-modal-backdrop,
     body.touch.size-sm .lore-modal-backdrop,
-    body.touch.size-sm .confirm-backdrop {
+    body.touch.size-sm .confirm-backdrop,
+    body.touch.size-sm .colony-modal {
       width: 100vw !important;
       max-width: 100vw !important;
       height: 100vh !important;
@@ -51,7 +52,6 @@ export function injectMobileStyles(): void {
     body.touch.size-sm .confirm-dialog,
     body.touch.size-sm .pm-card,
     body.touch.size-sm .nwm-card {
-      width: min(100vw, 100vw) !important;
       max-width: 100vw !important;
       max-height: 100vh !important;
       border-radius: 0 !important;
