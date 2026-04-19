@@ -62,9 +62,11 @@ vec3 starLayer(vec2 worldPos, float cellSize, float parallax,
     if (lottery > density * clamp(uDensidade, 0.0, 2.0)) return vec3(0.0);
 
     // Per-star velocity + speed from the hash → each star wanders
-    // its own direction (same animation model as the original).
+    // its own direction. Speed range 0.003..0.008 cell-units/sec
+    // gives a subtle twinkle of motion without the field feeling
+    // busy; roughly 5× slower than the first tuning.
     vec2 velDir = hash2(cellID, salt + 23) - 0.5;
-    float speed = 0.015 + hash1(cellID, salt + 43) * 0.025;
+    float speed = 0.003 + hash1(cellID, salt + 43) * 0.005;
     vec2 drift = velDir * uTime * speed;
 
     // Star position inside cell in [0, 1]² after drift.

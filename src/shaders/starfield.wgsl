@@ -86,7 +86,7 @@ fn starLayer(
     if (lottery > density * clamp(uDensidade, 0.0, 2.0)) { return vec3<f32>(0.0); }
 
     let velDir = hash2(cellRaw, salt + 23) - vec2<f32>(0.5);
-    let speed = 0.015 + hash1(cellRaw, salt + 43) * 0.025;
+    let speed = 0.003 + hash1(cellRaw, salt + 43) * 0.005;
     let drift = velDir * uTime * speed;
     let starPosNorm = fract(hash2(cellRaw, salt + 13) + drift);
 
