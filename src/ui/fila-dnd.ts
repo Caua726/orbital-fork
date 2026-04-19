@@ -85,86 +85,115 @@ export function isFilaDragging(): boolean {
 }
 
 export interface FilaDragOptions {
-  /** CSS selector for each draggable row within the list. */
   itemSelector: string;
-  /** CSS selector for the grab handle inside each row. */
   handleSelector: string;
-  /** Extract the logical fila index from an item element. */
   getIdx: (itemEl: HTMLElement) => number;
-  /** Indices that cannot be moved or displaced (e.g. active item 0). */
   isLocked: (idx: number) => boolean;
-  /** Called on drop with the final (fromIdx, toIdx) pair. */
   onReorder: (fromIdx: number, toIdx: number) => void;
 }
 
-/**
- * Binds pointer-based reordering to `listEl`. Adds a drop indicator
- * line that tracks the cursor. Respects `isLocked` so the active
- * item stays anchored at position 0.
- */
+interface DragState {
+  itemEl: HTMLElement;
+  pointerId: number;
+  fromIdx: number;
+  startY: number;
+  currentTargetIdx: number;
+  rects: Array<{ top: number; height: number; idx: number }>;
+  indicator: HTMLDivElement;
+  listRect: DOMRect;
+  onMove: (e: PointerEvent) => void;
+  onUp: (e: PointerEvent) => void;
+  onKey: (e: KeyboardEvent) => void;
+}
+
 export function bindFilaDragDrop(listEl: HTMLElement, options: FilaDragOptions): void {
   injectFilaStyles();
-  interface DragState {
-    itemEl: HTMLElement;
-    pointerId: number;
-    fromIdx: number;
-    startY: number;
-    currentTargetIdx: number;
-    rects: Array<{ el: HTMLElement; top: number; height: number; idx: number }>;
-    indicator: HTMLDivElement;
-    listRect: DOMRect;
-  }
+
   let state: DragState | null = null;
 
-  const handles = listEl.querySelectorAll<HTMLElement>(options.handleSelector);
-  handles.forEach((handle) => {
-    handle.addEventListener('pointerdown', (e) => {
-      if (state) return; // already dragging
-      if (e.button !== 0 && e.pointerType === 'mouse') return;
-      const itemEl = handle.closest(options.itemSelector) as HTMLElement | null;
-      if (!itemEl) return;
-      const fromIdx = options.getIdx(itemEl);
-      if (options.isLocked(fromIdx)) return;
-      e.preventDefault();
-      handle.setPointerCapture(e.pointerId);
+  function start(e: PointerEvent, handle: HTMLElement): void {
+    if (state) return;
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    const itemEl = handle.closest(options.itemSelector) as HTMLElement | null;
+    if (!itemEl) return;
+    const fromIdx = options.getIdx(itemEl);
+    if (options.isLocked(fromIdx)) return;
+    // Stop so parent modal/drawer pointerdown handlers don't run any
+    // side effects while we're starting a drag.
+    e.stopPropagation();
+    e.preventDefault();
 
-      const items = Array.from(listEl.querySelectorAll<HTMLElement>(options.itemSelector));
-      const rects = items.map((el) => {
-        const r = el.getBoundingClientRect();
-        return { el, top: r.top, height: r.height, idx: options.getIdx(el) };
-      });
-      const listRect = listEl.getBoundingClientRect();
-
-      const indicator = document.createElement('div');
-      indicator.className = 'fila-drop-indicator';
-      // Position the list as a positioning parent if it wasn't already.
-      if (getComputedStyle(listEl).position === 'static') {
-        listEl.style.position = 'relative';
-      }
-      listEl.appendChild(indicator);
-
-      itemEl.classList.add('fila-dragging');
-      _draggingActive = true;
-
-      state = {
-        itemEl,
-        pointerId: e.pointerId,
-        fromIdx,
-        startY: e.clientY,
-        currentTargetIdx: fromIdx,
-        rects,
-        indicator,
-        listRect,
-      };
-
-      // Bind move + up on the window so the drag keeps tracking even
-      // if the cursor strays outside the list container.
-      window.addEventListener('pointermove', onPointerMove);
-      window.addEventListener('pointerup', onPointerUp);
-      window.addEventListener('pointercancel', onPointerUp);
-      window.addEventListener('keydown', onKeyDown);
+    const items = Array.from(listEl.querySelectorAll<HTMLElement>(options.itemSelector));
+    const rects = items.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top, height: r.height, idx: options.getIdx(el) };
     });
-  });
+    const listRect = listEl.getBoundingClientRect();
+
+    const indicator = document.createElement('div');
+    indicator.className = 'fila-drop-indicator';
+    if (getComputedStyle(listEl).position === 'static') {
+      listEl.style.position = 'relative';
+    }
+    listEl.appendChild(indicator);
+
+    itemEl.style.position = 'relative';
+    itemEl.style.zIndex = '10';
+    itemEl.classList.add('fila-dragging');
+    _draggingActive = true;
+
+    // Set up listeners on document (not window) — some environments
+    // deliver pointer events only via document. pointercancel triggers
+    // cleanup so a stuck drag doesn't freeze the UI.
+    const onMove = (ev: PointerEvent): void => {
+      if (!state) return;
+      if (ev.pointerId !== state.pointerId) return;
+      const dy = ev.clientY - state.startY;
+      state.itemEl.style.transform = `translateY(${dy}px)`;
+      const targetIdx = computeTargetIdx(ev.clientY);
+      state.currentTargetIdx = targetIdx;
+
+      let indicatorClientY: number;
+      if (targetIdx >= state.rects.length) {
+        const last = state.rects[state.rects.length - 1];
+        indicatorClientY = last.top + last.height;
+      } else {
+        indicatorClientY = state.rects[targetIdx].top;
+      }
+      state.indicator.style.top = `${indicatorClientY - state.listRect.top - 2}px`;
+      state.indicator.style.display = 'block';
+    };
+
+    const onUp = (ev: PointerEvent): void => {
+      if (!state) return;
+      if (ev.pointerId !== state.pointerId) return;
+      finish(false);
+    };
+
+    const onKey = (ev: KeyboardEvent): void => {
+      if (!state) return;
+      if (ev.key === 'Escape') finish(true);
+    };
+
+    state = {
+      itemEl,
+      pointerId: e.pointerId,
+      fromIdx,
+      startY: e.clientY,
+      currentTargetIdx: fromIdx,
+      rects,
+      indicator,
+      listRect,
+      onMove,
+      onUp,
+      onKey,
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+    document.addEventListener('keydown', onKey);
+  }
 
   function computeTargetIdx(clientY: number): number {
     if (!state) return 0;
@@ -175,7 +204,6 @@ export function bindFilaDragDrop(listEl: HTMLElement, options: FilaDragOptions):
         targetIdx = r.idx + 1;
       }
     }
-    // Never drop above a locked item.
     let minIdx = 0;
     for (const r of state.rects) {
       if (options.isLocked(r.idx)) minIdx = r.idx + 1;
@@ -184,53 +212,29 @@ export function bindFilaDragDrop(listEl: HTMLElement, options: FilaDragOptions):
     return targetIdx;
   }
 
-  function onPointerMove(e: PointerEvent): void {
+  function finish(cancel: boolean): void {
     if (!state) return;
-    const dy = e.clientY - state.startY;
-    state.itemEl.style.transform = `translateY(${dy}px)`;
-
-    const targetIdx = computeTargetIdx(e.clientY);
-    state.currentTargetIdx = targetIdx;
-
-    // Position the drop indicator line.
-    let indicatorClientY: number;
-    if (targetIdx >= state.rects.length) {
-      const last = state.rects[state.rects.length - 1];
-      indicatorClientY = last.top + last.height;
-    } else {
-      indicatorClientY = state.rects[targetIdx].top;
-    }
-    state.indicator.style.top = `${indicatorClientY - state.listRect.top - 2}px`;
-    state.indicator.style.display = 'block';
-  }
-
-  function onPointerUp(): void {
-    if (!state) return;
-    const { fromIdx, currentTargetIdx, itemEl, indicator } = state;
-    // splice semantics: removing from fromIdx shifts later entries
-    // left by one, so targeting an idx > fromIdx needs -1.
-    const adjustedToIdx = currentTargetIdx > fromIdx ? currentTargetIdx - 1 : currentTargetIdx;
-    itemEl.style.transform = '';
-    itemEl.classList.remove('fila-dragging');
-    indicator.remove();
-
-    window.removeEventListener('pointermove', onPointerMove);
-    window.removeEventListener('pointerup', onPointerUp);
-    window.removeEventListener('pointercancel', onPointerUp);
-    window.removeEventListener('keydown', onKeyDown);
-
+    const s = state;
     state = null;
     _draggingActive = false;
-
-    if (adjustedToIdx !== fromIdx) {
-      options.onReorder(fromIdx, adjustedToIdx);
-    }
+    s.itemEl.style.transform = '';
+    s.itemEl.style.position = '';
+    s.itemEl.style.zIndex = '';
+    s.itemEl.classList.remove('fila-dragging');
+    s.indicator.remove();
+    document.removeEventListener('pointermove', s.onMove);
+    document.removeEventListener('pointerup', s.onUp);
+    document.removeEventListener('pointercancel', s.onUp);
+    document.removeEventListener('keydown', s.onKey);
+    if (cancel) return;
+    // splice semantics: removing fromIdx first shifts later entries
+    // down by 1, so a target > fromIdx needs -1.
+    const adjustedToIdx = s.currentTargetIdx > s.fromIdx ? s.currentTargetIdx - 1 : s.currentTargetIdx;
+    if (adjustedToIdx !== s.fromIdx) options.onReorder(s.fromIdx, adjustedToIdx);
   }
 
-  function onKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Escape' && state) {
-      state.currentTargetIdx = state.fromIdx;
-      onPointerUp();
-    }
-  }
+  const handles = listEl.querySelectorAll<HTMLElement>(options.handleSelector);
+  handles.forEach((handle) => {
+    handle.addEventListener('pointerdown', (e) => start(e, handle));
+  });
 }

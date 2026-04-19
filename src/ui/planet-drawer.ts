@@ -450,6 +450,7 @@ function injectStyles(): void {
       box-shadow: 0 calc(var(--hud-unit) * 0.4) calc(var(--hud-unit) * 1) rgba(0, 0, 0, 0.7);
       transition: none;
       cursor: grabbing;
+      position: relative;
     }
     .fila-drag-handle {
       width: calc(var(--hud-unit) * 1);
