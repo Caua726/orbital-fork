@@ -173,6 +173,64 @@ function injectStyles(): void {
       transition: opacity 120ms ease;
     }
     .sidebar-btn:hover .sidebar-icon-img { opacity: 1; }
+
+    /* Mobile drawer behavior */
+    .sidebar-hamburger {
+      display: none;
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      border: 1px solid var(--hud-border, rgba(255,255,255,0.35));
+      background: rgba(10,20,35,0.75);
+      color: var(--hud-text, #e8f2ff);
+      z-index: 501;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-family: "Silkscreen", "VT323", monospace;
+      touch-action: manipulation;
+    }
+    body.touch.size-sm .sidebar-hamburger,
+    body.touch.portrait.size-md .sidebar-hamburger {
+      display: flex;
+    }
+
+    .sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 499;
+    }
+    body.touch.size-sm.sidebar-open .sidebar-backdrop,
+    body.touch.portrait.size-md.sidebar-open .sidebar-backdrop {
+      display: block;
+    }
+
+    body.touch.size-sm .sidebar,
+    body.touch.portrait.size-md .sidebar {
+      top: 0 !important;
+      bottom: 0 !important;
+      left: 0 !important;
+      transform: translateX(-100%) !important;
+      height: 100vh;
+      width: min(72vw, 280px);
+      background: rgba(6,12,20,0.92);
+      border-right: 1px solid var(--hud-border, rgba(255,255,255,0.2));
+      transition: transform 220ms ease;
+      z-index: 500;
+      padding-top: 64px;
+      justify-content: flex-start;
+      gap: 6px;
+    }
+    body.touch.size-sm.sidebar-open .sidebar,
+    body.touch.portrait.size-md.sidebar-open .sidebar {
+      transform: translateX(0) !important;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -244,6 +302,33 @@ export function criarSidebar(): HTMLDivElement {
   _container = sidebar;
   document.body.appendChild(sidebar);
   registerSidebar(sidebar);
+
+  const hamburger = document.createElement('button');
+  hamburger.type = 'button';
+  hamburger.className = 'sidebar-hamburger';
+  hamburger.setAttribute('data-ui', 'true');
+  hamburger.setAttribute('aria-label', 'menu');
+  hamburger.textContent = '\u2630';
+  hamburger.addEventListener('click', () => {
+    document.body.classList.toggle('sidebar-open');
+  });
+  document.body.appendChild(hamburger);
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sidebar-backdrop';
+  backdrop.setAttribute('data-ui', 'true');
+  backdrop.addEventListener('click', () => {
+    document.body.classList.remove('sidebar-open');
+  });
+  document.body.appendChild(backdrop);
+
+  sidebar.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('.sidebar-btn')) {
+      document.body.classList.remove('sidebar-open');
+    }
+  });
+
   updateActive();
 
   _refreshTextos = () => {
