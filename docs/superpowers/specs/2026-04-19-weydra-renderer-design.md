@@ -435,20 +435,211 @@ M2 (starfield) e M5 (planet) são os testes reais do path WebGL2. Se algum shade
 
 ### Milestones
 
-| # | Sistema | Critério de merge |
-|---|---|---|
-| M1 | Foundation (setup, clear screen, frame loop) | Canvas pinta preto, `render()` a 60fps |
-| M2 | Starfield (2 shaders + tiling sprite) | Starfield visual idêntico via weydra |
-| M3 | Ships (sprites + trails) | Todas as naves via weydra |
-| M4 | Planets baked mode | Planetas pequenos via weydra |
-| M5 | Planets live shader mode | Planet shader FBM idêntico |
-| M6 | Fog-of-war | Fog overlay via weydra |
-| M7 | Graphics primitives (orbits/routes/beams) | Todos os Graphics via weydra |
-| M8 | Text labels | Labels via weydra |
-| M9 | UI (minimap/tutorial/panels) | Overlays UI via weydra |
-| M10 | Pixi removal | `pixi.js` fora do package.json |
+Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra. Cada M é independente do ponto de vista de rollback (pode desligar via flag sem afetar os outros), mas tecnicamente depende dos anteriores.
 
-Ordem é rígida bottom-up pra respeitar z-order durante coexistência.
+#### M1 — Foundation
+
+**Escopo:** Infraestrutura crua. Nada renderiza, nada é migrado. Só prova que o pipeline Rust→wgpu→WASM→TS→Vite→canvas funciona end-to-end.
+
+**Entregáveis:**
+- Cargo workspace com `core/` (Rust + wgpu) + `adapters/wasm/` (wasm-bindgen)
+- Primitivas core: `GpuContext` (Instance/Adapter/Device/Queue), `RenderSurface` (swap chain), `render_clear` (render pass trivial)
+- `CameraUniforms` struct (placeholder — bind group 0 preparado mas não preenchido ainda)
+- Native example (`examples/hello-clear/`) com winit — valida core sem browser
+- WASM adapter expondo `Renderer::new(canvas)`, `render()`, `resize()`
+- `ts-bridge/` com `initWeydra()` + `Renderer.create(canvas)`
+- `vite-plugin-wgsl` passthrough (M1 só retorna source string; reflection vem no M2)
+- Segundo canvas `#weydra-canvas` no `index.html` atrás do Pixi canvas (z-index 0 vs 1)
+- Loader em `src/weydra-loader.ts` atrás de flag `localStorage.weydra_m1`
+- Build script `build:renderer` no `package.json` + plugins Vite (wasm + top-level-await + wgsl)
+
+**Critério de merge:** com flag on, canvas weydra pinta preto a 60fps atrás do Pixi, zero regressão no jogo (Pixi continua renderizando normal), `cargo build --workspace` + `cargo test` + `npm run dev` + `npm run build` todos limpos.
+
+**Resultado prático:** nada visível pro jogador. Infra pronta pros próximos Ms se plugarem.
+
+---
+
+#### M2 — Starfield
+
+**Escopo:** Primeiro shader custom real rodando. Starfield procedural do Orbital migra pro weydra. Estabelece convenção de bind groups + uniform pool pattern.
+
+**Entregáveis:**
+- `ShaderRegistry` em Rust (compilação WGSL, cache por hash)
+- `EngineBindings` (bind group 0: `CameraUniforms` buffer ligado, visível a todos os shaders)
+- `UniformPool<T>` genérico (homogeneous Vec<T>, mirror GPU buffer, pointer exposto)
+- `Mesh` primitive (fullscreen quad + custom shader + bind groups 0/1)
+- `TilingSprite` primitive (texture + UV offset/scale pra camada de bright stars baked)
+- Port de `src/shaders/starfield.wgsl` pra convenção de bind groups (group 0 engine + group 1 custom)
+- Extensão do `vite-plugin-wgsl`: usa `wgsl_reflect` pra extrair uniform layouts + gera TS typed accessors on-the-fly
+- Flag `weydra.starfield` — ativa, `src/world/fundo.ts` desativa o path Pixi e chama weydra
+
+**Critério de merge:** starfield renderiza via weydra com visual pixel-parity vs Pixi. Frame time `fundo` ≤ Pixi baseline. Vite HMR funciona quando edita `starfield.wgsl`.
+
+**Resultado prático:** invisível pro jogador (paridade exigida). Dev experience: primeiro shader rodando, feedback loop completo validado.
+
+---
+
+#### M3 — Ships
+
+**Escopo:** Primeiro sistema com muitas entidades. Sprite batcher + shared memory + SlotMap nascem aqui. É o milestone mais "transformador" — depois dele a estratégia de binding está completa e todos os próximos Ms reusam.
+
+**Entregáveis:**
+- Generational `SlotMap<T>` em Rust (handles opacos `u64` = slot+generation)
+- `TextureRegistry` com `upload_rgba(bytes, w, h) -> Handle`, nearest sampler por padrão
+- `SpritePool` SoA: arrays contíguos `transforms` (Vec<[f32;4]>), `uvs` (Vec<[f32;4]>), `colors` (Vec<u32>), `flags` (Vec<u8>), `z_order` (Vec<f32>), `textures` (Vec<u32>)
+- Ponteiros de cada array expostos via wasm-bindgen como `u32` (cast de `*const T as u32`)
+- `mem_version` counter pra detecção de memory growth + revalidação no ts-bridge
+- Shader `sprite_batch.wgsl` com storage buffer + instance_index (WebGPU path; WebGL2 fallback via vertex attributes é follow-up)
+- Sprite batcher em Rust: sort por (texture_id, z_order), 1 draw call por textura com N instances
+- TS `Sprite` class com setters que escrevem direto nos `Float32Array`/`Uint32Array` views
+- Spritesheet loading: `ships.png` (96×96 cells, 5 cols × 4 rows, tier variants)
+- Sub-frame UVs + tint (fragata vermelha)
+- Trails: sprites pequenos com alpha (full graphics lines vêm no M7)
+- Flag `weydra.ships` — naves renderizam via weydra
+- Ship select via DOM addEventListener confirmado (já é DOM hoje, só validar)
+
+**Critério de merge:** todas as naves via weydra, visual idêntico (position, scale, tint, flip horizontal, trails), selecionar clicando funciona, frame time ≤ Pixi com 40 naves + stress test 300 naves passa.
+
+**Resultado prático:** invisível pro jogador, mas internamente é O momento em que weydra fica "pronto pra valer" — a partir daqui qualquer coisa nova pluga em cima do sprite pool.
+
+---
+
+#### M4 — Planets (baked mode)
+
+**Escopo:** Planetas pequenos/distantes (abaixo de `AUTO_BAKE_PX=40`) renderizam via weydra sprite pool. Reaproveita M3, adiciona só o pipeline de bake.
+
+**Entregáveis:**
+- `RenderTarget` abstraction no core (texture renderable + view)
+- WASM adapter: `upload_texture_from_image_data(bytes, w, h)` pra promover um bake Pixi pro weydra
+- Branch em `bakePlaneta()` (`planeta-procedural.ts`): se flag `weydra.planetsBaked`, usa pipeline "Pixi extract canvas → bytes → weydra upload → sprite" (decisão: Pixi ainda gera a textura no M4; full-weydra bake fica pro M5 quando o shader for portado)
+- Integração com `AUTO_BAKE_PX` / `AUTO_UNBAKE_PX` existentes
+- `precompilarBakesPlanetas` no loading também passa pelo path weydra se flag on
+- Cleanup na transição baked ↔ live (destroy weydra sprite, restore Pixi mesh visibility)
+
+**Critério de merge:** planetas pequenos renderizam via weydra, transição baked↔live suave, `precompilarBakesPlanetas` funciona, stalls de auto-bake reduzidos.
+
+**Resultado prático:** stalls de 2-4ms no auto-bake hoje caem pra ~0.5-1ms. Pouco perceptível sem profiler, mas mobile low-end sente menos hitches.
+
+---
+
+#### M5 — Planets (live shader)
+
+**Escopo:** O milestone mais complexo do projeto. Port do shader procedural do planeta (FBM + cloud circles + PCG hash + 24 uniforms) pra weydra com paridade visual bit-exata.
+
+**Entregáveis:**
+- Port de `src/shaders/planeta.wgsl` pra convenção bind groups (group 0 engine, group 1 `PlanetUniforms` struct)
+- `PlanetUniforms` struct `#[repr(C)]` em Rust com 24 campos (u_time, u_seed, u_rotation, u_light_origin, u_colors[6], etc) matchando o WGSL
+- `PlanetPool` homogeneous: `Vec<PlanetUniforms>` contíguo, cada slot = 1 instance, bind group com dynamic offset por slot (capacity 256)
+- `PlanetInstance` TS class com setters tipados (gerados pelo vite-plugin-wgsl idealmente; fallback manual)
+- Registration do shader no boot via `renderer.createPlanetShader(wgslSrc)`
+- Branch em `criarPlanetaProceduralSprite`: se `weydra.planetsLive`, cria `PlanetInstance` e retorna objeto stub compatível com o contrato esperado pelo resto do código
+- `atualizarTempoPlanetas` atualiza uTime, uRotation via shared memory writes
+- `atualizarLuzPlaneta` via `setLightOrigin` no instance
+- **Determinism test**: cena controlada (1 planeta, seed fixo, camera fixa, time=0) renderizada em Pixi e weydra, hash do framebuffer comparado. Tolerance: 0-bit drift ideal, 1-bit aceitável
+- Full-weydra bake: substitui o path híbrido do M4 (Pixi extract) por render-to-RenderTarget no weydra nativo
+- Flag `weydra.planetsLive`
+
+**Critério de merge:** planetas grandes (shader live) renderizam via weydra visual-identico, determinism test passa em 1 cena de referência, full-weydra bake funciona sem dependência Pixi, frame time ≤ Pixi.
+
+**Resultado prático:** invisível pro jogador se paridade mantida. Maior risco do projeto — bugs de shader determinism podem ficar sutis (ex: nuvem levemente deslocada, paleta 1-bit off).
+
+---
+
+#### M6 — Fog-of-War
+
+**Escopo:** Neblina de visão procedural via shader em vez de canvas+upload. Abordagem mais simples: uniform array com N fontes de visão, fragment shader calcula alpha per-pixel.
+
+**Entregáveis:**
+- `FogUniforms` struct com array fixo de 64 `VisionSource { position, radius }`
+- `src/shaders/fog.wgsl` — fullscreen fragment que itera sources e calcula coverage via `smoothstep(radius, radius*0.75, distance)`
+- WASM adapter: `create_fog_shader(wgsl)`, `fog_ptr()`, `fog_max_sources()`
+- TS `FogLayer` class: `setBaseAlpha`, `setSource(i, x, y, r)`, `setActiveCount(n)`
+- Branch em `src/world/nevoa.ts::desenharNeblinaVisao`: se `weydra.fog`, popula uniform array com fontes ativas, skip canvas draw + upload
+- Flag `weydra.fog`
+
+**Critério de merge:** fog renderiza via weydra com bordas suaves comparáveis ao destination-out, acompanha camera, cap de 64 sources suficiente pro gameplay atual, frame time `fog` constante (elimina o spike p95 que o canvas+upload tinha).
+
+**Resultado prático:** jogador não percebe diferença visual. Frame time fica mais estável (spike some).
+
+---
+
+#### M7 — Graphics primitives
+
+**Escopo:** API vector (circle/rect/roundRect/lineTo/arc/fill/stroke/clear) equivalente ao `Pixi.Graphics`, com tessellation via crate `lyon`. Migra orbit lines, rotas, beams, trails (agora full graphics), rings. **Também re-wire de TODOS os pointer events Pixi pra DOM** (5 objetos eventMode + ~11 handlers).
+
+**Entregáveis:**
+- `Graphics` module no core com command list + dirty flag
+- Integração `lyon` (tessellator 2D): fill + stroke geram vertex/index buffers, cacheados até `clear()` ou nova op
+- `graphics.wgsl` flat-shaded triangle pipeline (só position + color por vertex)
+- WASM exports: `create_graphics`, `graphics_circle/rect/roundRect/line/arc`, `graphics_fill/stroke/clear`
+- TS `Graphics` class mirror Pixi API (fluent: `.circle(...).fill(...).stroke(...)`)
+- Migração em `src/world/sistema.ts` (orbit lines), `src/world/naves.ts` (rotas + selection ring), `src/world/engine-trails.ts` (trails completos), `src/world/combate-resolucao.ts` (beams), `src/world/mundo.ts` (anel cache já existe, só trocar backend)
+- **Re-wire DOM events** em `src/ui/minimapa.ts` (click-to-navigate), `src/ui/tutorial.ts` (close button), `src/ui/painel.ts` (action buttons), `src/ui/selecao.ts` (card hover/press): substituir `eventMode + .on('pointer...')` por `canvas.addEventListener` + hit-test manual contra bounds
+- Flag `weydra.graphics`
+
+**Critério de merge:** todos os graphics via weydra, visual idêntico (aceitando diff sub-pixel em tessellation), todos os cliques/hovers migrados pra DOM funcionam, frame time em cena graphics-heavy ≤ Pixi.
+
+**Resultado prático:** jogador não percebe diferença visual nem de input. Anel cache + lyon dirty tracking deixa frame time mais estável em cenas com muitos Graphics.
+
+---
+
+#### M8 — Text labels
+
+**Escopo:** Rendering de texto via bitmap font em vez do `Pixi.Text` (que usa canvas fillText + upload). Integração com `fontdue` crate pra rasterizar glyphs.
+
+**Entregáveis:**
+- Integração crate `fontdue` no core
+- Font file bundled no WASM (escolher entre Silkscreen/VT323 — as que usamos no CSS hoje)
+- Glyph atlas gerado no boot em 2-3 tamanhos (pro texto de label pequeno, tutorial médio, título grande)
+- `Text` primitive no core: recebe string + position + size + color, look up glyphs no atlas, emite vertex buffer com quads
+- WASM exports: `create_text`, `set_text_content`, `set_text_position`
+- TS `Text` class
+- Migração das 3 instâncias `Pixi.Text`: fog memory labels (dinâmico: nome/owner/build count), tutorial (estático), qualquer outro uso
+- Conteúdo dinâmico funciona — cada update vira lookup no atlas + vertex buffer rebuild
+- Flag `weydra.text`
+
+**Critério de merge:** texto via weydra legível, fonte pixel-art igual ou melhor que Pixi.Text default, update dinâmico (mudança de nome de planeta) funciona, zero uso de `Pixi.Text` no código.
+
+**Resultado prático:** jogador vê a mesma fonte (se escolhida igual). Update de label é dramaticamente mais rápido (Pixi.Text cria canvas + uploads textura por update; atlas é grátis).
+
+---
+
+#### M9 — UI (minimap/tutorial/painéis)
+
+**Escopo:** Últimos overlays Pixi migram. Basicamente é reusar M7 + M8 pra recriar os elementos que sobraram em Pixi.
+
+**Entregáveis:**
+- `src/ui/minimapa.ts` inteiro via weydra: background Graphics + dots Graphics + viewport rect Graphics + título Text
+- `src/ui/tutorial.ts`: frame Graphics + Text + close button (graphics + DOM event já feito em M7)
+- `src/ui/painel.ts`: backgrounds Graphics + botões (graphics + text + event)
+- `src/ui/selecao.ts`: selection cards (backgrounds + text + hover state)
+- Qualquer Pixi.Container/Sprite/Graphics remanescente em `src/ui/` erradicado
+- Flag `weydra.ui`
+
+**Critério de merge:** `grep -rn "from 'pixi.js'" src/ui/` retorna vazio, todas as UIs funcionam identicamente (visual + input), flag pode ser desligado pra fallback mas é o último uso de Pixi em UI.
+
+**Resultado prático:** jogador não percebe. Internamente, `src/ui/` não depende mais de Pixi.
+
+---
+
+#### M10 — Pixi removal + cleanup
+
+**Escopo:** Endgame. Pixi completamente removido do projeto.
+
+**Entregáveis:**
+- Delete canvas Pixi do `index.html`
+- Delete todos os feature flags `weydra.*` do config (eram só pra migração)
+- Delete `Application`, `Ticker`, `Container`, `Sprite`, `Graphics`, `Mesh`, `Shader`, `Texture`, `TilingSprite`, `Text`, `AnimatedSprite` — todas referências Pixi
+- Delete todos os `import ... from 'pixi.js'`
+- `npm uninstall pixi.js` — remove do `package.json`
+- Canvas único (weydra) com scene graph unificado. z-order flexível resolve o problema das camadas interleaved
+- Testes: save/load roundtrip, mobile low-end (PowerVR), Safari iOS
+- Comparação de perf final: branch pre-M1 (só Pixi) vs pós-M10 (só weydra) em 1 cena de referência
+- Tag release no git
+
+**Critério de merge:** `grep -rn "pixi" package.json` retorna zero, `grep -rn "from 'pixi.js'" src/` retorna zero, bundle JS + WASM final menor que bundle JS com Pixi, frame time em mobile low-end melhor que baseline pre-M1.
+
+**Resultado prático:** é ONDE o jogador pode perceber diferença — se tudo deu certo, mobile low-end sente jogo mais fluido (menos hitches, frame time médio melhor). No desktop de alta performance, possível empate (GPU não era gargalo). Bundle total comparável (perdeu Pixi ~500KB, ganhou WASM ~500KB-2MB dependendo do que saiu).
 
 ### Feature flags por sistema
 
