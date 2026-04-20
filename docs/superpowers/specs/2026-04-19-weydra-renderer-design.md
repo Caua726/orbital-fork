@@ -14,20 +14,18 @@ O jogo é renderizado hoje em Pixi v8 (WebGL2 / WebGPU / Canvas2D fallback). O a
 2. Performance igual ou melhor que Pixi em todos os devices que o Orbital atende
 3. Multi-plataforma via wgpu: WebGPU, WebGL2, Vulkan, Metal, DX12, GLES 3.0
 4. API TypeScript com type-safety, ergonomia decente, overhead praticamente zero no hot path
-5. Migração incremental — jogo **nunca quebra** durante os ~5-6 meses de dev
+5. Migração incremental — jogo **nunca quebra** durante o dev
 6. Base reusável pra futuros jogos do ecossistema weydra
 
 ## Não-objetivos
 
 - Não é uma reimplementação do Pixi — não vamos replicar API dele
-- Não suporta OpenGL ES 2.0, OpenGL 1.x, ou rasterização software custom (Canvas2D do Orbital fica intacto como fallback último)
-- Não é motor 3D
 - Não é engine com ECS/audio/physics/editor **na fase inicial** (escopo pode evoluir pra isso)
 - Consoles (Switch/PS/Xbox) não estão no escopo atual
 
 ## Escopo por fase
 
-- **Fase A (atual → ~6 meses):** renderer funcionando no Orbital. Substitui Pixi completamente. Escopo focado — só o que Orbital precisa.
+- **Fase A (atual):** renderer funcionando no Orbital. Substitui Pixi completamente. Escopo focado — só o que Orbital precisa.
 - **Fase B (futura):** engine 2D reusável. API abstrai Orbital-specifics. Consumível por outros jogos.
 - **Fase C (distante):** engine completa com audio/physics/input/asset pipeline. Fora do spec atual.
 
@@ -54,46 +52,57 @@ Auditoria completa gerada durante brainstorming (in-conversation, 2026-04-19). R
 
 ```
 orbital-fork/
-├── src/                              ← jogo TS (importa do ts-bridge)
-├── weydra-renderer/                  ← raiz do projeto renderer
+├── src/                              ← jogo TS
+│   ├── shaders/                      ← shaders do JOGO (game-specific)
+│   │   ├── planet.wgsl
+│   │   └── starfield.wgsl
+│   └── ... (importa de weydra-renderer/ts-bridge + consome .wgsl via Vite plugin)
+│
+├── weydra-renderer/                  ← raiz do projeto renderer (reusável)
 │   ├── Cargo.toml                    ← workspace root
 │   ├── core/                         ← crate: weydra-renderer
-│   │   ├── Cargo.toml                ← deps: wgpu, bytemuck, glam, lyon, fontdue
+│   │   ├── Cargo.toml                ← deps: wgpu, bytemuck, glam, lyon, fontdue, naga
 │   │   ├── src/
 │   │   │   ├── lib.rs
 │   │   │   ├── device.rs             ← wgpu Instance/Adapter/Device/Queue
 │   │   │   ├── surface.rs            ← abstração de surface
+│   │   │   ├── camera.rs             ← camera global (bind group 0)
 │   │   │   ├── scene.rs              ← scene graph, slotmap handles
 │   │   │   ├── transform.rs          ← affine 2D
 │   │   │   ├── texture.rs            ← texture manager + atlas
 │   │   │   ├── sprite.rs             ← sprite batcher
 │   │   │   ├── graphics.rs           ← vector primitives via lyon
-│   │   │   ├── mesh.rs               ← custom shader meshes
-│   │   │   ├── shader.rs             ← shader registry, WGSL compilation
+│   │   │   ├── mesh.rs               ← custom shader meshes (API genérica)
+│   │   │   ├── shader.rs             ← shader registry, WGSL compile, reflection
 │   │   │   ├── text.rs               ← bitmap font (fontdue)
 │   │   │   ├── frame.rs              ← frame orchestration
 │   │   │   └── pools/                ← per-shader-type uniform pools
-│   │   ├── shaders/                  ← WGSL compartilhados
+│   │   ├── shaders/                  ← SÓ shaders genéricos do engine
+│   │   │   ├── sprite.wgsl
+│   │   │   ├── graphics.wgsl
+│   │   │   └── text.wgsl
 │   │   └── tests/
 │   ├── adapters/
 │   │   ├── wasm/                     ← crate: weydra-renderer-wasm
 │   │   │   ├── Cargo.toml            ← deps: core + wasm-bindgen + web-sys
 │   │   │   └── src/lib.rs
 │   │   └── winit/                    ← crate: weydra-renderer-winit (fase B)
-│   ├── examples/                     ← demos standalone
+│   ├── vite-plugin-wgsl/             ← Vite plugin que transforma .wgsl em TS tipado
+│   │   └── index.ts
+│   ├── examples/                     ← demos standalone do renderer
 │   │   ├── hello-clear/
 │   │   ├── sprite-batcher/
-│   │   └── full-demo/
-│   └── ts-bridge/                    ← API TS consumível pelo Orbital
+│   │   └── custom-shader/            ← demo de como consumir shader custom
+│   └── ts-bridge/                    ← API TS genérica, SEM conhecer shaders do jogo
 │       ├── index.ts
 │       ├── sprite.ts
 │       ├── graphics.ts
-│       ├── mesh.ts
-│       └── shaders/                  ← wrappers tipados por shader
-│           ├── planet.ts
-│           └── starfield.ts
+│       └── mesh.ts                   ← renderer.createShader(wgsl, layout)
+│
 └── ... resto do jogo
 ```
+
+**Separação crítica:** shaders específicos do jogo (planet, starfield) vivem em `src/shaders/` do jogo. O renderer **não conhece Orbital**. Game consome API genérica pra registrar seus próprios shaders. Requisito pra escopo B (engine reusável) — outros jogos que usarem weydra-renderer trazem os shaders deles.
 
 Princípio da separação core / adapters:
 
@@ -104,7 +113,7 @@ Princípio da separação core / adapters:
 ### Stack técnica
 
 - **Linguagem:** Rust (stable, nightly apenas se absolutamente necessário)
-- **GPU:** wgpu v25+ (crate oficial WebGPU)
+- **GPU:** wgpu nightly latest version+ (crate oficial WebGPU)
 - **Browser binding:** wasm-bindgen + wasm-pack
 - **Vector tessellation:** lyon crate
 - **Text rasterization:** fontdue crate (bitmap font)
@@ -302,6 +311,29 @@ Instancing (draw múltiplos planetas com 1 call) fica pra quando virar gargalo p
 
 WGSL é a única linguagem que escrevemos. wgpu traduz pra SPIR-V (Vulkan), MSL (Metal), HLSL (DX12), GLSL (WebGL2), WGSL nativo (WebGPU).
 
+### Convenção de bind groups (padrão do engine)
+
+Todos os shaders custom seguem esta convenção fixa:
+
+| Bind group | Owner | Conteúdo |
+|---|---|---|
+| **0** | Engine | `uCamera: vec2<f32>`, `uViewport: vec2<f32>`, `uTime: f32`, matrices padrão |
+| **1** | Shader custom | Uniforms específicos do shader (ex: PlanetUniforms, StarfieldUniforms) |
+| **2** | Shader custom | Textures + samplers do shader |
+
+Engine popula bind group 0 automaticamente a cada frame. Shader custom só declara o que é seu em bind groups 1/2.
+
+```wgsl
+// planet.wgsl
+@group(0) @binding(0) var<uniform> camera: CameraUniforms;  // grátis, do engine
+@group(1) @binding(0) var<uniform> planet: PlanetUniforms;  // próprio do shader
+```
+
+**Benefícios:**
+- Shader custom não redeclara camera/viewport/time — ganha grátis
+- Trocar câmera (ex: render pra minimap com câmera diferente) = rebind só do group 0
+- Padrão comum em engines modernas (Bevy, Godot)
+
 ### Per-shader-type homogeneous pool
 
 Cada tipo de shader (planet, starfield, etc.) tem seu próprio pool com `#[repr(C)]` struct tipada:
@@ -328,26 +360,49 @@ Vantagens:
 - Update buffer é `queue.write_buffer(&gpu_buffer, 0, bytemuck::cast_slice(&instances))`
 - Naturalmente instanceable quando necessário
 
-### TS wrappers — escritos à mão
+### TS wrappers — via Vite plugin (`vite-plugin-wgsl`)
 
-Por shader, um `.ts` com getters/setters tipados:
+Escrever wrappers TS à mão é tedioso e quebra sync quando o shader muda. Abordagem escolhida: **Vite plugin custom** que transforma `import` de `.wgsl` em módulo TS tipado automaticamente.
 
 ```ts
-export class PlanetInstance {
-  constructor(public handle: bigint, private r: Renderer) {
-    this.base = Number(handle) * (r.planetUniformsStride / 4);
-  }
-  set uTime(v: number) { this.r.views.planetUniformsF32[this.base + 0] = v; }
-  set uSeed(v: number) { this.r.views.planetUniformsF32[this.base + 1] = v; }
-  // ...
-}
+// game code
+import planetShader from './shaders/planet.wgsl';
+
+// Tipo inferido automaticamente do .wgsl:
+//   planetShader.create(): PlanetInstance
+//   PlanetInstance { uTime, uSeed, uLightOrigin, ... }
+
+const instance = planetShader.create();
+instance.uTime = 0.5;              // ← typed, zero overhead
+instance.uSeed = 3.14;
+instance.setLightOrigin(0.5, 0.5); // ← vec2 vira método
 ```
 
-2 shaders × ~15 fields = ~30 setters escritos à mão total. Se chegarmos a 20+ shaders, consideramos codegen via naga reflection.
+**Como o plugin funciona:**
+
+1. Vite intercepta `import X from './path/shader.wgsl'`
+2. Plugin lê o arquivo, passa pro `naga` (WASM ou CLI) pra extrair layout de uniforms (campos, offsets, tipos)
+3. Plugin emite um módulo TypeScript virtual com classe tipada e setters que escrevem direto nas typed array views do renderer
+4. Vite importa o módulo virtual normalmente
+
+**Funciona nativamente com `npm run dev`:**
+- Editar `planet.wgsl` → Vite detecta mudança → plugin regera → HMR reload instantâneo
+- Zero arquivos `.ts` gerados no disco (não polui git, não tem "arquivo gerado vs fonte" sync issue)
+- Integração é uma linha em `vite.config.ts`: `plugins: [wgslPlugin()]`
+
+**Base técnica:** plugins existentes como `vite-plugin-glsl` ou `vite-plugin-wgsl-shader` cobrem parte do problema (importar shader source). A gente estende pra extrair layout de uniforms via `naga` e gerar types/setters.
+
+**Benefícios:**
+- WGSL é single source of truth — TS e Rust sempre em sync
+- Mudar shader = editar `.wgsl`, tudo mais atualiza
+- TypeScript compiler pega divergência em build (ex: campo renomeado)
+- Works pra 2 ou 200 shaders igual
+
+O plugin vai como task no M1 Foundation.
 
 ### Shaders existentes: port direto
 
-`planeta.wgsl` e `starfield.wgsl` já são WGSL. Port = renomear bindings pra novo bind group layout. Zero mudança de lógica. Estimativa: 1 dia pra ambos.
+`planeta.wgsl` e `starfield.wgsl` já são WGSL. Port = renomear bindings pra novo bind group layout. Zero mudança de lógica.
 
 ### Fallback WebGL2
 
@@ -359,7 +414,7 @@ wgpu traduz WGSL → GLSL 3.00 ES via `naga` crate. Features básicas (uniforms,
 - Dynamic array indexing em loops pode gerar GLSL inválido em alguns casos
 - Arrays de cores indexados dinamicamente — `planeta.wgsl` usa `uColors0..uColors5` via switch, deve funcionar mas validar
 
-M2 (starfield) e M5 (planet) são os testes reais do path WebGL2. Se algum shader exigir tweaks pro backend GL, reserva +2-3 dias adicionais no milestone afetado.
+M2 (starfield) e M5 (planet) são os testes reais do path WebGL2. Se algum shader exigir tweaks pro backend GL, adicionar como task extra no milestone afetado.
 
 ## Estratégia de migração
 
@@ -378,38 +433,22 @@ M2 (starfield) e M5 (planet) são os testes reais do path WebGL2. Se algum shade
 
 **Limitação aceita:** z-order entre objetos em canvases diferentes é fixo. Mitigado por migrar rigidamente bottom-up (starfield → ships → planets → graphics → UI).
 
-**Estados intermediários com z-order visualmente errado:** Orbital tem camadas interleaved que NÃO seguem split bottom/top limpo:
-- Orbit Graphics rings (atrás de planetas, acima de starfield)
-- Ship engine trails (atrás de naves, acima de planet rings)
-- Fog overlay (acima de tudo exceto UI)
-
-Durante a migração, períodos onde (exemplo) ship trails estão no weydra canvas (baixo) mas orbit rings ainda estão em Pixi (cima) vão renderizar em ordem **visualmente errada**. Não é bug — é consequência do approach incremental.
-
-**Mitigação:**
-- Intermediate states são aceitáveis em branch de dev
-- Antes de mergear milestone pra main, ou o z-order fica correto, ou o flag fica default-off e o sistema só ativa em dev builds até o próximo milestone corrigir
-- Alternativa: mergear 2-3 milestones adjacentes juntos quando o z-order exigir (ex: M4+M5 planets + M7 graphics rings merged juntos como "planet layer complete")
-
 ### Milestones
 
-| # | Sistema | Duração | Critério de merge |
-|---|---|---|---|
-| M1 | Foundation (setup, clear screen, frame loop) | 1 sem | Canvas pinta preto, `render()` a 60fps |
-| M2 | Starfield (2 shaders + tiling sprite) | 1 sem | Starfield visual idêntico via weydra |
-| M3 | Ships (sprites + trails) | 2 sem | Todas as naves via weydra |
-| M4 | Planets baked mode | 2 sem | Planetas pequenos via weydra |
-| M5 | Planets live shader mode | 2 sem | Planet shader FBM idêntico |
-| M6 | Fog-of-war | 1 sem | Fog overlay via weydra |
-| M7 | Graphics primitives (orbits/routes/beams/trails) | **3 sem** | Todos os Graphics via weydra |
-| M8 | Text labels | **3-4 sem** | Labels via weydra |
-| M9 | UI (minimap/tutorial/panels) | 2 sem | Overlays UI via weydra |
-| M10 | Pixi removal | 1 sem | `pixi.js` fora do package.json |
+| # | Sistema | Critério de merge |
+|---|---|---|
+| M1 | Foundation (setup, clear screen, frame loop) | Canvas pinta preto, `render()` a 60fps |
+| M2 | Starfield (2 shaders + tiling sprite) | Starfield visual idêntico via weydra |
+| M3 | Ships (sprites + trails) | Todas as naves via weydra |
+| M4 | Planets baked mode | Planetas pequenos via weydra |
+| M5 | Planets live shader mode | Planet shader FBM idêntico |
+| M6 | Fog-of-war | Fog overlay via weydra |
+| M7 | Graphics primitives (orbits/routes/beams) | Todos os Graphics via weydra |
+| M8 | Text labels | Labels via weydra |
+| M9 | UI (minimap/tutorial/panels) | Overlays UI via weydra |
+| M10 | Pixi removal | `pixi.js` fora do package.json |
 
-**Total corrigido:** 17-19 semanas (reviewer apontou sub-estimativa em M7 + M8). Realistic com fricção: **6-7 meses**.
-
-Detalhes:
-- **M7 subiu pra 3 semanas:** 12 primitive methods, integração lyon, retained mode com dirty tracking, tessellation cache. Plus re-wire dos pointer events do minimap/selecao (reviewer apontou ~11 handlers pixi que não tinham sido contados).
-- **M8 subiu pra 3-4 semanas:** integração fontdue não é trivial — font file selection, bundling, rasterização multi-size, glyph atlas, layout. Orbital usa text com conteúdo dinâmico (nomes de planeta, timestamps) que impede pre-baking completo do atlas.
+Ordem é rígida bottom-up pra respeitar z-order durante coexistência.
 
 ### Feature flags por sistema
 
@@ -442,7 +481,7 @@ Todas default `false`. Cada milestone liga a sua quando pronto. **Rollback insta
 ### Red flags que travam merge
 
 - Visual: planeta com gradient errado, ship com posição flutuante, fog com borda dura
-- Perf: frame time p95 regrediu >5% vs Pixi
+- Perf: frame time p95 regrediu >0.1% vs Pixi
 - Crash: wgpu emite validation error em qualquer backend
 - Platform: quebra em Safari iOS ou PowerVR mobile
 
@@ -460,24 +499,18 @@ Ciclo <30s entre edit e validação visual.
 - **Tessellation lyon:** pode gerar polygon count diferente do Pixi. Plano: teste de parity pixel-a-pixel em cena com só Graphics.
 - **WebGL2 feature coverage:** wgpu não suporta tudo WGSL em WebGL2. Validar cedo — M2 já exerce shader complexo.
 - **Input no canvas inferior:** durante migração, se algum sistema precisar de hit-test no weydra canvas, precisamos de `pointer-events: auto` condicional. Plano: postergar pro M9 onde UI migra.
-- **CI visual parity em backends diferentes:** em CI headless, wgpu via WebGPU pode cair pra WARP/SwiftShader (software), enquanto Pixi roda em WebGL via ANGLE. Comparar pixel-a-pixel entre dois backends diferentes é enganoso. Plano: **rodar visual parity tests com BOTH renderers forçados no mesmo backend** (ex: ambos em WebGL via headless Chrome com `--disable-webgpu`), ou usar CI com GPU real (GitHub Actions `ubuntu-latest-large` com NVIDIA passthrough) pra WebGPU de verdade.
-- **WASM binary parse time em mobile low-end:** wgpu compila grande. Release + wasm-opt -O4 realistas: 1.5-3 MB de .wasm. Parse + instantiation em mobile low-end (PowerVR BXM-8-256 reportado pelo user) pode custar 200-500ms no boot. Medir em M1, e se for problemático, explorar code-splitting ou lazy init.
 
 ## Riscos gerais e mitigações
 
 | Risco | Probabilidade | Impacto | Mitigação |
 |---|---|---|---|
 | Projeto pausa no meio da migração | Média | Baixo | Rollback por flag, Pixi continua funcional até M10 |
-| M5 (planet shader) demora 2× estimado | Alta | Médio | Buffer de tempo no schedule; migração incremental não trava outros M |
+| M5 (planet shader) é o mais complexo do projeto | Alta | Médio | Migração incremental não trava outros M; pode pular M5 e fazer M6+ primeiro em paralelo |
 | Performance não supera Pixi em mobile | Baixa | Alto | Benchmarks desde M2; abort se regression confirmada |
 | wgpu bug de driver em browser-específico | Média | Médio | Fallback path Pixi via flag; report upstream |
-| Scope creep (B ou C antes da hora) | Alta | Médio | Spec explícita: só expandir após M10 estável 1 mês |
-| Bundle WASM tamanho (1.5-3 MB) | Baixa (size) / Média (parse time mobile) | Baixo (size) / Médio (parse) | wasm-opt -O4; medir parse time em M1 em PowerVR; code-split se necessário |
+| Scope creep (B ou C antes da hora) | Alta | Médio | Spec explícita: só expandir após M10 estável em prod |
+| Bundle WASM muito pesado | Baixa | Baixo | Usuário explicitou que não importa; wasm-opt -O4 no release |
 | Safari iOS diferente de Safari desktop | Média | Médio | Teste manual iOS por milestone |
-| CI visual parity via backends diferentes | Média | Médio | Forçar mesmo backend pra ambos renderers em CI; ou GPU real via GitHub Actions self-hosted |
-| Z-order errado em estados intermediários durante migração | Alta | Baixo | Flags default-off em estados com z-quebrado; merge de milestones adjacentes quando necessário |
-| Sub-estimativa de M7 (Graphics) e M8 (Text) | Média | Médio | Já corrigido pra 3 e 3-4 semanas; spec ajustado pós code-review |
-| Ship hit-test via Pixi event system (5 objetos, 11 handlers) quebrando no M7-M9 | Média | Médio | Re-wire pra DOM events começa antes do M9; tasks específicas no plano do M7 |
 
 ## Open questions (pra resolver antes de começar M1)
 
