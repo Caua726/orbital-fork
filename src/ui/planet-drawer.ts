@@ -955,13 +955,17 @@ function refreshPortrait(planeta: Planeta, portraitEl: HTMLElement): void {
   _lastPortraitRefreshMs = performance.now();
 }
 
+// Cached once per modal mount — avoid querySelector per tick.
+let _portraitHostEl: HTMLElement | null = null;
 function tickPortraitIfDue(): void {
   if (!_modal || !_currentPlaneta) return;
-  const portraitEl = _modal.querySelector<HTMLElement>('.planeta-drawer-portrait');
-  if (!portraitEl) return;
+  if (!_portraitHostEl || !_portraitHostEl.isConnected) {
+    _portraitHostEl = _modal.querySelector<HTMLElement>('.planeta-drawer-portrait');
+    if (!_portraitHostEl) return;
+  }
   const now = performance.now();
   if (now - _lastPortraitRefreshMs < PORTRAIT_REFRESH_MS) return;
-  refreshPortrait(_currentPlaneta, portraitEl);
+  refreshPortrait(_currentPlaneta, _portraitHostEl);
 }
 
 function buildActions(_p: Planeta, _mundo: Mundo): HTMLDivElement | null {

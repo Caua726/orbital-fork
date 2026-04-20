@@ -1,4 +1,4 @@
-import { Mesh, Shader, GlProgram, GpuProgram, UniformGroup, Geometry, Buffer, State, Sprite, Container, Rectangle, RenderTexture, Texture } from 'pixi.js';
+import { Mesh, Shader, GlProgram, GpuProgram, UniformGroup, Geometry, Buffer, State, Sprite, Container, Rectangle, RenderTexture, Texture, AlphaFilter } from 'pixi.js';
 import { renderPlanetParaImageData, type PlanetRenderState } from './planeta-canvas';
 import type { Application } from 'pixi.js';
 import vertexSrc from '../shaders/planeta.vert?raw';
@@ -240,6 +240,19 @@ function criarQuadGeometry(): Geometry {
 
 const quadGeometry = criarQuadGeometry();
 
+// Filter passthrough em half-res — todo planeta live (mesh não-baked)
+// aplica isso, fazendo o fragment shader rodar em 1/4 dos pixels (½
+// em cada dim). O filter é compositado de volta com upscale bilinear
+// do Pixi. Ganho: ~2-4ms/frame em GPU fullscreen de planetas
+// grandes, imperceptível visualmente porque:
+//   - o shader já pixeliza via uPixels (64 internal grid) — a textura
+//     nativa já tem detalhe sub-pixel discreto
+//   - o bilinear suaviza a borda do disco sem mudar a imagem interna
+//   - bake (planetas < 40px) não usa filter porque já é sprite estático
+// Compartilhado entre todos os planetas pra minimizar alocação de
+// filter/RT pool.
+const _halfResFilter = new AlphaFilter({ alpha: 1.0, resolution: 0.5 });
+
 // Shared programs — created once, reused by all planets/stars
 const sharedGlProgram = GlProgram.from({
   vertex: vertexSrc,
@@ -411,6 +424,12 @@ export function criarPlanetaProceduralSprite(
   mesh.x = x;
   mesh.y = y;
 
+  // Half-res render via filter passthrough — ver comentário do
+  // _halfResFilter. Só se aplica enquanto o mesh está visível (modo
+  // live); quando bakeado mesh.visible=false e o sprite estático é
+  // renderizado diretamente sem passar pelo filter.
+  mesh.filters = [_halfResFilter];
+
   // Store shader reference and rotation speed for time/light updates
   const rotSpeed = (0.02 + rng() * 0.06) * (rng() > 0.5 ? 1 : -1);
   (mesh as any)._planetShader = shader;
@@ -449,12 +468,33 @@ function bakePlaneta(planeta: any): void {
     const wrapper = new Container();
     wrapper.addChild(clone);
 
+    // Terran normalmente roda 6 octaves de FBM pra detalhe visível na
+    // superfície em zoom alto. No bake (64px ou menor) o olho não
+    // resolve os 2 octaves de maior frequência — eles viram ruído
+    // sub-pixel indistinguível. Rebaixa pra 4 só durante o render do
+    // bake e restaura depois, pro caso de unbake futuro reusar o
+    // shader no modo live.
+    const uniforms = (shader.resources as any).planetUniforms.uniforms;
+    const octavesOriginal = uniforms.uOctaves;
+    const isTerran = uniforms.uPlanetType === 0;
+    if (isTerran && octavesOriginal > 4) {
+      uniforms.uOctaves = 4;
+    }
+
     const texture = _appRef.renderer.generateTexture({
       target: wrapper,
       frame: new Rectangle(0, 0, frameSize, frameSize),
       resolution: 1,
-      antialias: true,
+      // Planetas já têm dither/pixelização intencional via uPixels no
+      // shader. MSAA no bake não produz benefício visual e encarece
+      // a geração (4× pixels resolvidos).
+      antialias: false,
     });
+
+    if (isTerran && octavesOriginal > 4) {
+      uniforms.uOctaves = octavesOriginal;
+    }
+
     clone.destroy();
     wrapper.destroy();
 
@@ -582,6 +622,52 @@ export function getCanvasPlanetsMemoryBytes(planetas: any[]): number {
 /** Caller-invokable teardown for when the drawer closes. */
 export function liberarPortraitPlaneta(): void {
   destroyPortraitCache();
+}
+
+/**
+ * Iterate planetas e bake cada um que estaria abaixo de AUTO_BAKE_PX
+ * no zoom passado. Roda durante o loading em vez de lazy no gameplay —
+ * antes os primeiros 50 frames pagavam 2-4ms cada de generateTexture
+ * + driver stall enquanto os planetas pequenos bakeavam sob demanda.
+ * Frontload movido pra fase onde o usuário já espera.
+ *
+ * `onProgress(i, total)` é opcional pra atualizar label de loading.
+ * Yielda via await 0 a cada 4 planetas pra não bloquear a UI.
+ */
+export async function precompilarBakesPlanetas(
+  planetas: any[],
+  zoom: number,
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  if (!_appRef) return;
+  if (isCanvas2dRenderer()) return;
+
+  const AUTO_BAKE_PX = 40;
+  const total = planetas.length;
+  for (let i = 0; i < planetas.length; i++) {
+    const planeta = planetas[i];
+    if ((planeta as any)._bakedSprite) continue;
+    if ((planeta as any)._isCanvasPlanet) continue;
+    const tamWorld = (planeta as any).scale?.x ?? 1;
+    const tamPx = tamWorld * zoom;
+    if (tamPx < AUTO_BAKE_PX) {
+      bakePlaneta(planeta);
+      // Mantém sprite posicionado antes do primeiro frame — senão
+      // aparece em (0,0) por um frame antes do gameplay rodar o loop
+      // que sincroniza posição.
+      const sprite = (planeta as any)._bakedSprite as Sprite | undefined;
+      if (sprite) {
+        sprite.x = planeta.x;
+        sprite.y = planeta.y;
+      }
+    }
+    if (onProgress && i % 4 === 0) onProgress(i + 1, total);
+    // Yield a cada 4 bakes pro browser atualizar a loading screen.
+    if (i % 4 === 3) {
+      await new Promise<void>((r) => setTimeout(r, 0));
+    }
+  }
+  if (onProgress) onProgress(total, total);
 }
 
 /** Swap back from baked sprite to live mesh. */
@@ -757,6 +843,9 @@ export function criarEstrelaProcedural(
   mesh.scale.set(tamanho);
   mesh.x = x;
   mesh.y = y;
+  // Same half-res filter dos planetas — sóis têm shader igual de caro
+  // (plasma/FBM), e ganham o mesmo 4× de economia de fragments.
+  mesh.filters = [_halfResFilter];
   (mesh as any)._planetShader = shader;
   (mesh as any)._rotSpeed = 0.005 + rng() * 0.01;
 

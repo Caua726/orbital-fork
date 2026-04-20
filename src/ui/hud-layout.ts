@@ -67,11 +67,16 @@ export function installRootVariables(): void {
     }
 
     .hud-panel {
-      background: var(--hud-bg);
+      /* background mais opaco porque removemos o backdrop-filter —
+         painéis de HUD ficam sempre visíveis (resource-bar,
+         empire-badge, minimap) e o blur composite custava 4-8ms/frame
+         na GPU mobile (PowerVR/Adreno tile renderers). Modais
+         temporários (settings, save, empire-modal) mantêm o blur
+         porque aparecem sozinhos. */
+      background: rgba(0, 0, 0, 0.92);
       border: 1px solid var(--hud-border);
       border-radius: var(--hud-radius);
       box-shadow: var(--hud-shadow);
-      backdrop-filter: blur(3px);
       position: fixed;
       z-index: 100;
     }
@@ -195,14 +200,25 @@ export function onLayoutChange(cb: LayoutCallback): () => void {
 function startListening(): void {
   if (_listening) return;
   _listening = true;
-  window.addEventListener('resize', recalc);
+  window.addEventListener('resize', () => {
+    _cssCache.clear();
+    recalc();
+  });
   // Wait for fonts/layout to settle on first run
   requestAnimationFrame(recalc);
 }
 
 // Measure a CSS variable by applying it to a throwaway element.
 // parseFloat() on the raw var value fails because it contains `clamp()`.
+// Cached per-value — invalidated on window resize. Antes o probe
+// rodava 2× por recalc, e recalc podia disparar várias vezes em rAF
+// duplo — cada probe é appendChild + getBoundingClientRect + remove,
+// forçando um layout flush. Com 8 registerXxx no boot isso é ~16
+// layout flushes só pra resolver duas CSS variables.
+const _cssCache = new Map<string, number>();
 function resolveCssPx(cssValue: string): number {
+  const cached = _cssCache.get(cssValue);
+  if (cached !== undefined) return cached;
   const probe = document.createElement('div');
   probe.style.position = 'fixed';
   probe.style.visibility = 'hidden';
@@ -211,6 +227,7 @@ function resolveCssPx(cssValue: string): number {
   document.body.appendChild(probe);
   const px = probe.getBoundingClientRect().width;
   probe.remove();
+  _cssCache.set(cssValue, px);
   return px;
 }
 

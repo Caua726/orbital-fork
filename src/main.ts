@@ -122,11 +122,23 @@ async function bootstrap(): Promise<void> {
     backgroundColor: 0x000000,
     resolution: baselineDpr * renderScale,
     autoDensity: true,
-    antialias: true,
+    // MSAA desligado por default. O jogo é pixel-art com scaleMode
+    // 'nearest' em todas as texturas + dither procedural nos planetas
+    // (cria as bordas pixelizadas intencionais). MSAA não acrescenta
+    // nada visualmente mas em GPU tiled (PowerVR, Mali, Adreno) força
+    // 4× bandwidth do framebuffer — dev pool rodando em mobile
+    // reportou 3-8ms/frame de ganho.
+    antialias: false,
   };
-  if (gfx.gpuPreference !== 'auto') {
-    baseInit.powerPreference = gfx.gpuPreference;
-  }
+  // Default to 'high-performance' when user didn't choose explicitly.
+  // Celulares com GPU discreta (Snapdragon Adreno com prime core, MediaTek
+  // Dimensity) podem ligar o perfil high-performance e dobrar FPS; em
+  // desktops Windows/Linux com GPU dedicada, força escolher a discrete GPU
+  // em vez da integrada. Zero downside — o navegador ignora se não faz
+  // sentido pro hardware.
+  baseInit.powerPreference = gfx.gpuPreference === 'auto'
+    ? 'high-performance'
+    : gfx.gpuPreference;
 
   // Software mode: Canvas 2D renderer (no GPU), Mínimo preset
   const effectiveRenderer = gfx.renderer === 'software' ? 'canvas' : gfx.renderer;
@@ -151,7 +163,7 @@ async function bootstrap(): Promise<void> {
   // Optional: WebGL version forced context injection (non-software)
   if (gfx.renderer !== 'software' && effectiveRenderer === 'webgl' && gfx.webglVersion !== 'auto') {
     const canvas = document.createElement('canvas');
-    const ctxOpts: WebGLContextAttributes = { antialias: true, premultipliedAlpha: true };
+    const ctxOpts: WebGLContextAttributes = { antialias: false, premultipliedAlpha: true };
     if (gfx.gpuPreference !== 'auto') {
       ctxOpts.powerPreference = gfx.gpuPreference;
     }

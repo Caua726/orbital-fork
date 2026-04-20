@@ -410,8 +410,20 @@ export function criarMinimap(app: Application, mundo: Mundo): HTMLDivElement {
   return panel;
 }
 
+// Throttle minimap map redraw to ~10Hz. updateViewport (a white box
+// over the map) stays per-frame because it's only CSS style mutation.
+// Full canvas redraw (bg fill + all planets/ships/fog dots iteration)
+// é caro: DPR × (160-240px)² pixels por draw. A 60Hz isso domina o
+// canvas 2D cost em mobile. 10Hz é visualmente indistinguível pra
+// alguém olhando o minimap.
+const _MINIMAP_REDRAW_MS = 100;
+let _lastMinimapDrawMs = 0;
 export function atualizarMinimap(camera: Camera): void {
-  drawMinimap();
+  const now = performance.now();
+  if (now - _lastMinimapDrawMs >= _MINIMAP_REDRAW_MS) {
+    _lastMinimapDrawMs = now;
+    drawMinimap();
+  }
   updateViewport(camera);
 }
 

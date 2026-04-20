@@ -111,9 +111,10 @@ fn mainFragment(@location(0) vUV: vec2<f32>) -> @location(0) vec4<f32> {
     let cam = starUniforms.uCamera;
 
     var col = vec3<f32>(0.0);
+    // Layer 3 (200.0, 0.12, ...) movida pra TilingSprite em fundo.ts —
+    // ver comentário no starfield.frag.
     col = col + starLayer(worldPos, cam, 24.0,  0.40, 0.75, 1, 0.80, 1, t, dens);
     col = col + starLayer(worldPos, cam, 60.0,  0.25, 0.40, 1, 0.95, 2, t, dens);
-    col = col + starLayer(worldPos, cam, 200.0, 0.12, 0.30, 2, 1.00, 3, t, dens);
 
     return vec4<f32>(col, 1.0);
 }

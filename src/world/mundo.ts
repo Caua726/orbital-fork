@@ -3,7 +3,7 @@ import type { Application } from 'pixi.js';
 import type { Mundo, Planeta, Sol, Nave, Camera, TipoJogador } from '../types';
 import { criarFundo, atualizarFundo } from './fundo';
 import { TIPO_PLANETA } from './planeta';
-import { atualizarTempoPlanetas, atualizarLuzPlaneta } from './planeta-procedural';
+import { atualizarTempoPlanetas, atualizarLuzPlaneta, precompilarBakesPlanetas } from './planeta-procedural';
 import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria, aplicarLimiteFantasmas, destruirFog } from './nevoa';
 import { criarSistemaSolar } from './sistema';
 import { calcularBoundsViewport, type ViewportBounds } from './viewport-bounds';
@@ -325,6 +325,15 @@ export async function criarMundo(
     registrarEvento('ia_despertou', `${ia.nome} desperta entre as estrelas.`, 0);
   }
 
+  // ─── Fase 7.5: Pre-bake de planetas pequenos ──
+  // No zoom inicial (1.0) a maioria dos planetas já está abaixo do
+  // threshold de auto-bake (40px). Bakar todos agora evita os stalls
+  // de 2-4ms/frame nos primeiros ~50 frames de gameplay, onde o
+  // sistema lazy do atualizarTempoPlanetas pagaria esse custo
+  // espalhado.
+  await onFase('Pré-renderizando planetas distantes');
+  await precompilarBakesPlanetas(planetas, 1.0);
+
   // ─── Fase 8: Sanity check via reconciler ──
   // Runs the same healers the load path uses, but on a freshly-built
   // world. If worldgen drifts (someone changes criarSistemaSolar and
@@ -510,14 +519,25 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     tVis += performance.now() - tV0;
 
     if (vis) {
-      const tA0 = profileMark();
-      const anel = planeta._anel;
-      anel.clear();
-      const largura = planeta.dados.selecionado ? 2.5 : 1.25;
-      const raioBase = planeta.dados.tamanho * 0.42;
-      const raio = Math.max(10, raioBase - largura * 0.5);
-      anel.circle(0, 0, raio).stroke({ color: COR_ANEL_PLANETA, width: largura, alpha: 0.72 });
-      tAnel += performance.now() - tA0;
+      // Redraw só quando estado visual do anel muda. Seleção muda em
+      // clique (~1×/seg), tamanho é constante durante o jogo — antes
+      // este bloco rodava 60×/s por planeta visível, ~4ms/frame em CPU
+      // gasto reconstruindo uma mesh idêntica à do frame anterior.
+      const selecionado = planeta.dados.selecionado;
+      const tamanho = planeta.dados.tamanho;
+      const anelAny = planeta as unknown as { _anelSelecionadoCache?: boolean; _anelTamanhoCache?: number };
+      if (anelAny._anelSelecionadoCache !== selecionado || anelAny._anelTamanhoCache !== tamanho) {
+        const tA0 = profileMark();
+        const anel = planeta._anel;
+        anel.clear();
+        const largura = selecionado ? 2.5 : 1.25;
+        const raioBase = tamanho * 0.42;
+        const raio = Math.max(10, raioBase - largura * 0.5);
+        anel.circle(0, 0, raio).stroke({ color: COR_ANEL_PLANETA, width: largura, alpha: 0.72 });
+        anelAny._anelSelecionadoCache = selecionado;
+        anelAny._anelTamanhoCache = tamanho;
+        tAnel += performance.now() - tA0;
+      }
     }
 
     const tM0 = profileMark();

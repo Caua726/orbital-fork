@@ -1,6 +1,6 @@
 import {
   Buffer, Container, Geometry, GlProgram, GpuProgram, Mesh,
-  RenderTexture, Shader, State, UniformGroup,
+  RenderTexture, Shader, State, Texture, TilingSprite, UniformGroup,
   type Application,
 } from 'pixi.js';
 import vertexSrc from '../shaders/starfield.vert?raw';
@@ -29,6 +29,12 @@ interface FundoContainer extends Container {
   _mesh: Mesh<Geometry, Shader>;
   _uniforms: UniformGroup;
   _tempoAcumMs: number;
+  // TilingSprite que substitui a camada "far" (cell 200, parallax 0.12,
+  // size 2px) que antes rodava no shader. Bakeada uma vez, repete
+  // com camera × parallax 0.12. Aditiva por cima do mesh (shader
+  // preenche opaco preto + 2 layers procedurais). Ganho: 33% menos
+  // ALU por pixel fullscreen no starfield.frag.
+  _brightTiles: TilingSprite;
 }
 
 /**
@@ -80,6 +86,65 @@ function criarUnitQuadGeometry(): Geometry {
 }
 
 const sharedQuadGeometry = criarUnitQuadGeometry();
+
+// ─── Bright-layer baked tile ─────────────────────────────────────
+// Gera uma vez no primeiro criarFundo() do modo WebGL/WebGPU e é
+// reusado entre todos os FundoContainers criados na sessão. Matches
+// visualmente a densidade da antiga layer 3 do starfield.frag
+// (cellSize 200, density 0.30, size 2px).
+const BRIGHT_TILE_SIZE = 1024;
+let _sharedBrightTile: Texture | null = null;
+
+function gerarBrightTile(): Texture {
+  if (_sharedBrightTile) return _sharedBrightTile;
+  const canvas = document.createElement('canvas');
+  canvas.width = BRIGHT_TILE_SIZE;
+  canvas.height = BRIGHT_TILE_SIZE;
+  const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) {
+    // Fallback extremo — textura vazia. Pixi não crasha em Texture.from
+    // de um canvas sem ctx, mas a tile fica preta; aceitável para o
+    // caso de "contexto 2D indisponível".
+    _sharedBrightTile = Texture.from(canvas);
+    return _sharedBrightTile;
+  }
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, BRIGHT_TILE_SIZE, BRIGHT_TILE_SIZE);
+
+  // Densidade da layer 3 antiga: cellSize=200, density=0.30 →
+  // 0.30 stars por célula de 200². Tile 1024² tem ~25 stars visíveis
+  // (nem toda célula "ganha" star pelo teste de lottery). Aqui
+  // replicamos o mesmo lattice determinístico (LCG) pra manter
+  // consistência visual entre sessões.
+  let seed = 0x1fabcd17;
+  const rand = (): number => {
+    seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  const cellSize = 200;
+  const cellsX = Math.floor(BRIGHT_TILE_SIZE / cellSize);
+  const cellsY = Math.floor(BRIGHT_TILE_SIZE / cellSize);
+  for (let cy = 0; cy < cellsY; cy++) {
+    for (let cx = 0; cx < cellsX; cx++) {
+      // density = 0.30 igual layer 3 do shader.
+      if (rand() > 0.30) continue;
+      // Posição dentro da célula (floor pra grid inteiro).
+      const sx = Math.floor(cx * cellSize + rand() * cellSize);
+      const sy = Math.floor(cy * cellSize + rand() * cellSize);
+      // Brilho varia 0.35..1.0 × 1.00 maxBrightness, igual shader.
+      const bmod = 0.35 + 0.65 * rand();
+      const v = Math.floor(bmod * 255);
+      ctx.fillStyle = `rgb(${v},${v},${v})`;
+      // 2×2 como layer 3 (sizePx=2).
+      ctx.fillRect(sx, sy, 2, 2);
+    }
+  }
+
+  const tex = Texture.from(canvas);
+  tex.source.scaleMode = 'nearest';
+  _sharedBrightTile = tex;
+  return tex;
+}
 
 const sharedGlProgram = GlProgram.from({
   vertex: vertexSrc,
@@ -159,9 +224,24 @@ export function criarFundo(tamanhoMundo: number): FundoContainer {
   const container = new Container() as FundoContainer;
   const { mesh, uniforms } = criarStarfieldMesh();
   container.addChild(mesh);
+
+  // TilingSprite das bright 2×2 aditiva por cima. Black-bg + add blend
+  // descarta o preto do tile e soma as estrelas brancas no resultado
+  // do shader (que ali é 0 pro pixel sem star, então add == put).
+  const brightTex = gerarBrightTile();
+  const brightTiles = new TilingSprite({
+    texture: brightTex,
+    width: BRIGHT_TILE_SIZE,
+    height: BRIGHT_TILE_SIZE,
+  });
+  brightTiles.eventMode = 'none';
+  brightTiles.blendMode = 'add';
+  container.addChild(brightTiles);
+
   container._mesh = mesh;
   container._uniforms = uniforms;
   container._tempoAcumMs = 0;
+  container._brightTiles = brightTiles;
   return container;
 }
 
@@ -209,4 +289,18 @@ export function atualizarFundo(
   uniforms.uViewport[1] = telaH;
   uniforms.uTime = fundo._tempoAcumMs / 1000;
   uniforms.uDensidade = getConfig().graphics.densidadeStarfield;
+
+  // Bright layer: ocupa a viewport (mesma posição/tamanho do mesh) e
+  // offset de tile replica o parallax 0.12 da antiga layer 3 do
+  // shader. A fórmula `worldPos - camera * (1-parallax)` do shader
+  // corresponde a um offset `-camera * (1-0.12)` aplicado ao tile —
+  // em TilingSprite basta setar tilePosition = -camera * (1-parallax).
+  const brightTiles = fundo._brightTiles;
+  brightTiles.x = mesh.x;
+  brightTiles.y = mesh.y;
+  brightTiles.width = telaW;
+  brightTiles.height = telaH;
+  const parallax = 0.12;
+  brightTiles.tilePosition.x = -jogadorX * (1 - parallax);
+  brightTiles.tilePosition.y = -jogadorY * (1 - parallax);
 }

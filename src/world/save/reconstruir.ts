@@ -3,7 +3,7 @@ import type { Application } from 'pixi.js';
 import type { Mundo, Sol, Planeta, Sistema, Nave, FonteVisao } from '../../types';
 import type { MundoDTO, SolDTO, PlanetaDTO, NaveDTO, AlvoDTO } from './dto';
 import { criarMundoVazio, aplicarZOrderMundo, type MundoVazio } from '../mundo';
-import { criarEstrelaProcedural, criarPlanetaProceduralSprite } from '../planeta-procedural';
+import { criarEstrelaProcedural, criarPlanetaProceduralSprite, precompilarBakesPlanetas } from '../planeta-procedural';
 import { rngFromSeed } from '../lore/seeded-rng';
 import { criarMemoriaVisualPlaneta, restaurarMemoriaPlaneta } from '../nevoa';
 import { resetarNomesPlanetas } from '../nomes';
@@ -195,6 +195,16 @@ export async function reconstruirMundo(
   // Rebuild the planet-to-planet distance cache so post-load AI decisions
   // don't eat a cold Math.hypot storm on their first tick.
   buildDistanceMatrix(mundo);
+
+  // Pre-bake planetas pequenos antes do jogo voltar a rodar, igual ao
+  // criarMundo faz. Evita os stalls dos primeiros 50 frames pós-load.
+  // O zoom real é restaurado depois (main.ts), mas bakear pelo zoom 1.0
+  // cobre a maioria dos casos; planetas que ficam grandes no zoom
+  // restaurado vão ser unbaked naturalmente pelo loop.
+  if (!factories.skipVisuals) {
+    await onFase('Pré-renderizando planetas distantes');
+    await precompilarBakesPlanetas(planetas, 1.0);
+  }
 
   await onFase('Mundo carregado');
   return mundo;

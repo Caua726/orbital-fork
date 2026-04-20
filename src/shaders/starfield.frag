@@ -93,11 +93,15 @@ void main() {
     vec2 worldPos = uCamera + (vUV - 0.5) * uViewport;
 
     vec3 col = vec3(0.0);
-    // Three layers — dense dim, medium, rare 2×2 brights. Counts
-    // roughly match the static bitmap reference (~1500 visible).
+    // Duas camadas procedurais (dense dim, medium). A antiga terceira
+    // camada (rare 2×2 brights, parallax 0.12, cell 200) foi movida
+    // pra um TilingSprite baked em fundo.ts porque:
+    //   - era a layer mais lenta (parallax 0.12 = quase estática)
+    //   - drift era imperceptível em gameplay normal
+    //   - 33% menos ALU por pixel fullscreen
+    // O TilingSprite composita por cima deste mesh com blend=add.
     col += starLayer(worldPos, 24.0,  0.40, 0.75, 1, 0.80, 1);
     col += starLayer(worldPos, 60.0,  0.25, 0.40, 1, 0.95, 2);
-    col += starLayer(worldPos, 200.0, 0.12, 0.30, 2, 1.00, 3);
 
     finalColor = vec4(col, 1.0);
 }

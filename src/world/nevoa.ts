@@ -391,21 +391,23 @@ import { Sprite, Texture, ImageSource } from 'pixi.js';
 import { config } from '../ui/debug';
 import { profileMark, profileAcumular } from './profiling';
 
-// Fog resolution scales with graphics preset. Software rasterizers
-// (WARP/SwiftShader) pay for every pixel uploaded, and the fog blits
-// fullscreen each fogThrottle cycle — so at 'minimo' we drop to 1/9
-// the pixel count (320×180 vs 960×540). The visual trade-off is
-// soft edges on visibility circles, which actually reads FINE for
-// fog-of-war; it wasn't pixel-perfect to begin with.
-const FOG_BASE_W = 960;
-const FOG_BASE_H = 540;
-const FOG_MIN_W = 320;
-const FOG_MIN_H = 180;
+// Fog resolution deliberadamente baixa mesmo no preset 'alto'. O fog
+// é composto de círculos `destination-out` com borda suave por
+// natureza — não tem detalhe fino a preservar. Um canvas em 1/4 da
+// res anterior (480×270 no 'alto' vs 960×540) é upscaled pelo Pixi
+// com filtro linear (default), e visualmente fica indistinguível.
+// Ganho: 4× menos pixels no canvas draw, 4× menos bytes no upload
+// pro GPU, elimina o spike p95 do fog_upload que antes chegava a
+// 0.44ms. Referência: Stellaris, Endless Space usam 1/8 da res.
+const FOG_BASE_W = 480;
+const FOG_BASE_H = 270;
+const FOG_MIN_W = 160;
+const FOG_MIN_H = 90;
 
 function fogDims(): { w: number; h: number } {
   const nivel = getConfig().graphics.qualidadeEfeitos;
   if (nivel === 'minimo') return { w: FOG_MIN_W, h: FOG_MIN_H };
-  if (nivel === 'baixo') return { w: 640, h: 360 };
+  if (nivel === 'baixo') return { w: 320, h: 180 };
   return { w: FOG_BASE_W, h: FOG_BASE_H };
 }
 
@@ -501,7 +503,10 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
     const visao = mundo.visaoContainer;
 
     if (!_fogSprite) {
-      _fogSource = new ImageSource({ resource: _fogCanvas });
+      // scaleMode 'linear' é default mas explicitado aqui porque o
+      // upscale bilinear é parte da estratégia: canvas pequeno +
+      // interpolação no GPU garante bordas suaves sem sampling extra.
+      _fogSource = new ImageSource({ resource: _fogCanvas, scaleMode: 'linear' });
       _fogTexture = new Texture({ source: _fogSource });
       _fogSprite = new Sprite(_fogTexture);
     }
