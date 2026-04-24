@@ -21,12 +21,30 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      # Rust toolchain for the weydra-renderer wasm crate. rust-toolchain.toml
+      # inside weydra-renderer/ pins channel=nightly; install the same channel
+      # here plus the wasm32 target so wasm-pack can cross-compile.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: weydra-renderer
+      - uses: jetli/wasm-pack-action@v0.4.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
       - run: npm ci
+
+      # `npm run build` triggers the `prebuild` hook which compiles the
+      # wasm adapter (wasm-pack) and the local vite plugin (tsc), then runs
+      # `vite build` with both workspace packages resolvable.
       - run: npm run build
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

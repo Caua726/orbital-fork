@@ -11,7 +11,9 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "build:renderer": "cd weydra-renderer/adapters/wasm && wasm-pack build --target web --out-dir pkg",
-    "build:renderer:release": "cd weydra-renderer/adapters/wasm && wasm-pack build --target web --release --out-dir pkg"
+    "build:renderer:release": "cd weydra-renderer/adapters/wasm && wasm-pack build --target web --release --out-dir pkg",
+    "build:plugin": "cd weydra-renderer/vite-plugin-wgsl && tsc -p tsconfig.build.json",
+    "prebuild": "npm run build:renderer:release && npm run build:plugin"
   },
   "keywords": [],
   "author": "",
