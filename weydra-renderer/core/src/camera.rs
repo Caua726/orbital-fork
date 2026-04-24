@@ -33,6 +33,12 @@ impl CameraUniforms {
     /// Size in bytes as `wgpu::BufferAddress` — for use in buffer descriptors
     /// and bind group layout `min_binding_size`.
     pub const BYTE_SIZE: wgpu::BufferAddress = std::mem::size_of::<Self>() as wgpu::BufferAddress;
+
+    /// Build a fresh instance. Padding is always zero — exists only to keep
+    /// the struct at 32 bytes for the uniform buffer layout.
+    pub fn new(camera: [f32; 2], viewport: [f32; 2], time: f32) -> Self {
+        Self { camera, viewport, time, _pad: [0.0; 3] }
+    }
 }
 
 #[cfg(test)]
