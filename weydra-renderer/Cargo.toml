@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "core",
     "adapters/wasm",
+    "adapters/native",
     "examples/hello-clear",
 ]
 

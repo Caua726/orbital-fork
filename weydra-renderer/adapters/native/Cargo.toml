@@ -1,0 +1,16 @@
+[package]
+name = "weydra-renderer-native"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+weydra-renderer = { path = "../../core" }
+wgpu = { version = "29", default-features = false, features = ["vulkan", "metal", "dx12"] }
+winit = { workspace = true }
+pollster = { workspace = true }
+log = { workspace = true }
