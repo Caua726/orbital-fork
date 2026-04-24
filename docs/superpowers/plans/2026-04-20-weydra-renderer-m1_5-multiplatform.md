@@ -28,9 +28,16 @@ Check antes de começar:
 - M1 merged e funcional (flag weydra_m1 rodando no jogo)
 - Rustup instalado (`rustup --version`)
 - Build system do OS host (Linux geralmente tem tudo; macOS precisa Xcode CLT; Windows precisa MSVC build tools) — só pra `cargo check`, não precisa linkar tudo
-- Opcional: Android NDK instalado pro cross-compile (`cargo install cargo-ndk` se for fazer APK)
 
-Se faltar toolchain pra algum target, pula o target dele e documenta — não trava M1.5.
+**Linkers externos opcionais (pra expandir cobertura do check script):**
+
+| Target | Dep externa | Install |
+|---|---|---|
+| `x86_64-pc-windows-gnu` | mingw-w64 | `sudo apt install mingw-w64` (Linux) |
+| `aarch64-linux-android` | cargo-ndk + Android NDK | `cargo install cargo-ndk`, NDK via Android Studio |
+| `aarch64-apple-darwin`, `aarch64-apple-ios` | macOS host + Xcode CLT | N/A (requer mac) |
+
+Se faltar linker pra algum target, o script marca como `skip` e segue. M1.5 merged requer: **web + native Linux passam** no mínimo. Outros são bônus.
 
 ## File Structure
 
@@ -434,9 +441,10 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 weydra-renderer = { path = "../../core" }
-# default-features = false: sem isso, `cargo check` em host Linux tenta
-# compilar o Metal HAL e falha procurando -framework Metal/QuartzCore.
-wgpu = { workspace = true, default-features = false, features = ["metal"] }
+# default-features = false + zero features — Metal HAL só entra em M12
+# quando o adapter real rodar em macOS host. Enable `metal` aqui quebra
+# cargo check em Linux porque Metal HAL linka frameworks Apple.
+wgpu = { workspace = true, default-features = false }
 log = { workspace = true }
 ```
 
@@ -630,15 +638,41 @@ FAIL=0
 PASS=0
 SKIP=0
 
+# Probe extra pra linkers externos que rustup não provê. Devolve reason
+# ou vazio se todos os pré-requisitos estão ok.
+missing_linker() {
+    local target="$1"
+    case "$target" in
+        x86_64-pc-windows-gnu|i686-pc-windows-gnu)
+            command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || echo "mingw-w64 linker ausente (apt: mingw-w64)"
+            ;;
+        aarch64-linux-android|armv7-linux-androideabi)
+            command -v cargo-ndk >/dev/null 2>&1 || echo "Android NDK/cargo-ndk ausente"
+            ;;
+        *apple*)
+            [ "$(uname)" = "Darwin" ] || echo "Apple target requer macOS host + Xcode"
+            ;;
+    esac
+}
+
 check() {
     local pkg="$1"
     local target="$2"
     local label="$3"
     printf "[%s] %s (%s) ... " "$label" "$pkg" "$target"
 
-    # Skip só se o target não está instalado — qualquer outro erro é falha real.
+    # Skip se o target não está instalado via rustup.
     if ! echo "$INSTALLED_TARGETS" | grep -q "^$target\$"; then
         echo "skip (target não instalado; rustup target add $target pra habilitar)"
+        SKIP=$((SKIP + 1))
+        return
+    fi
+
+    # Skip se o linker/SDK externo requerido não está disponível.
+    local reason
+    reason=$(missing_linker "$target")
+    if [ -n "$reason" ]; then
+        echo "skip ($reason)"
         SKIP=$((SKIP + 1))
         return
     fi

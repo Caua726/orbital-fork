@@ -9,12 +9,14 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "build:renderer": "cd weydra-renderer/adapters/wasm && wasm-pack build --target web --out-dir pkg",
+    "build:renderer:release": "cd weydra-renderer/adapters/wasm && wasm-pack build --target web --release --out-dir pkg"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "pixi.js": "^8.17.1"
   },
@@ -28,6 +30,8 @@
     "jiti": "^2.6.1",
     "typescript": "^6.0.2",
     "vite": "^6.0.0",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0",
     "vitest": "^2.1.9"
   }
 }
