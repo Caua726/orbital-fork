@@ -44,7 +44,7 @@ Auditoria completa gerada durante brainstorming (in-conversation, 2026-04-19). R
 - Hit-testing: majoritariamente custom via DOM addEventListener, MAS Pixi eventMode é usado mais do que parece — **5 objetos com `eventMode='static'`** em `minimapa.ts`, `tutorial.ts`, `painel.ts`, `selecao.ts`, e **~11 handlers `.on('pointer...')`** ativos (selection cards com hover+press, action buttons nos painéis, close button do tutorial, click-to-navigate no minimap). Migração precisa re-wire esses no M7-M9, não só M9
 - **Não usa:** Filter (zero instâncias), BitmapFont, mask, cacheAsTexture, post-processing
 - RenderTexture usado só pra shader warmup (não crítico)
-- Text: 3 usos com fonte de sistema (monospace)
+- Text: **~30 usos** de `new Text(...)` distribuídos em 4 arquivos (`src/ui/painel.ts` ~24, `src/ui/selecao.ts`, `src/ui/tutorial.ts`, `src/world/nevoa.ts`) — audit inicial subestimou como "3 usos". M8 escopa os 30.
 
 ## Arquitetura
 
@@ -229,22 +229,27 @@ pub fn mem_version(&self) -> u32 { self.mem_version }
 ```
 
 ```ts
-// ts-bridge: checa versão a cada operação que pode ter crescido memory
+// ts-bridge: checa versão a cada operação que pode ter crescido memory.
+// DUPLA checagem obrigatória: mem_version E `_wasm.memory.buffer` identity.
+// `memory.grow()` detacha o ArrayBuffer silenciosamente; um bump de
+// mem_version perdido (bug em Rust ou edge case) ainda invalidaria views.
 class Renderer {
   private views: { transforms: Float32Array, /* ... */ };
   private lastMemVersion: number = 0;
+  private lastBuffer: ArrayBuffer | null = null;
 
   private revalidate() {
     const v = this.wasm.mem_version();
-    if (v !== this.lastMemVersion) {
-      this.views.transforms = new Float32Array(
-        this.wasm.memory.buffer,
-        this.wasm.transforms_ptr(),
-        this.wasm.capacity() * 4
-      );
-      // ... recriar TODOS os views
-      this.lastMemVersion = v;
-    }
+    const buf = this.wasm.memory.buffer;
+    if (v === this.lastMemVersion && buf === this.lastBuffer) return;
+    this.views.transforms = new Float32Array(
+      buf,
+      this.wasm.transforms_ptr(),
+      this.wasm.capacity() * 4
+    );
+    // ... recriar TODOS os views
+    this.lastMemVersion = v;
+    this.lastBuffer = buf;
   }
 
   uploadTexture(bytes: Uint8Array) {
@@ -299,6 +304,29 @@ Uniforms per-shader-type (um pool por tipo de shader):
   StarfieldUniforms [1 × sizeof(StarfieldUniforms)] ← pointer exposto
 ```
 
+**Convenção de cor packed (u32):** layout `0xRR_GG_BB_AA` (R no byte mais significativo, A no mais baixo). TS `packColor(rgb, alpha)` usa `>>> 0` no final pra forçar unsigned. Rust unpack: `r = (c >> 24) & 0xff`, etc. Ver `sprite_batch.wgsl`, `text.wgsl`, `graphics.wgsl`.
+
+**Convenção de Z-order (canônica, usada a partir do M3):** todos os pools/objetos ordenam por `z_order: f32` crescente (baixo renderiza primeiro):
+
+| Layer | Z |
+|---|---|
+| STARFIELD | 0 |
+| STARFIELD_BRIGHT | 1 |
+| PLANET_BAKED | 10 |
+| PLANET_LIVE | 11 |
+| ORBITS | 20 |
+| ROUTES | 25 |
+| SHIP_TRAILS | 28 |
+| SHIPS | 30 |
+| BEAMS | 35 |
+| FOG | 40 |
+| UI_BACKGROUND | 50 |
+| UI_GRAPHICS | 51 |
+| UI_TEXT | 52 |
+| UI_HOVER | 55 |
+
+Constantes exportadas de `src/core/render-order.ts` (criado em M9 Task 0).
+
 ### Batching
 
 `render()` percorre pools, filtra invisible, ordena por (z_order, texture_id, shader_id), agrupa em draw calls batched por (texture + shader + blend). Target: 5-15 draw calls por frame em cena típica do Orbital.
@@ -322,6 +350,8 @@ Todos os shaders custom seguem esta convenção fixa:
 | **2** | Shader custom | Textures + samplers do shader |
 
 Engine popula bind group 0 automaticamente a cada frame. Shader custom só declara o que é seu em bind groups 1/2.
+
+**Convenção `CameraUniforms.viewport`:** em **world units** (`screenW/zoom`, `screenH/zoom`), NÃO em pixels. Caller (camera.ts) computa a divisão uma vez por frame e escreve no UBO. Shaders ficam zoom-agnostic (`camera + (uv - 0.5) * viewport` já está correto em qualquer zoom). Nenhum shader aplica zoom manualmente. Decidida em M2 e válida de M2 em diante.
 
 ```wgsl
 // planet.wgsl
@@ -468,10 +498,11 @@ Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra.
 - `EngineBindings` (bind group 0: `CameraUniforms` buffer ligado, visível a todos os shaders)
 - `UniformPool<T>` genérico (homogeneous Vec<T>, mirror GPU buffer, pointer exposto)
 - `Mesh` primitive (fullscreen quad + custom shader + bind groups 0/1)
-- `TilingSprite` primitive (texture + UV offset/scale pra camada de bright stars baked)
 - Port de `src/shaders/starfield.wgsl` pra convenção de bind groups (group 0 engine + group 1 custom)
 - Extensão do `vite-plugin-wgsl`: usa `wgsl_reflect` pra extrair uniform layouts + gera TS typed accessors on-the-fly
 - Flag `weydra.starfield` — ativa, `src/world/fundo.ts` desativa o path Pixi e chama weydra
+
+**Nota:** `TilingSprite` do bright star layer **fica em Pixi até M3** (precisa texture bind group 2 + sprite pool infra). M2 scope cobre só o procedural starfield via shader.
 
 **Critério de merge:** starfield renderiza via weydra com visual pixel-parity vs Pixi. Frame time `fundo` ≤ Pixi baseline. Vite HMR funciona quando edita `starfield.wgsl`.
 
@@ -489,12 +520,13 @@ Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra.
 - `SpritePool` SoA: arrays contíguos `transforms` (Vec<[f32;4]>), `uvs` (Vec<[f32;4]>), `colors` (Vec<u32>), `flags` (Vec<u8>), `z_order` (Vec<f32>), `textures` (Vec<u32>)
 - Ponteiros de cada array expostos via wasm-bindgen como `u32` (cast de `*const T as u32`)
 - `mem_version` counter pra detecção de memory growth + revalidação no ts-bridge
-- Shader `sprite_batch.wgsl` com storage buffer + instance_index (WebGPU path; WebGL2 fallback via vertex attributes é follow-up)
+- Shader `sprite_batch.wgsl` com storage buffer + instance_index (path WebGPU) **E** `sprite_batch_instanced.wgsl` com per-instance vertex attributes (path WebGL2) — detecção no boot via `adapter.get_info().backend`, pipelines alternativas, mesma API pública. **Ambos paths são obrigatórios pro merge M3** (Firefox, Safari iOS 17+, PowerVR no Phase A dependem do WebGL2)
 - Sprite batcher em Rust: sort por (texture_id, z_order), 1 draw call por textura com N instances
 - TS `Sprite` class com setters que escrevem direto nos `Float32Array`/`Uint32Array` views
 - Spritesheet loading: `ships.png` (96×96 cells, 5 cols × 4 rows, tier variants)
 - Sub-frame UVs + tint (fragata vermelha)
-- Trails: sprites pequenos com alpha (full graphics lines vêm no M7)
+- Trails completos via sprite pool (per-particle alpha via write direto em `colors` SoA, zero tessellation) — NÃO migram via Graphics em M7
+- Bright star layer (TilingSprite) absorvido de M2 — sprite simples com UV repeat, texture bind group 2 já presente aqui
 - Flag `weydra.ships` — naves renderizam via weydra
 - Ship select via DOM addEventListener confirmado (já é DOM hoje, só validar)
 
@@ -512,6 +544,7 @@ Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra.
 - `RenderTarget` abstraction no core (texture renderable + view)
 - WASM adapter: `upload_texture_from_image_data(bytes, w, h)` pra promover um bake Pixi pro weydra
 - Branch em `bakePlaneta()` (`planeta-procedural.ts`): se flag `weydra.planetsBaked`, usa pipeline "Pixi extract canvas → bytes → weydra upload → sprite" (decisão: Pixi ainda gera a textura no M4; full-weydra bake fica pro M5 quando o shader for portado)
+- **Bake queue 1-por-frame** via `processBakeQueueWeydra()` — chamado a cada frame pelo game loop. `renderer.extract.canvas` é síncrono (10-50ms); fire-and-forget em loop de planeta empilharia stalls no mesmo frame
 - Integração com `AUTO_BAKE_PX` / `AUTO_UNBAKE_PX` existentes
 - `precompilarBakesPlanetas` no loading também passa pelo path weydra se flag on
 - Cleanup na transição baked ↔ live (destroy weydra sprite, restore Pixi mesh visibility)
@@ -529,7 +562,7 @@ Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra.
 **Entregáveis:**
 - Port de `src/shaders/planeta.wgsl` pra convenção bind groups (group 0 engine, group 1 `PlanetUniforms` struct)
 - `PlanetUniforms` struct `#[repr(C)]` em Rust com 24 campos (u_time, u_seed, u_rotation, u_light_origin, u_colors[6], etc) matchando o WGSL
-- `PlanetPool` homogeneous: `Vec<PlanetUniforms>` contíguo, cada slot = 1 instance, bind group com dynamic offset por slot (capacity 256)
+- `PlanetPool` homogeneous: `Vec<PlanetUniforms>` contíguo, cada slot = 1 instance, **único bind group compartilhado com `has_dynamic_offset: true`** — offset do slot passado no `set_bind_group` em tempo de draw (capacity 256 slots). Stride arredondado pra `min_uniform_buffer_offset_alignment` (tipicamente 256 bytes)
 - `PlanetInstance` TS class com setters tipados (gerados pelo vite-plugin-wgsl idealmente; fallback manual)
 - Registration do shader no boot via `renderer.createPlanetShader(wgslSrc)`
 - Branch em `criarPlanetaProceduralSprite`: se `weydra.planetsLive`, cria `PlanetInstance` e retorna objeto stub compatível com o contrato esperado pelo resto do código
@@ -565,7 +598,9 @@ Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra.
 
 #### M7 — Graphics primitives
 
-**Escopo:** API vector (circle/rect/roundRect/lineTo/arc/fill/stroke/clear) equivalente ao `Pixi.Graphics`, com tessellation via crate `lyon`. Migra orbit lines, rotas, beams, trails (agora full graphics), rings. **Também re-wire de TODOS os pointer events Pixi pra DOM** (5 objetos eventMode + ~11 handlers).
+**Escopo:** API vector (circle/rect/roundRect/lineTo/arc/fill/stroke/clear) equivalente ao `Pixi.Graphics`, com tessellation via crate `lyon`. Migra orbit lines, rotas, beams, rings. **Trails NÃO migram aqui** — ficam em sprite pool (M3) porque per-particle alpha muda toda frame e lyon retessellation seria desperdício. **Também re-wire de TODOS os pointer events Pixi pra DOM** (5 objetos eventMode + ~11 handlers).
+
+`Graphics` expõe flag `worldSpace: boolean` no construtor — `true` pra orbits/routes/beams/rings (world coords), `false` pra UI overlays (screen px). Shader branch interno via uniform.
 
 **Entregáveis:**
 - `Graphics` module no core com command list + dirty flag
@@ -573,7 +608,7 @@ Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra.
 - `graphics.wgsl` flat-shaded triangle pipeline (só position + color por vertex)
 - WASM exports: `create_graphics`, `graphics_circle/rect/roundRect/line/arc`, `graphics_fill/stroke/clear`
 - TS `Graphics` class mirror Pixi API (fluent: `.circle(...).fill(...).stroke(...)`)
-- Migração em `src/world/sistema.ts` (orbit lines), `src/world/naves.ts` (rotas + selection ring), `src/world/engine-trails.ts` (trails completos), `src/world/combate-resolucao.ts` (beams), `src/world/mundo.ts` (anel cache já existe, só trocar backend)
+- Migração em `src/world/sistema.ts` (orbit lines), `src/world/naves.ts` (rotas + selection ring), `src/world/combate-resolucao.ts` (beams), `src/world/mundo.ts` (anel cache já existe, só trocar backend). `engine-trails.ts` **NÃO** migra aqui — foi em M3 via sprite pool
 - **Re-wire DOM events** em `src/ui/minimapa.ts` (click-to-navigate), `src/ui/tutorial.ts` (close button), `src/ui/painel.ts` (action buttons), `src/ui/selecao.ts` (card hover/press): substituir `eventMode + .on('pointer...')` por `canvas.addEventListener` + hit-test manual contra bounds
 - Flag `weydra.graphics`
 
