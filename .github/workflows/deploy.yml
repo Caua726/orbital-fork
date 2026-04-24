@@ -57,6 +57,21 @@ jobs:
       - if: steps.cache-dist.outputs.cache-hit != 'true'
         uses: jetli/wasm-pack-action@v0.4.0
 
+      # wasm-pack output cache — MUST be resolved before `bun install`.
+      # @weydra/renderer (workspace) has a file: dep on
+      # weydra-renderer-wasm pointing at pkg/. If pkg/ doesn't exist at
+      # install time, Bun aborts with "ENOENT: failed opening cache".
+      - if: steps.cache-dist.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        id: cache-wasm-pkg
+        with:
+          path: weydra-renderer/adapters/wasm/pkg
+          key: wasm-pkg-${{ runner.os }}-${{ hashFiles('weydra-renderer/Cargo.lock', 'weydra-renderer/**/Cargo.toml', 'weydra-renderer/core/src/**/*.rs', 'weydra-renderer/core/shaders/**', 'weydra-renderer/adapters/wasm/src/**/*.rs', 'weydra-renderer/rust-toolchain.toml') }}
+      - if: steps.cache-dist.outputs.cache-hit != 'true' && steps.cache-wasm-pkg.outputs.cache-hit != 'true'
+        run: |
+          cd weydra-renderer/adapters/wasm
+          wasm-pack build --target web --release --out-dir pkg
+
       # ── JS toolchain (Bun replaces npm) ───────────────────────────────
       - if: steps.cache-dist.outputs.cache-hit != 'true'
         uses: oven-sh/setup-bun@v2
@@ -81,17 +96,6 @@ jobs:
         with:
           path: node_modules/.vite
           key: vite-deps-${{ runner.os }}-${{ hashFiles('bun.lock', 'vite.config.ts') }}
-
-      # wasm-pack output cache — keyed on Rust sources that actually
-      # affect the produced pkg/.
-      - if: steps.cache-dist.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
-        id: cache-wasm-pkg
-        with:
-          path: weydra-renderer/adapters/wasm/pkg
-          key: wasm-pkg-${{ runner.os }}-${{ hashFiles('weydra-renderer/Cargo.lock', 'weydra-renderer/**/Cargo.toml', 'weydra-renderer/core/src/**/*.rs', 'weydra-renderer/core/shaders/**', 'weydra-renderer/adapters/wasm/src/**/*.rs', 'weydra-renderer/rust-toolchain.toml') }}
-      - if: steps.cache-dist.outputs.cache-hit != 'true' && steps.cache-wasm-pkg.outputs.cache-hit != 'true'
-        run: bun run build:renderer:release
 
       # vite-plugin-wgsl tsc output cache.
       - if: steps.cache-dist.outputs.cache-hit != 'true'
