@@ -10,22 +10,24 @@ O jogo é renderizado hoje em Pixi v8 (WebGL2 / WebGPU / Canvas2D fallback). O a
 
 ## Objetivos
 
-1. Renderer 2D próprio controlado 100% por nós (sem dependência de Pixi)
+1. Renderer 2D próprio (weydra) rodando side-by-side com Pixi como path primário quando flag on
 2. Performance igual ou melhor que Pixi em todos os devices que o Orbital atende
 3. Multi-plataforma via wgpu: WebGPU, WebGL2, Vulkan, Metal, DX12, GLES 3.0
 4. API TypeScript com type-safety, ergonomia decente, overhead praticamente zero no hot path
 5. Migração incremental — jogo **nunca quebra** durante o dev
 6. Base reusável pra futuros jogos do ecossistema weydra
+7. **Pixi como fallback permanente** — não é removido no fim da migração. Se weydra init falhar, wgpu validator rejeitar shader, ou jogador preferir o path clássico (config UI), jogo continua rodando em Pixi sem degradação funcional. Bundle carrega ambos permanentemente; toggle per-subsystem via `config.weydra.*`.
 
 ## Não-objetivos
 
 - Não é uma reimplementação do Pixi — não vamos replicar API dele
 - Não é engine com ECS/audio/physics/editor **na fase inicial** (escopo pode evoluir pra isso)
 - Consoles (Switch/PS/Xbox) não estão no escopo atual
+- **Remover Pixi** não é objetivo. Pixi fica como fallback permanente (ver objetivo 7). Decisão tomada após M2 ship.
 
 ## Escopo por fase
 
-- **Fase A (atual):** renderer funcionando no Orbital via web + scaffolding multi-plataforma (desktop nativo Windows/macOS/Linux + Android/iOS). Substitui Pixi completamente na web (M10). Native adapters têm skeleton e cargo-check passa em M1.5; adapters completos (M11 desktop, M12 mobile) entram se/quando houver demanda.
+- **Fase A (atual):** weydra funcional no Orbital via web + scaffolding multi-plataforma (desktop nativo Windows/macOS/Linux + Android/iOS). Cada subsystem (starfield, ships, planets, fog, graphics, text, UI) migra pra weydra com flag individual; Pixi permanece como path alternativo sempre disponível. Native adapters têm skeleton e cargo-check passa em M1.5; adapters completos (M11 desktop, M12 mobile) entram se/quando houver demanda.
 - **Fase B (futura):** engine 2D reusável por outros jogos. API abstrai Orbital-specifics.
 - **Fase C (distante):** engine completa com audio/physics/input/asset pipeline. Fora do spec atual.
 
@@ -679,24 +681,27 @@ Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra.
 
 ---
 
-#### M10 — Pixi removal + cleanup
+#### M10 — Dual-renderer finalization (NÃO remove Pixi)
 
-**Escopo:** Endgame. Pixi completamente removido do projeto.
+**Revisão de escopo:** originalmente M10 removia o Pixi. Após shipping do M2 foi decidido manter **Pixi como fallback permanente** (ver objetivos §7). M10 vira "finalização da coexistência": garantir que os dois paths funcionam side-by-side de forma robusta, com UX clara pro jogador escolher, auto-fallback em caso de falha do weydra, e ferramentas de debug maduras.
+
+**Escopo:** Endgame da migração weydra. Pixi **permanece** no bundle.
 
 **Entregáveis:**
-- Delete canvas Pixi do `index.html`
-- Delete todos os feature flags `weydra.*` do config (eram só pra migração)
-- Delete `Application`, `Ticker`, `Container`, `Sprite`, `Graphics`, `Mesh`, `Shader`, `Texture`, `TilingSprite`, `Text`, `AnimatedSprite` — todas referências Pixi
-- Delete todos os `import ... from 'pixi.js'`
-- `npm uninstall pixi.js` — remove do `package.json`
-- Canvas único (weydra) com scene graph unificado. z-order flexível resolve o problema das camadas interleaved
-- Testes: save/load roundtrip, mobile low-end (PowerVR), Safari iOS
-- Comparação de perf final: branch pre-M1 (só Pixi) vs pós-M10 (só weydra) em 1 cena de referência
-- Tag release no git
+- Canvas weydra + canvas Pixi permanecem stacked (layout de M1)
+- Config UI: nova seção "Renderer" com toggles por subsystem (starfield, ships, planets, fog, graphics, text, ui) + botão "desativar tudo (modo clássico Pixi)"
+- Auto-fallback: se `initWeydra()` ou `Renderer.create()` falhar (GPU sem suporte, WebGPU desabilitado, wgpu validation error), logar e forçar todos os flags pra `false` nesta sessão. Game roda 100% em Pixi sem intervenção
+- Per-subsystem isolation: se um shader específico falhar em runtime (ex: shader do planeta quebra numa GPU esquisita), desabilita só o flag desse sistema e continua; não derruba o resto
+- Health telemetry: capturar quais flags `true/false` + latest error no save file (debug)
+- Comparação de perf final: cena de referência com ALL flags off (baseline Pixi) vs ALL flags on (weydra full)
+- Documentar decision matrix: quando recomendar cada path
+- Tag release `v1.0-weydra` no git
 
-**Critério de merge:** `grep -rn "pixi" package.json` retorna zero, `grep -rn "from 'pixi.js'" src/` retorna zero, bundle JS + WASM final menor que bundle JS com Pixi, frame time em mobile low-end melhor que baseline pre-M1.
+**Critério de merge:** ambos paths funcionais (auditoria manual + playtesting em 4 devices: desktop high-end, desktop low-end, mobile mid-range, mobile PowerVR). Auto-fallback testado forçando `Renderer.create` a jogar exceção. Config UI acessível sem DevTools (player pode togglear). Bundle size: Pixi (~500KB) + WASM (~500KB-2MB) = ~1-2.5MB gz total — aceito como custo do dual-path.
 
-**Resultado prático:** é ONDE o jogador pode perceber diferença — se tudo deu certo, mobile low-end sente jogo mais fluido (menos hitches, frame time médio melhor). No desktop de alta performance, possível empate (GPU não era gargalo). Bundle total comparável (perdeu Pixi ~500KB, ganhou WASM ~500KB-2MB dependendo do que saiu).
+**Resultado prático:** jogador ganha escolha: modo "moderno" (weydra) pra ganhos de perf em mobile low-end, ou "clássico" (Pixi) se algo der ruim. Para 99% dos players, default weydra com auto-fallback silencioso. Para devs de suporte, resetar pra Pixi é 1 clique.
+
+**Custo aceito:** bundle ~500KB a mais vs remoção total do Pixi. Trade-off contra garantia de que **nenhum jogador** fica sem jogar por bug de renderer novo. Decisão do owner do projeto.
 
 ### Feature flags por sistema
 
@@ -713,7 +718,7 @@ interface WeydraFlags {
 }
 ```
 
-Todas default `false`. Cada milestone liga a sua quando pronto. **Rollback instantâneo por sistema** desabilitando flag. No M10, flags e código Pixi são removidos.
+Todas default `false` inicialmente durante migração (cada milestone liga a sua quando pronto pra teste). Pós-M10, defaults podem virar `true` (weydra primário) mas os flags **permanecem** — player ou auto-fallback pode desligar qualquer subsystem individual a qualquer momento. Pixi não é removido.
 
 ## Testing + validation
 

@@ -95,3 +95,30 @@ export function stopWeydra(): void {
 }
 
 export const stopWeydraM1 = stopWeydra;
+
+// Dev helper — digitar no console: __weydra('starfield', true) liga o flag
+// e recarrega; __weydra('starfield', false) desliga; __weydraStatus() mostra
+// o estado atual. Fica só em dev/preview — remove antes de prod se incomodar.
+if (typeof window !== 'undefined') {
+  (window as any).__weydra = (key: string, value: boolean): void => {
+    try {
+      const raw = localStorage.getItem('orbital_config');
+      const cfg = raw ? JSON.parse(raw) : {};
+      cfg.weydra = { ...(cfg.weydra || {}), [key]: value };
+      localStorage.setItem('orbital_config', JSON.stringify(cfg));
+      console.info(`[weydra] ${key} = ${value}; reloading…`);
+      location.reload();
+    } catch (err) {
+      console.error('[weydra] __weydra helper failed:', err);
+    }
+  };
+  (window as any).__weydraStatus = (): Record<string, unknown> => {
+    try {
+      const raw = localStorage.getItem('orbital_config');
+      const cfg = raw ? JSON.parse(raw) : {};
+      return cfg.weydra ?? {};
+    } catch {
+      return {};
+    }
+  };
+}
