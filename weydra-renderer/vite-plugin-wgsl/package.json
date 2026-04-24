@@ -7,5 +7,8 @@
   "types": "./index.ts",
   "peerDependencies": {
     "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "wgsl_reflect": "^1.2.3"
   }
 }

@@ -8,8 +8,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowImportingTsExtensions": true,
-    "forceConsistentCasingInFileNames": true,
-    "isolatedModules": true
+    "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts", "vite.config.ts"]
+  "include": ["*.ts"]
 }
