@@ -53,6 +53,16 @@ export interface OrbitalConfig {
     touchMode: 'auto' | 'on' | 'off';
   };
 
+  /**
+   * Feature flags para a migração incremental Pixi → weydra-renderer.
+   * Cada sistema ganha sua flag conforme o milestone correspondente
+   * (M2..M9) é mergeado. Todas default false — ativar por sistema só
+   * após visual parity verificada.
+   */
+  weydra: {
+    starfield: boolean; // M2 — procedural fullscreen shader via weydra
+  };
+
   language: 'pt' | 'en';
 }
 
@@ -100,6 +110,10 @@ export const DEFAULTS: OrbitalConfig = {
 
   ui: {
     touchMode: 'auto',
+  },
+
+  weydra: {
+    starfield: false,
   },
 
   language: 'pt',

@@ -7,6 +7,7 @@ import vertexSrc from '../shaders/starfield.vert?raw';
 import fragmentSrc from '../shaders/starfield.frag?raw';
 import wgslSrc from '../shaders/starfield.wgsl?raw';
 import { getConfig } from '../core/config';
+import { getWeydraRenderer } from '../weydra-loader';
 import {
   criarFundoCanvas, atualizarFundoCanvas, getStarfieldCanvasMemoryBytes,
 } from './fundo-canvas';
@@ -277,18 +278,32 @@ export function atualizarFundo(
   mesh.scale.set(telaW, telaH);
 
   fundo._tempoAcumMs += 16.67;
-  const uniforms = fundo._uniforms.uniforms as {
-    uCamera: Float32Array;
-    uViewport: Float32Array;
-    uTime: number;
-    uDensidade: number;
-  };
-  uniforms.uCamera[0] = jogadorX;
-  uniforms.uCamera[1] = jogadorY;
-  uniforms.uViewport[0] = telaW;
-  uniforms.uViewport[1] = telaH;
-  uniforms.uTime = fundo._tempoAcumMs / 1000;
-  uniforms.uDensidade = getConfig().graphics.densidadeStarfield;
+  const weydraOn = !!getConfig().weydra?.starfield;
+
+  if (weydraOn) {
+    // weydra assumiu a camada procedural (2 layers). Pixi mesh invisível;
+    // TilingSprite bright continua em Pixi até M3 migrar o sprite pool.
+    mesh.visible = false;
+    const r = getWeydraRenderer();
+    if (r) {
+      r.setCamera(jogadorX, jogadorY, telaW, telaH, fundo._tempoAcumMs / 1000);
+      r.setStarfieldDensity(getConfig().graphics.densidadeStarfield);
+    }
+  } else {
+    mesh.visible = true;
+    const uniforms = fundo._uniforms.uniforms as {
+      uCamera: Float32Array;
+      uViewport: Float32Array;
+      uTime: number;
+      uDensidade: number;
+    };
+    uniforms.uCamera[0] = jogadorX;
+    uniforms.uCamera[1] = jogadorY;
+    uniforms.uViewport[0] = telaW;
+    uniforms.uViewport[1] = telaH;
+    uniforms.uTime = fundo._tempoAcumMs / 1000;
+    uniforms.uDensidade = getConfig().graphics.densidadeStarfield;
+  }
 
   // Bright layer: ocupa a viewport (mesma posição/tamanho do mesh) e
   // offset de tile replica o parallax 0.12 da antiga layer 3 do

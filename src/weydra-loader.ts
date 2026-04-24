@@ -1,31 +1,41 @@
 /**
- * Loader for the weydra-renderer. Behind a debug flag so M1 can validate
- * the pipeline end-to-end without changing any real rendering yet.
+ * Loader for the weydra-renderer. Reads `config.weydra.*` flags to decide
+ * whether to boot the WASM renderer + which subsystems to register.
  *
- * Activated by setting localStorage.weydra_m1 = '1' in the browser console.
- * When enabled: mounts a black-clearing renderer on #weydra-canvas behind
- * the Pixi canvas. When disabled: no-op, game runs exactly like before.
+ * M2 subsystem: starfield (procedural fullscreen shader). Future milestones
+ * add more flags under `weydra.*` — loader registers each when its flag is on.
+ *
+ * The renderer lives on `#weydra-canvas` (added to index.html in M1) behind
+ * the Pixi canvas. An internal rAF loop drives `renderer.render()`; game code
+ * pushes uniforms via `setCamera`/`setStarfieldDensity` from its own tick.
  */
 
 import { initWeydra, Renderer } from '@weydra/renderer';
+import starfieldWgsl from './shaders/starfield-weydra.wgsl';
+import { getConfig } from './core/config';
 
 let _renderer: Renderer | null = null;
 let _rafHandle: number | null = null;
 
-function isEnabled(): boolean {
+export function getWeydraRenderer(): Renderer | null {
+  return _renderer;
+}
+
+function anyFlagEnabled(): boolean {
   try {
-    return localStorage.getItem('weydra_m1') === '1';
+    const w = getConfig().weydra;
+    return !!(w && w.starfield);
   } catch {
     return false;
   }
 }
 
-export async function startWeydraM1(): Promise<void> {
-  if (!isEnabled()) return;
+export async function startWeydra(): Promise<void> {
+  if (!anyFlagEnabled()) return;
 
   const canvas = document.getElementById('weydra-canvas') as HTMLCanvasElement | null;
   if (!canvas) {
-    console.warn('[weydra] #weydra-canvas not found in DOM — skipping M1 init');
+    console.warn('[weydra] #weydra-canvas not found in DOM — skipping init');
     return;
   }
 
@@ -47,7 +57,10 @@ export async function startWeydraM1(): Promise<void> {
   try {
     await initWeydra();
     _renderer = await Renderer.create(canvas);
-    console.info('[weydra] M1 renderer initialized, clearing to black at 60fps');
+    if (getConfig().weydra.starfield) {
+      _renderer.createStarfield(starfieldWgsl);
+    }
+    console.info('[weydra] renderer initialized; flags:', getConfig().weydra);
   } catch (err) {
     console.error('[weydra] init failed:', err);
     return;
@@ -63,8 +76,6 @@ export async function startWeydraM1(): Promise<void> {
     _renderer.resize(width, height);
   });
 
-  // Render loop via rAF. Independent of Pixi's ticker so M1 can be
-  // validated in isolation.
   const loop = () => {
     if (_renderer) _renderer.render();
     _rafHandle = requestAnimationFrame(loop);
@@ -72,10 +83,15 @@ export async function startWeydraM1(): Promise<void> {
   _rafHandle = requestAnimationFrame(loop);
 }
 
-export function stopWeydraM1(): void {
+/** Backwards-compat alias so existing bootstrap callers keep working. */
+export const startWeydraM1 = startWeydra;
+
+export function stopWeydra(): void {
   if (_rafHandle !== null) {
     cancelAnimationFrame(_rafHandle);
     _rafHandle = null;
   }
   _renderer = null;
 }
+
+export const stopWeydraM1 = stopWeydra;
