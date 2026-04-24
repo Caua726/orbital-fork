@@ -281,15 +281,21 @@ export function atualizarFundo(
   const weydraOn = !!getConfig().weydra?.starfield;
 
   if (weydraOn) {
-    // weydra assumiu a camada procedural (2 layers). Pixi mesh invisível;
-    // TilingSprite bright continua em Pixi até M3 migrar o sprite pool.
+    // weydra assumiu a camada procedural. Esconder TUDO do Pixi fundo:
+    // - mesh procedural (seria duplicação)
+    // - brightTiles com blend 'add' (fullscreen quad com alpha=1 escrito
+    //   via blendFunc(ONE,ONE) faz o canvas Pixi ficar OPACO mesmo com
+    //   backgroundAlpha=0, bloqueando weydra atrás). Bright layer volta
+    //   quando M3 migrar pra sprite pool weydra.
     mesh.visible = false;
+    fundo._brightTiles.visible = false;
     const r = getWeydraRenderer();
     if (r) {
       r.setCamera(jogadorX, jogadorY, telaW, telaH, fundo._tempoAcumMs / 1000);
       r.setStarfieldDensity(getConfig().graphics.densidadeStarfield);
     }
   } else {
+    fundo._brightTiles.visible = true;
     mesh.visible = true;
     const uniforms = fundo._uniforms.uniforms as {
       uCamera: Float32Array;
