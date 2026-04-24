@@ -3,6 +3,11 @@
 //! Exposes a wasm-bindgen Renderer that wraps the core pipeline and binds
 //! to an HtmlCanvasElement. All hot-path per-frame ops (position updates,
 //! etc.) will use shared memory escape hatches added in later milestones.
+//!
+//! Compiles as an empty crate on non-wasm32 targets so `cargo build --workspace`
+//! works on native toolchains. wgpu's `SurfaceTarget::Canvas` variant only
+//! exists under `cfg(target_arch = "wasm32")`.
+#![cfg(target_arch = "wasm32")]
 
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
