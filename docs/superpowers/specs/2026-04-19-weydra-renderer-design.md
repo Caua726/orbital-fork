@@ -25,11 +25,11 @@ O jogo é renderizado hoje em Pixi v8 (WebGL2 / WebGPU / Canvas2D fallback). O a
 
 ## Escopo por fase
 
-- **Fase A (atual):** renderer funcionando no Orbital. Substitui Pixi completamente. Escopo focado — só o que Orbital precisa.
-- **Fase B (futura):** engine 2D reusável. API abstrai Orbital-specifics. Consumível por outros jogos.
+- **Fase A (atual):** renderer funcionando no Orbital via web + scaffolding multi-plataforma (desktop nativo Windows/macOS/Linux + Android/iOS). Substitui Pixi completamente na web (M10). Native adapters têm skeleton e cargo-check passa em M1.5; adapters completos (M11 desktop, M12 mobile) entram se/quando houver demanda.
+- **Fase B (futura):** engine 2D reusável por outros jogos. API abstrai Orbital-specifics.
 - **Fase C (distante):** engine completa com audio/physics/input/asset pipeline. Fora do spec atual.
 
-Design decisions do spec atual **não travam** evolução pra B ou C — princípio de fronteiras limpas do primeiro dia.
+Design decisions do spec atual **não travam** evolução pra B ou C — princípio de fronteiras limpas do primeiro dia. Regra concreta: `core/` crate nunca importa `web-sys`, `js-sys`, `wasm-bindgen`, `winit`, nem nada platform-specific. Todas as platform deps vivem em `adapters/*`.
 
 ## Contexto: auditoria do Pixi atual
 
@@ -126,20 +126,21 @@ Princípio da separação core / adapters:
 
 Via wgpu, herdados automaticamente:
 
-| Alvo | Backend | Fase |
-|---|---|---|
-| Chrome/Edge desktop | WebGPU | A |
-| Chrome Android | WebGPU | A |
-| Safari desktop 17+ | WebGPU | A |
-| Firefox desktop | WebGL2 | A |
-| Safari iOS 17+ | WebGL2 | A |
-| Mobile low-end (PowerVR/Adreno/Mali) | WebGL2 | A |
-| Hardware sem GPU (WARP/SwiftShader) | Canvas2D fallback (fora do weydra, path TS existente) | A |
-| Windows desktop native | DX12 / Vulkan | B |
-| Linux desktop native | Vulkan | B |
-| macOS/iOS native | Metal | B |
-| Android native | Vulkan | B |
-| Steam Deck | Vulkan | B |
+| Alvo | Backend | Fase | Adapter |
+|---|---|---|---|
+| Chrome/Edge desktop | WebGPU | A | `adapters/wasm` |
+| Chrome Android (browser) | WebGPU | A | `adapters/wasm` |
+| Safari desktop 17+ | WebGPU | A | `adapters/wasm` |
+| Firefox desktop | WebGL2 | A | `adapters/wasm` |
+| Safari iOS 17+ (browser) | WebGL2 | A | `adapters/wasm` |
+| Mobile browser low-end (PowerVR/Adreno/Mali) | WebGL2 | A | `adapters/wasm` |
+| Hardware sem GPU (WARP/SwiftShader) | Canvas2D fallback (path TS existente) | A | — |
+| Windows desktop native | DX12 / Vulkan | **A (scaffolding M1.5 / adapter M11)** | `adapters/native` |
+| Linux desktop native | Vulkan | **A (scaffolding M1.5 / adapter M11)** | `adapters/native` |
+| macOS desktop native | Metal | **A (scaffolding M1.5 / adapter M11)** | `adapters/native` |
+| Android native (APK) | Vulkan | **A (scaffolding M1.5 / adapter M12)** | `adapters/android` |
+| iOS native | Metal | **A (scaffolding M1.5 / adapter M12)** | `adapters/ios` |
+| Steam Deck | Vulkan | A (via `adapters/native` Linux) | `adapters/native` |
 
 **Consoles (Switch/PS/Xbox)**: fora de escopo atual. Se e quando virar objetivo, avaliamos SDK específico da época. Não desenhamos o renderer em função deles agora.
 
@@ -486,6 +487,27 @@ Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra.
 **Critério de merge:** com flag on, canvas weydra pinta preto a 60fps atrás do Pixi, zero regressão no jogo (Pixi continua renderizando normal), `cargo build --workspace` + `cargo test` + `npm run dev` + `npm run build` todos limpos.
 
 **Resultado prático:** nada visível pro jogador. Infra pronta pros próximos Ms se plugarem.
+
+---
+
+#### M1.5 — Multi-Platform Scaffolding
+
+**Escopo:** Preparar o workspace pra futura compatibilidade nativa (Windows, macOS, Linux desktop + Android + iOS) sem construir os adapters completos ainda. É parallel-track — não bloqueia M2+. Objetivo é garantir que escolhas feitas em M2-M10 não pintem o projeto num canto "web-only".
+
+**Entregáveis:**
+- `adapters/native/` crate skeleton (winit + wgpu, promove `examples/hello-clear` pra adapter reutilizável)
+- `adapters/android/` crate skeleton (winit com feature `android-activity`, cargo check cross-compila)
+- `rust-toolchain.toml` com targets `wasm32-unknown-unknown`, `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu`, `aarch64-apple-darwin`, `aarch64-linux-android`, `aarch64-apple-ios`
+- Feature flags por plataforma no `core/Cargo.toml`: `web` (default se não há outra), `native`, `android`, `ios`
+- Audit do `core/` crate: **zero** deps `web-sys`, `js-sys`, `wasm-bindgen` — core é platform-agnostic por construção
+- Documento `docs/weydra-renderer/platform-guards.md` listando o que M2-M10 podem/não podem importar em cada crate
+- CI matrix (local script inicialmente, GitHub Actions eventualmente): `cargo check` pra cada target
+- README do weydra-renderer com matriz de plataformas suportadas vs status
+- Tag `v0.1-multiplatform` quando todos os `cargo check` passam
+
+**Critério de merge:** `cargo check --target X` passa pra web, native Linux, native Windows (via mingw), native macOS, Android. `adapters/native` roda o hello-clear window com clear color. Core crate tem zero imports browser-specific (grep automated). Nenhuma regressão no path WASM existente (M1 continua funcionando).
+
+**Resultado prático:** nada visível pro jogador. Estratégico: qualquer decisão em M2-M10 que acidentalmente use `web-sys` em core quebra o build Linux/Android/iOS imediatamente, catch cedo. Opcional: pode rodar em paralelo com M2+, não bloqueia.
 
 ---
 
