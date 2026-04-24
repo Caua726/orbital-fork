@@ -17,6 +17,13 @@ O jogo é renderizado hoje em Pixi v8 (WebGL2 / WebGPU / Canvas2D fallback). O a
 5. Migração incremental — jogo **nunca quebra** durante o dev
 6. Base reusável pra futuros jogos do ecossistema weydra
 7. **Pixi como fallback permanente** — não é removido no fim da migração. Se weydra init falhar, wgpu validator rejeitar shader, ou jogador preferir o path clássico (config UI), jogo continua rodando em Pixi sem degradação funcional. Bundle carrega ambos permanentemente; toggle per-subsystem via `config.weydra.*`.
+8. **Player escolhe renderer + backend via settings UI.** Dois níveis de controle:
+   - **Nível A — renderer:** `weydra` (path novo) ou `pixi` (clássico). Master override que desliga todos os flags weydra de uma vez.
+   - **Nível B — backend do renderer escolhido:**
+     - **Se weydra:** `auto` (wgpu detecta), `webgpu`, `webgl2`, `vulkan`, `metal`, `dx12`, `gles`. Config força via `wgpu::InstanceDescriptor.backends` flag.
+     - **Se Pixi:** `auto`, `webgpu`, `webgl`. Config já existente (`config.graphics.renderer` + `webglVersion` + `gpuPreference`).
+   - Defaults: `renderer=auto` (tenta weydra, fallback Pixi), `backend=auto` (deixa o renderer escolher).
+   - Player troubleshooting: "jogo travou? Settings → Renderer → Clássico (Pixi)". Um clique, reload, game rodando.
 
 ## Não-objetivos
 
@@ -689,11 +696,20 @@ Ordem rígida bottom-up pra respeitar z-order durante coexistência Pixi+weydra.
 
 **Entregáveis:**
 - Canvas weydra + canvas Pixi permanecem stacked (layout de M1)
-- Config UI: nova seção "Renderer" com toggles por subsystem (starfield, ships, planets, fog, graphics, text, ui) + botão "desativar tudo (modo clássico Pixi)"
-- Auto-fallback: se `initWeydra()` ou `Renderer.create()` falhar (GPU sem suporte, WebGPU desabilitado, wgpu validation error), logar e forçar todos os flags pra `false` nesta sessão. Game roda 100% em Pixi sem intervenção
+- **Config UI nova seção "Renderer":**
+  - Dropdown **Renderer:** `auto` / `weydra` / `pixi (clássico)`
+  - Dropdown **Backend:** `auto` / `webgpu` / `webgl2` / `vulkan` / `metal` / `dx12` / `gles` — opções disponíveis filtradas pela combinação de renderer + plataforma (ex: `dx12` só aparece em Windows nativo + weydra; `webgpu` só em browser; `metal` só em Apple; etc)
+  - Toggles por subsystem (starfield, ships, planets, fog, graphics, text, ui) — aparecem só quando `renderer=weydra|auto`
+  - Botão **"Testar weydra agora"** — tenta init sem reload, mostra resultado
+  - Botão **"Reset ao clássico (Pixi)"** — shortcut pra `renderer=pixi` + clear flags
+  - Info visível: qual backend o wgpu efetivamente escolheu (após init), via `adapter.get_info()`
+- **Backend plumbing:**
+  - Weydra: `Renderer.create(canvas, { backends })` aceita `wgpu::Backends` flag forçada. Config converte string → bitflag
+  - Pixi: reusar `config.graphics.renderer` (já existe: `webgl`/`webgpu`/`auto`) + `webglVersion` (`auto`/`1`/`2`)
+- Auto-fallback: se `initWeydra()` ou `Renderer.create()` falhar (GPU sem suporte, WebGPU desabilitado, wgpu validation error), logar e forçar `renderer=pixi` nesta sessão. Game roda 100% em Pixi sem intervenção. Settings UI mostra banner "Weydra falhou nesta sessão — usando Pixi clássico. [detalhes]"
 - Per-subsystem isolation: se um shader específico falhar em runtime (ex: shader do planeta quebra numa GPU esquisita), desabilita só o flag desse sistema e continua; não derruba o resto
-- Health telemetry: capturar quais flags `true/false` + latest error no save file (debug)
-- Comparação de perf final: cena de referência com ALL flags off (baseline Pixi) vs ALL flags on (weydra full)
+- Health telemetry: capturar renderer escolhido + backend efetivo + quais flags `true/false` + latest error no save file (debug)
+- Comparação de perf final: cena de referência com cada combinação relevante (Pixi+WebGL2, Pixi+WebGPU, weydra+WebGL2, weydra+WebGPU) no mesmo device de referência. Player vê comparativo opcional na UI
 - Documentar decision matrix: quando recomendar cada path
 - Tag release `v1.0-weydra` no git
 
