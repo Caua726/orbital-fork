@@ -10,3 +10,6 @@ wgpu = { workspace = true }
 bytemuck = { workspace = true }
 glam = { workspace = true }
 log = { workspace = true }
+
+[dev-dependencies]
+pollster = { workspace = true }
