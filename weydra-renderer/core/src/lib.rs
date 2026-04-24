@@ -18,7 +18,9 @@ pub mod frame;
 pub mod mesh;
 pub mod shader;
 pub mod slotmap;
+pub mod sprite;
 pub mod surface;
+pub mod texture;
 pub mod uniform_pool;
 
 pub use bind_groups::EngineBindings;
@@ -29,5 +31,7 @@ pub use frame::render_clear;
 pub use mesh::Mesh;
 pub use shader::{ShaderHandle, ShaderRegistry};
 pub use slotmap::{Handle, SlotMap};
+pub use sprite::{SpriteMeta, SpritePool, SpriteTransform, SpriteUv, FLAG_VISIBLE};
 pub use surface::RenderSurface;
+pub use texture::{Texture, TextureRegistry};
 pub use uniform_pool::UniformPool;
