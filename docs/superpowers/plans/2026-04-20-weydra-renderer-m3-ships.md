@@ -606,6 +606,23 @@ impl Renderer {
 }
 ```
 
+Definir o layout AoS que casa com `sprite_batch.wgsl` `SpriteData` struct (48 bytes, alinhado):
+
+```rust
+// MATCH EXATO do WGSL struct SpriteData em sprite_batch.wgsl.
+// Qualquer change aqui precisa sync com o WGSL.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SpriteData {
+    pub transform: [f32; 4],  // offset 0  — x, y, scale_x, scale_y
+    pub uv_rect: [f32; 4],    // offset 16 — u, v, w, h
+    pub color: u32,           // offset 32
+    pub _pad0: u32,           // offset 36 — força display pra 8-align
+    pub display: [f32; 2],    // offset 40 — display_w, display_h
+}
+const _: () = assert!(std::mem::size_of::<SpriteData>() == 48);
+```
+
 Update `render()` to:
 1. Build sprite SoA → AoS into storage buffer (one `SpriteData` per visible sprite)
 2. Group sprites by texture, issue one draw call per texture with instance_count = N
@@ -614,8 +631,10 @@ Update `render()` to:
 
 Exact implementation is substantial — likely 200 lines of pipeline/encoder code. Key points:
 - Filter + sort sprites by (texture_id, z_order) into temporary Vec per frame
-- memcpy into a staging buffer of SpriteData
-- 1 draw call per contiguous run with same texture
+- For each visible sprite, pack `SpriteData { transform: [x,y,sx,sy], uv_rect: [u,v,w,h], color, _pad0: 0, display: [dw,dh] }`
+- memcpy `bytemuck::cast_slice(&sprites_data)` into `staging_buffer`
+- `queue.write_buffer(&storage_buffer, 0, ...)` upload
+- 1 draw call per contiguous run with same texture (6 verts × N instances)
 
 - [ ] **Step 2: Rebuild WASM + commit**
 

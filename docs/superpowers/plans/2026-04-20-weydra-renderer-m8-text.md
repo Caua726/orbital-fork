@@ -615,11 +615,12 @@ At end of `new(canvas)`, após engine bindings e shader_registry criados:
 ```rust
 let mut text_registry = TextRegistry::new(&ctx);
 
-// Bake atlases
+// Bake atlases. `wgpu::Texture/View/Sampler` NÃO implementam Clone em
+// wgpu 25.x — passamos &Texture direto pro register, sem clonar.
 for (ttf, px) in [(SILKSCREEN_TTF, 12.0), (SILKSCREEN_TTF, 16.0), (VT323_TTF, 24.0)] {
     let atlas = bake_atlas(&ctx, &mut textures, ttf, px, DEFAULT_CHARSET);
-    let tex = textures.get(atlas.texture).expect("atlas texture").clone();
-    text_registry.register_atlas_bind_group(&ctx, &tex);
+    let tex_ref = textures.get(atlas.texture).expect("atlas texture");
+    text_registry.register_atlas_bind_group(&ctx, tex_ref);
     text_registry.atlases.push(atlas);
 }
 
@@ -631,7 +632,7 @@ text_registry.build_pipeline(&ctx, text_module, &engine.layout, surface.format);
 
 onde `TEXT_WGSL` é `include_str!("../../../core/shaders/text.wgsl")`.
 
-Observação: `textures.get` retorna `&Texture` — pra clonar precisa `Texture` ser `Clone` (wgpu::Texture, View, Sampler são `Arc` por dentro, clone é barato). Se não for derivável, passar `&Texture` direto pro `register_atlas_bind_group`.
+Observação: `wgpu::Texture`, `TextureView`, `Sampler` **não** implementam `Clone` em wgpu 25.x (ao contrário do que `Arc` interno sugeriria). Nossa `crate::texture::Texture` wrapper também não — e não precisa. `textures.get()` retorna `&Texture`; passamos essa ref direto pro `register_atlas_bind_group(&ctx, tex_ref)`.
 
 - [ ] **Step 3: Add text API**
 
