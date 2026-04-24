@@ -133,6 +133,18 @@ pub struct Graphics {
 }
 
 impl Graphics {
+    /// Re-tessella commands → vertex/index buffers.
+    ///
+    /// **Invariante crítica:** DEVE ser chamado antes de `Renderer::render()`
+    /// abrir o render pass. Nunca de dentro de um callback TS durante frame
+    /// (ex: event handler rodando entre begin_render_pass e end_render_pass).
+    /// Replacing `self.fill_vertex_buffer` drops o wgpu::Buffer antigo, e se
+    /// o render pass corrente ainda tem command encoder holding ref, vira
+    /// use-after-free no GPU command stream.
+    ///
+    /// Convenção: todas as mutações Graphics (circle, fill, etc) só setam
+    /// `self.dirty = true`. `Renderer::render()` chama `tessellate_all()`
+    /// como primeiro passo, antes de `begin_render_pass`.
     pub fn tessellate(&mut self, ctx: &GpuContext) {
         if !self.dirty { return; }
 
@@ -372,6 +384,24 @@ export class Graphics {
   }
 }
 
+/**
+ * Pack RGB (number 0xRRGGBB) + alpha (0..1) into a u32 laid out as
+ * `0xRR_GG_BB_AA` (R in the high byte, A in the low byte). The Rust side
+ * MUST unpack in the same order:
+ *
+ * ```rust
+ * // core/src/graphics.rs (unpack side)
+ * fn unpack_rgba(packed: u32) -> [f32; 4] {
+ *     let r = ((packed >> 24) & 0xff) as f32 / 255.0;
+ *     let g = ((packed >> 16) & 0xff) as f32 / 255.0;
+ *     let b = ((packed >>  8) & 0xff) as f32 / 255.0;
+ *     let a = ( packed        & 0xff) as f32 / 255.0;
+ *     [r, g, b, a]
+ * }
+ * ```
+ *
+ * Same pack order already used by sprite_batch.wgsl (M3) and text.wgsl (M8).
+ */
 function packColor(rgb: number, a: number): number {
   return ((rgb >> 16) & 0xff) << 24 | ((rgb >> 8) & 0xff) << 16 | (rgb & 0xff) << 8 | Math.floor(a * 255);
 }

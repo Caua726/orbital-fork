@@ -339,6 +339,7 @@ impl TextNode {
         // would render stale data. Always clamp both the slice and the count.
         let max_verts = self.capacity_chars * 6;
         let write_len = verts.len().min(max_verts);
+        let truncated = verts.len() > max_verts;
         self.vertex_count = write_len as u32;
         if write_len > 0 {
             ctx.queue.write_buffer(
@@ -347,6 +348,21 @@ impl TextNode {
                 bytemuck::cast_slice(&verts[..write_len]),
             );
         }
+        if truncated {
+            log::warn!(
+                "TextNode truncated: {} chars requested, {} chars capacity. \
+                 Increase capacity_chars in create_text call.",
+                self.content.chars().count(),
+                self.capacity_chars,
+            );
+        }
+    }
+
+    /// True se o último `update()` truncou o conteúdo — caller pode reagir
+    /// (re-criar text com capacity maior) ou ignorar (aceitar truncamento).
+    pub fn was_truncated(&self) -> bool {
+        // Approx: reconta chars do content e compara com capacity
+        self.content.chars().count() > self.capacity_chars
     }
 }
 

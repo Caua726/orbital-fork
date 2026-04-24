@@ -258,12 +258,12 @@ export function montarMinimapa(/* args */) {
       return {
         atualizar: (estado) => {
           estadoAtual = estado;
-          bg.clear().roundRect(MX, MY, MW, MH, 4).fill(0x0a0f1c, 0.75).stroke({ width: 1, color: 0x2a3a5a });
+          bg.clear().roundRect(MX, MY, MW, MH, 4).fill({ color: 0x0a0f1c, alpha: 0.75 }).stroke({ width: 1, color: 0x2a3a5a });
           dots.clear();
           for (const p of estado.planetas) {
             const px = MX + (p.x / estado.worldW) * MW;
             const py = MY + (p.y / estado.worldH) * MH;
-            dots.circle(px, py, 1.2).fill(corPlaneta(p));
+            dots.circle(px, py, 1.2).fill({ color: corPlaneta(p) });
           }
           viewport.clear().rect(viewX, viewY, viewW, viewH).stroke({ width: 1, color: 0x66ccff, alpha: 0.8 });
           titulo.x = MX + 4; titulo.y = MY + 2;
@@ -322,7 +322,7 @@ if (getConfig().weydra.ui) {
       const cy = fy + anim.offsetY;
       frame.clear()
         .roundRect(fx, cy, fw, fh, 8)
-        .fill(0x0a1020, 0.92 * anim.alpha)
+        .fill({ color: 0x0a1020, alpha: 0.92 * anim.alpha })
         .stroke({ width: 1, color: 0x3366aa, alpha: anim.alpha });
       titulo.x = fx + 16; titulo.y = cy + 12; titulo.text = tituloStr;
       titulo.color = rgbaWithAlpha(0xffffff, anim.alpha);
@@ -423,7 +423,7 @@ if (getConfig().weydra.ui) {
     const redraw = () => {
       secaoPlaneta.clear()
         .roundRect(sx, sy, sw, sh, 4)
-        .fill(0x0a1020, 0.85)
+        .fill({ color: 0x0a1020, alpha: 0.85 })
         .stroke({ width: 1, color: 0x224466 });
       // ... repetir pra outras seções
       // Textos posicionados:
@@ -432,7 +432,7 @@ if (getConfig().weydra.ui) {
 
       btnConstruir.clear()
         .roundRect(bcX, bcY, bcW, bcH, 3)
-        .fill(0x1a3a5a, 0.9)
+        .fill({ color: 0x1a3a5a, alpha: 0.9 })
         .stroke({ width: 1, color: 0x66ccff });
     };
 
@@ -509,7 +509,7 @@ if (getConfig().weydra.ui) {
       for (const card of cards) {
         card.bg.clear()
           .roundRect(card.x, card.y, CARD_W, CARD_H, 4)
-          .fill(card.pressed ? 0x224477 : 0x0a1020, 0.9)
+          .fill({ color: card.pressed ? 0x224477 : 0x0a1020, alpha: 0.9 })
           .stroke({ width: 1, color: card.hovered ? 0x66ccff : 0x224466 });
         card.ring.clear();
         if (card.hovered) {

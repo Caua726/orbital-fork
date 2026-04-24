@@ -391,8 +391,22 @@ impl SpritePool {
         }
     }
 
+    pub fn is_full(&self) -> bool {
+        // Full quando slotmap ocupou todos os slots que SoA pools pre-alocaram.
+        // SlotMap::insert faz Vec::push quando `free` vazio — mas nossos arrays
+        // SoA são fixed-size, então qualquer insert acima de `capacity` seria OOB.
+        self.meta.len() >= self.capacity
+    }
+
     pub fn insert(&mut self, texture: Handle, display_w: f32, display_h: f32) -> Handle {
+        assert!(
+            !self.is_full(),
+            "SpritePool full (cap={}). SlotMap::insert would grow beyond SoA array bounds. \
+             Increase capacity or destroy unused sprites first.",
+            self.capacity,
+        );
         let h = self.meta.insert(SpriteMeta { texture, display_w, display_h });
+        debug_assert!((h.slot as usize) < self.capacity);
         self.transforms[h.slot as usize] = SpriteTransform::default();
         self.uvs[h.slot as usize] = SpriteUv::default();
         self.colors[h.slot as usize] = 0xFFFFFFFF;
@@ -442,12 +456,20 @@ struct CameraUniforms {
     _pad: vec3<f32>,
 };
 
+// WGSL std140 alignment: vec2<f32> precisa 8-byte align, vec4 precisa 16-byte.
+// Layout total 48 bytes (múltiplo de 16):
+//   transform: vec4    offset  0 (16 bytes, 16-align ✓)
+//   uv_rect:   vec4    offset 16 (16 bytes, 16-align ✓)
+//   color:     u32     offset 32 ( 4 bytes,  4-align ✓)
+//   _pad0:     u32     offset 36 (pad pra trazer `display` pra 8-align)
+//   display:   vec2    offset 40 ( 8 bytes,  8-align ✓)
+// Struct alignment = 16 (vec4). Total 48 = 3×16 ✓, sem trailing pad.
 struct SpriteData {
-    transform: vec4<f32>, // x, y, scale_x, scale_y
-    uv_rect: vec4<f32>,   // u, v, w, h
-    color: u32,           // RGBA8 packed
-    display: vec2<f32>,   // display_w, display_h
-    _pad: f32,
+    transform: vec4<f32>, // offset 0
+    uv_rect: vec4<f32>,   // offset 16
+    color: u32,           // offset 32
+    _pad0: u32,           // offset 36 — força `display` pra offset 40 (8-align)
+    display: vec2<f32>,   // offset 40
 };
 
 @group(0) @binding(0) var<uniform> engine_camera: CameraUniforms;

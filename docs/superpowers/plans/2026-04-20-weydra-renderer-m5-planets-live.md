@@ -192,8 +192,11 @@ impl Default for PlanetUniforms {
     }
 }
 
-/// Size check at compile time. See WGSL struct in planeta.wgsl for ground truth.
-const _: () = assert!(std::mem::size_of::<PlanetUniforms>() <= 256);
+/// Size check at compile time. DEVE ser == `PLANET_UNIFORMS_SIZE`, não `<=`.
+/// Se o WGSL struct em planeta.wgsl tiver outro tamanho (padding vec4 diferente),
+/// GPU lê garbage nos bytes finais. Validar com teste também.
+pub const PLANET_UNIFORMS_SIZE: usize = 192; // ajuste se struct mudar; ver comentário de layout acima
+const _: () = assert!(std::mem::size_of::<PlanetUniforms>() == PLANET_UNIFORMS_SIZE);
 
 pub struct PlanetPool {
     pub instances: Vec<PlanetUniforms>,
@@ -268,7 +271,12 @@ impl PlanetPool {
     }
 
     pub fn offset_for(&self, slot: u32) -> u32 {
-        slot * self.stride as u32
+        // Usa u64 pra evitar overflow em edge cases (slot alto × stride grande).
+        // wgpu aceita u32 no set_bind_group; valor final cabe se capacity * stride
+        // fica dentro do UBO max (verificado na criação).
+        let o = slot as u64 * self.stride;
+        assert!(o <= u32::MAX as u64, "dynamic offset overflows u32");
+        o as u32
     }
 
     pub fn upload(&self, ctx: &GpuContext) {
@@ -337,6 +345,11 @@ impl Renderer {
 
     pub fn create_planet_instance(&mut self) -> u64 {
         let pool = self.planet_pool.as_mut().expect("create_planet_shader first");
+        assert!(
+            pool.slotmap.len() < pool.capacity(),
+            "PlanetPool full (cap={}). SlotMap::insert would return a slot beyond pre-allocated instances.",
+            pool.capacity(),
+        );
         pool.slotmap.insert(()).to_u64()
     }
 

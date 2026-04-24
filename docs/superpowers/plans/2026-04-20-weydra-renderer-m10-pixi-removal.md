@@ -401,6 +401,12 @@ import fogWgsl from './shaders/fog.wgsl';
 
 let _renderer: Renderer | null = null;
 let _lastT = performance.now();
+const _teardownHandlers: Array<() => void> = [];
+
+export function teardownWeydra(): void {
+  for (const fn of _teardownHandlers.splice(0)) fn();
+  _renderer = null;
+}
 
 export async function startWeydra(
   state: GameLoopState,
@@ -425,10 +431,14 @@ export async function startWeydra(
     mostrarDialogContextoPerdido(reason);
   });
 
-  window.addEventListener('resize', () => {
+  // Resize handler stored in module state pra permitir remoção em teardown
+  // (context-lost recovery, test cleanup). Handler null-guards `_renderer`.
+  const onResize = () => {
     syncSize();
-    _renderer!.resize(canvas.width, canvas.height);
-  });
+    _renderer?.resize(canvas.width, canvas.height);
+  };
+  window.addEventListener('resize', onResize);
+  _teardownHandlers.push(() => window.removeEventListener('resize', onResize));
 
   const deps: GameLoopDeps = {
     camera,

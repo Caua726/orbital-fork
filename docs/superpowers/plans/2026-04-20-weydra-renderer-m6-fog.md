@@ -177,36 +177,45 @@ impl Renderer {
 createFogShader(wgsl: string): FogLayer {
   this.inner.create_fog_shader(wgsl);
   this.revalidate();
-  const ptr = this.inner.fog_ptr();
   const max = this.inner.fog_max_sources();
-  // Ambos views começam no MESMO offset (ptr) do mesmo ArrayBuffer.
-  // Layout FogUniforms: [base_alpha:f32, active_count:u32, pad:f32×2, sources: VisionSource×max]
-  // VisionSource: [position:vec2, radius:f32, pad:f32] = 16 bytes = 4 f32
-  const totalF32 = 4 + max * 4; // header(4 floats equivalent) + sources
-  const buf = _wasm.memory.buffer;
-  return new FogLayer(
-    new Float32Array(buf, ptr, totalF32),
-    new Uint32Array(buf, ptr, totalF32),
-    max,
-  );
+  const totalF32 = 4 + max * 4; // header(4 f32 equivalent) + sources (4 f32 each)
+  // FogLayer consulta `_wasm.memory.buffer` e `fog_ptr()` a cada write —
+  // evita bug de view detached quando WASM memory cresce.
+  return new FogLayer(this, totalF32, max);
 }
 
 class FogLayer {
   constructor(
-    private f32: Float32Array,
-    private u32: Uint32Array,
+    private renderer: Renderer,
+    private totalF32: number,
     public readonly maxSources: number,
   ) {}
-  setBaseAlpha(v: number): void { this.f32[0] = v; }
-  setActiveCount(n: number): void { this.u32[1] = n; }
+
+  /** Re-ler ptr + buffer por write. _wasm.memory.buffer é detached a cada
+   *  memory.grow(); caching seria bug silencioso. ~50ns por call. */
+  private f32(): Float32Array {
+    const ptr = this.renderer.innerGetFogPtr();
+    return new Float32Array(_wasm.memory.buffer, ptr, this.totalF32);
+  }
+  private u32(): Uint32Array {
+    const ptr = this.renderer.innerGetFogPtr();
+    return new Uint32Array(_wasm.memory.buffer, ptr, this.totalF32);
+  }
+
+  setBaseAlpha(v: number): void { this.f32()[0] = v; }
+  setActiveCount(n: number): void { this.u32()[1] = n; }
   setSource(idx: number, x: number, y: number, radius: number): void {
-    const base = 4 + idx * 4; // header = 4 f32, then sources stride 4 f32
-    this.f32[base + 0] = x;
-    this.f32[base + 1] = y;
-    this.f32[base + 2] = radius;
+    const base = 4 + idx * 4;
+    const view = this.f32();
+    view[base + 0] = x;
+    view[base + 1] = y;
+    view[base + 2] = radius;
     // [base+3] é pad
   }
 }
+
+// No Renderer:
+//   innerGetFogPtr(): number { return this.inner.fog_ptr(); }
 ```
 
 - [ ] **Step 3: Rebuild + commit**

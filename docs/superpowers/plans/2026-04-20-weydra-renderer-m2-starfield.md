@@ -10,6 +10,31 @@
 
 **Depends on:** M1 complete.
 
+## Convenção de views sobre WASM memory (válida de M2 em diante)
+
+`WebAssembly.Memory.buffer` detacha e realoca silenciosamente a cada `memory.grow()`. Views tipadas cached sobre o buffer antigo viram no-op. Regra do projeto:
+
+1. **Nunca cache o `_wasm.memory.buffer` por mais de 1 chamada síncrona.** Qualquer função que escreve em typed array views **re-lê** `_wasm.memory.buffer` na hora (`new Float32Array(_wasm.memory.buffer, ptr, len)`).
+2. **O Rust bump `mem_version` após TODA operação que pode crescer memory.** Não só texture upload — qualquer `create_*`, `upload_*`, `resize_*`.
+3. **TS `revalidate()` compara `mem_version` + `_wasm.memory.buffer` identity.** Se qualquer um mudou, recria todas as views.
+
+```typescript
+// Pattern canônico:
+private lastBuffer: ArrayBuffer | null = null;
+private lastVersion = 0;
+private revalidate() {
+  const ver = this.inner.mem_version();
+  const buf = _wasm.memory.buffer;
+  if (ver === this.lastVersion && buf === this.lastBuffer) return;
+  this.lastVersion = ver;
+  this.lastBuffer = buf;
+  // rebuild all typed-array views from fresh buf + current ptrs
+  this.rebuildViews();
+}
+```
+
+Cada `FogLayer`, `PlanetInstance`, `Sprite`, etc. chama `revalidate()` via seu Renderer parent antes de setter ops ou usa getters que internamente rebuildam se detached. Ver M3 para exemplo completo.
+
 ## Convenção de CameraUniforms (decidida em M2, válida de M2 em diante)
 
 `CameraUniforms.viewport` é **world units visíveis**, não pixels de tela. O caller (camera.ts) computa `viewport = [screenW / zoom, screenH / zoom]` uma vez por frame e escreve no UBO. Shaders ficam zoom-agnostic — nunca multiplicam/dividem por zoom manualmente.
@@ -664,11 +689,15 @@ function generateSetter(f: UniformField): string {
     case 'vec2<f32>':
     case 'vec2f':
       return `set ${f.name}(v: [number, number]) { this.buffer[this.base + ${offsetF32}] = v[0]; this.buffer[this.base + ${offsetF32 + 1}] = v[1]; }`;
+    case 'vec3<f32>':
+    case 'vec3f':
+      return `set ${f.name}(v: [number, number, number]) { for (let i=0;i<3;i++) this.buffer[this.base + ${offsetF32} + i] = v[i]; }`;
     case 'vec4<f32>':
     case 'vec4f':
       return `set ${f.name}(v: [number, number, number, number]) { for (let i=0;i<4;i++) this.buffer[this.base + ${offsetF32} + i] = v[i]; }`;
     default:
-      return `// unsupported type ${f.typeName} for field ${f.name}`;
+      // Unsupported → no-op setter, com warn em dev pra pegar no review.
+      return `set ${f.name}(_v: unknown) { /* unsupported WGSL type ${f.typeName} — edit codegen.ts */ }`;
   }
 }
 ```
@@ -679,7 +708,6 @@ Replace `weydra-renderer/vite-plugin-wgsl/index.ts`:
 
 ```typescript
 import type { Plugin } from 'vite';
-import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { reflectWgsl } from './reflect';
 import { generateTsModule } from './codegen';
@@ -687,12 +715,13 @@ import { generateTsModule } from './codegen';
 export default function wgslPlugin(): Plugin {
   return {
     name: 'weydra-vite-plugin-wgsl',
-    async transform(_code, id) {
+    // Usa `code` (Vite já leu + cacheou) em vez de readFile — disco bypassa
+    // o module graph do Vite e quebra HMR.
+    transform(code, id) {
       if (!id.endsWith('.wgsl')) return null;
-      const source = await readFile(id, 'utf-8');
       const moduleName = basename(id, extname(id));
-      const structs = reflectWgsl(source);
-      const tsModule = generateTsModule(source, structs, moduleName);
+      const structs = reflectWgsl(code);
+      const tsModule = generateTsModule(code, structs, moduleName);
       return { code: tsModule, map: null };
     },
   };
