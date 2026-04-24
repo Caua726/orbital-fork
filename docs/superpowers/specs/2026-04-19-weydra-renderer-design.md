@@ -1022,3 +1022,70 @@ Ships, engine trails, e bright star TilingSprite migrados pro weydra-renderer. M
 ### Next
 M4 (planets baked mode) ou M5+ em paralelo conforme priorização.
 
+## M4 Status: Complete (2026-04-24)
+
+Planetas pequenos/distantes (abaixo de `AUTO_BAKE_PX=40` px na tela) renderizam via weydra sprite pool quando `config.weydra.planetsBaked` está ligado. Pixi ainda gera os pixels da textura via `renderer.extract.canvas`; weydra apenas exibe — full-weydra bake (render direto num RenderTarget) segue pro M5 com o port do shader do planeta. M4 valida o sprite-de-planeta + auto-bake/unbake + queue scheduler + RenderTarget skeleton pro M5 plugar.
+
+### Verificação automática
+- `cargo build --workspace` clean (core + 4 adapters + hello-clear)
+- `cargo test --workspace` — 11/11 tests pass (slotmap 4 + sprite 4 + camera 2 + device 1)
+- `./scripts/check-all-platforms.sh` → 4 pass / 4 skip / 0 fail (macOS/Android/iOS skip por host Linux sem toolchain, M1.5 não regrediu)
+- `./scripts/check-platform-guards.sh` → 0 violations (core segue platform-agnostic)
+- `npm run build` — dist/ produzido (~470ms, só warnings pre-existing de chunk size)
+- `tsc --noEmit` — clean
+
+### Novas primitivas do core
+- `render_target::RenderTarget` — texture renderable + view. Usage flags `RENDER_ATTACHMENT | TEXTURE_BINDING | COPY_SRC` cobrem attachment (render pass), sampling (blit/post), e readback (`copy_texture_to_buffer` pra determinism tests M5). `view_formats` auto-deriva o linear sibling de uma sRGB source (via `format.remove_srgb_suffix()`), permitindo non-srgb views sem recriar a textura. Asserts hard contra zero-size + compressed formats (fail fast antes de wgpu emitir erro menos claro).
+
+### WASM adapter
+Intocado. M3 já expõe `upload_texture(bytes, w, h) -> u64` com a assinatura correta — wrapper `upload_texture_from_image_data` mencionado no spec original foi explicitamente removido do plano como dead alias.
+
+### Game integration
+- `config.weydra.planetsBaked: boolean` (default false) em OrbitalConfig + DEFAULTS.
+- `src/world/planeta-procedural.ts`:
+  - `bakePlanetaWeydra(planeta)` — async, espelha `bakePlaneta` mas usa `renderer.extract.canvas` + `getImageData` + `new Uint8Array(buffer, byteOffset, byteLength)` (byteOffset explícito pra cobrir aliasing de Uint8ClampedArray) + `r.uploadTexture` + `r.createSprite`. `sprite.zOrder = Z.PLANET_BAKED`. Early-return se `!planeta.visible` (evita extract.canvas em mesh culled/teardown).
+  - Bake queue 1-por-frame: `_bakeQueue: any[]` + `_bakeSet: Set<object>` (strong-ref — entry precisa sobreviver à janela async entre shift e resolve do bake). `enqueueBakeWeydra` / `processBakeQueueWeydra` / `resetBakeQueueWeydra` / `destroyAllWeydraBakedSprites` exports.
+  - `processBakeQueueWeydra`: shift + `void bakePlanetaWeydra(planeta).finally(() => _bakeSet.delete(planeta))` — dedup persiste até o bake resolver.
+  - `unbakePlanetaWeydra` — destroy sprite + restore mesh.visible.
+  - Branches em `atualizarTempoPlanetas` (tanto path `!shaderLive` bulk quanto `shaderLive` auto-bake por AUTO_BAKE_PX/AUTO_UNBAKE_PX): quando flag on, usa queue weydra; else path Pixi existente intacto.
+  - Branch em `precompilarBakesPlanetas` (loading screen): await direto em `bakePlanetaWeydra` pra aproveitar a fase onde stalls são aceitos.
+- `src/world/mundo.ts`:
+  - `processBakeQueueWeydra()` chamado no game loop logo após `atualizarTempoPlanetas` (drena 1 bake/frame).
+  - `destruirMundo` libera weydra sprites (`destroyAllWeydraBakedSprites([...planetas, ...sois])`) ANTES de `container.destroy` + chama `resetBakeQueueWeydra` depois pra matar fila pendente.
+  - Culling loop ganhou branch `_weydraBakedSprite` paralelo ao `_bakedSprite`: `planeta.visible = false; sprite.visible = vis`. Sem isso o mesh Pixi voltava a renderizar sobre o weydra sprite e off-screen culling gerava churn bake/unbake.
+- `src/weydra-loader.ts`: `anyFlagEnabled()` expandido. Agora qualquer flag weydra (starfield, ships, shipTrails, starfieldBright, planetsBaked) dispara init. Bug colateral do M3 onde só `starfield` bootava o renderer resolvido aqui.
+
+### Adaptações vs plano
+- **`view_formats` dinâmico no RenderTarget** (plano: `&[]` literal): auto-deriva via `remove_srgb_suffix` pra permitir non-srgb views off `self.texture`. Plano previa isso no docstring mas ficou hard-coded &[]. Extensão trivial, defensável.
+- **`debug_assert` → `assert` pra compressed format check**: convenção do crate é `assert!` pra pre-GPU-creation guards (texture.rs, sprite.rs). Alinhado.
+- **Queue dedup com `Set` não `WeakSet`** (plano: WeakSet): entry precisa sobreviver à janela async (bakePlanetaWeydra resolve em `.finally`), e `resetBakeQueueWeydra` garante zero leak via teardown. `Set` simplifica o raciocínio sem custo.
+- **`.finally(() => _bakeSet.delete(planeta))`** em vez de delete síncrono (plano: delete antes de void bake): sem isso, próximo frame de `atualizarTempoPlanetas` re-enqueuaria o planeta antes do bake resolver → 2 bakes simultâneos + sprite/texture vazada.
+- **`if (!planeta.visible) return`** em bakePlanetaWeydra: defende contra planeta culled ou mid-teardown entre enqueue e shift. Não estava no plano.
+- **`destroyAllWeydraBakedSprites` + hook em destruirMundo**: Pixi `container.destroy({ children: true })` não libera weydra sprites (vivem no pool, fora da tree). Sem isso, cada world-reload vazava N sprites do pool.
+- **`anyFlagEnabled` fix colateral** (M3 só checava `starfield`): trivial, 1 linha — player habilitando só `ships` ou `planetsBaked` sem `starfield` não inicializava o renderer.
+- **Z.PLANET_BAKED em vez do literal `0`** do plano: usa a constante canônica de `src/core/render-order.ts` introduzida em M3.
+
+### Deferido para M5+
+- Full-weydra bake (shader direto pro RenderTarget sem readback Pixi) — requer port de planeta.wgsl (M5).
+- Anel de seleção de planeta — fica em Pixi até M7 (graphics primitives).
+- Texture handle leak no unbake: `r.destroySprite` não destrói a textura uploaded (wasm adapter não expõe destroy_texture). Plano aceita leak de ~16KB por bake cycle; endereçar se memory profiling virar gargalo.
+- Visual parity screenshot test automated (plano original tinha, deferido).
+
+### Reviewer gate
+4 reviewers (spec/plan/quality/bugs) em paralelo por Task, re-disparados até CLEAN na mesma rodada. Findings fixados durante execução:
+- Task 1: view_formats `&[]` contradizia docstring (wgpu rejeita reinterpret view sem listar linear sibling) → auto-deriva via `remove_srgb_suffix`; docstring trimado (zero M4/M5 refs, CLAUDE.md rule); debug_assert → assert pra alinhar convenção do crate.
+- Task 3: race de double-bake quando `_bakeSet.delete` rodava síncrono antes do bake async → `.finally` callback. Culling loop em mundo.ts não tinha branch pra `_weydraBakedSprite` → double render + churn off-screen. `_bakeQueue` nunca resetado em world teardown → use-after-free em mesh Pixi destruída. Weydra sprites vazavam em world reload porque vivem fora do Pixi container → `destroyAllWeydraBakedSprites` chamado em `destruirMundo`. Invisible-while-enqueued planet bakearia com posição stale → early-return em bakePlanetaWeydra.
+- Rejeitados como falsos positivos: `rgba.slice(0)` ownership copy (wasm-bindgen faz memcpy sync em `&[u8]`); cast `as WeydraSprite` sem `| undefined` dentro de branch truthy (safe); in-flight bake pós-destruirMundo (body é 100% síncrono — zero awaits — resolve no mesmo tick antes de destruirMundo poder rodar).
+
+### Verification pendente no usuário (browser)
+- `config.weydra.starfield / ships / shipTrails / starfieldBright` (M2+M3) ainda funcionam, não regrediram.
+- `config.weydra.planetsBaked = true` NOVO — planetas pequenos renderizam via weydra, visual idêntico ao Pixi baked.
+- Transição zoom in/out sem flicker: baked↔live suave; culling off-screen não gera churn.
+- `precompilarBakesPlanetas` na loading screen usa path weydra quando flag on.
+- Chrome (WebGPU) + Firefox (WebGL2 fallback) — ambos renderizam planetas baked corretamente.
+- Stress: zoom out em sistema com 15+ planetas dispara auto-bake em cascata. Frame time não trava — queue drena 1/frame (≤1ms cada) em vez dos ~30ms do path fire-and-forget.
+- Auto-unbake zoom in: planeta volta a renderizar via Pixi live mesh sem glitch.
+
+### Next
+M5 (planet shader live port — port de `planeta.wgsl` pra convenção weydra + determinism test + full-weydra bake substitui pipeline híbrido do M4).
+
