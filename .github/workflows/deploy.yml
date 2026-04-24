@@ -78,16 +78,12 @@ jobs:
         with:
           bun-version: latest
 
-      # node_modules cache — skips `bun install` entirely on an unchanged
-      # lockfile. Hoisted linker keeps npm-style layout so Vite resolves
-      # nested packages (e.g. tinyglobby/dist/) correctly.
+      # `bun install` always runs. Caching `node_modules` across runs
+      # broke workspace symlinks (`file:../adapters/wasm/pkg`) — Bun's
+      # own `~/.bun/install/cache` (populated by setup-bun) already
+      # keeps the hot install under ~2-3 s, so a dedicated node_modules
+      # cache buys little and costs correctness.
       - if: steps.cache-dist.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
-        id: cache-node-modules
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('bun.lock', 'package.json', 'weydra-renderer/ts-bridge/package.json', 'weydra-renderer/vite-plugin-wgsl/package.json') }}
-      - if: steps.cache-dist.outputs.cache-hit != 'true' && steps.cache-node-modules.outputs.cache-hit != 'true'
         run: bun install --frozen-lockfile --linker=hoisted
 
       # Vite optimizeDeps prebundle (esbuild-processed Pixi etc).
