@@ -8,16 +8,23 @@
 // Mirror of src/shaders/starfield.wgsl (Pixi path) minus the bright layer,
 // which stays in Pixi as a TilingSprite until M3 migrates the sprite pool.
 
+// WGSL std140: vec3<f32> em uniform buffer ocupa 16 bytes com 16-byte align
+// (armadilha). Usamos 3 scalars f32 pra garantir 12 bytes contíguos sem
+// padding extra — struct total = 32 bytes, match exato com Rust CameraUniforms.
 struct CameraUniforms {
     camera: vec2<f32>,
     viewport: vec2<f32>,
     time: f32,
-    _pad: vec3<f32>,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 struct StarfieldUniforms {
     density: f32,
-    _pad: vec3<f32>,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 @group(0) @binding(0) var<uniform> engine_camera: CameraUniforms;

@@ -228,10 +228,10 @@ impl Graphics {
 
 ```wgsl
 // engine_camera.viewport em world units (convenção M2).
-struct CameraUniforms { camera: vec2<f32>, viewport: vec2<f32>, time: f32, _pad: vec3<f32> };
+struct CameraUniforms { camera: vec2<f32>, viewport: vec2<f32>, time: f32, _pad0: f32, _pad1: f32, _pad2: f32 };
 
 // Per-graphics uniform: world_space=1 (orbits/routes/beams) ou 0 (UI).
-struct GraphicsUniforms { world_space: f32, _pad: vec3<f32> };
+struct GraphicsUniforms { world_space: f32, _pad0: f32, _pad1: f32, _pad2: f32 };
 
 @group(0) @binding(0) var<uniform> cam: CameraUniforms;
 @group(1) @binding(0) var<uniform> gfx: GraphicsUniforms;

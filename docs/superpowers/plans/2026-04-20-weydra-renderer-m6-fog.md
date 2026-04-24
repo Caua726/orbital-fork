@@ -99,7 +99,7 @@ git commit -m "feat(weydra-renderer): FogUniforms with up to 64 vision sources"
 ```wgsl
 // engine_camera.viewport está em WORLD UNITS (convenção M2, decidida em C5).
 // Caller passa screenW/zoom, screenH/zoom — shader é zoom-agnostic.
-struct CameraUniforms { camera: vec2<f32>, viewport: vec2<f32>, time: f32, _pad: vec3<f32> };
+struct CameraUniforms { camera: vec2<f32>, viewport: vec2<f32>, time: f32, _pad0: f32, _pad1: f32, _pad2: f32 };
 struct VisionSource { position: vec2<f32>, radius: f32, _pad: f32 };
 struct FogUniforms {
     base_alpha: f32,

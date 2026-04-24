@@ -453,7 +453,7 @@ struct CameraUniforms {
     camera: vec2<f32>,
     viewport: vec2<f32>,
     time: f32,
-    _pad: vec3<f32>,
+    _pad0: f32, _pad1: f32, _pad2: f32,
 };
 
 // WGSL std140 alignment: vec2<f32> precisa 8-byte align, vec4 precisa 16-byte.
@@ -521,7 +521,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 Este milestone **tem** que prover ambos paths (WebGPU storage buffer + WebGL2 vertex-attribute) — ver "Scope extensions absorved into M3" no topo do plano. Criar `core/shaders/sprite_batch_instanced.wgsl` com per-instance vertex attributes:
 
 ```wgsl
-struct CameraUniforms { camera: vec2<f32>, viewport: vec2<f32>, time: f32, _pad: vec3<f32> };
+struct CameraUniforms { camera: vec2<f32>, viewport: vec2<f32>, time: f32, _pad0: f32, _pad1: f32, _pad2: f32 };
 @group(0) @binding(0) var<uniform> cam: CameraUniforms;
 @group(2) @binding(0) var tex: texture_2d<f32>;
 @group(2) @binding(1) var samp: sampler;

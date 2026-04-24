@@ -527,14 +527,14 @@ struct CameraUniforms {
     camera: vec2<f32>,
     viewport: vec2<f32>,
     time: f32,
-    _pad: vec3<f32>,
+    _pad0: f32, _pad1: f32, _pad2: f32,
 };
 
 struct TextUniforms {
     // world_space = 1.0: subtract camera before NDC transform (fog labels)
     // world_space = 0.0: raw screen-space (UI overlays)
     world_space: f32,
-    _pad: vec3<f32>,
+    _pad0: f32, _pad1: f32, _pad2: f32,
 };
 
 @group(0) @binding(0) var<uniform> engine_camera: CameraUniforms;
