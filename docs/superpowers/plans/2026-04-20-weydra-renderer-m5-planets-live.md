@@ -199,9 +199,13 @@ pub struct PlanetPool {
     pub instances: Vec<PlanetUniforms>,
     pub gpu_buffer: wgpu::Buffer,
     pub bind_group_layout: wgpu::BindGroupLayout,
-    pub bind_groups: Vec<wgpu::BindGroup>, // one per slot with dynamic offset
+    /// UM bind group compartilhado (não 256). Dynamic offset é passado no
+    /// `set_bind_group` call em tempo de draw. Layout tem
+    /// `has_dynamic_offset: true` e `size = stride` (min_binding_size).
+    pub bind_group: wgpu::BindGroup,
     pub slotmap: SlotMap<()>,
     capacity: usize,
+    stride: u64,
 }
 
 impl PlanetPool {
@@ -230,31 +234,34 @@ impl PlanetPool {
             }],
         });
 
-        let mut bind_groups = Vec::with_capacity(capacity);
-        for i in 0..capacity {
-            let bg = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(&format!("planet uniforms bg {i}")),
-                layout: &bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &gpu_buffer,
-                        offset: i as u64 * stride,
-                        size: wgpu::BufferSize::new(stride),
-                    }),
-                }],
-            });
-            bind_groups.push(bg);
-        }
+        // Um único bind group, com size = stride (não byte_size) — o
+        // dynamic offset no set_bind_group seleciona a slot em tempo de draw.
+        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("planet uniforms bg (dynamic)"),
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &gpu_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(stride),
+                }),
+            }],
+        });
 
         Self {
             instances: vec![PlanetUniforms::default(); capacity],
             gpu_buffer,
             bind_group_layout,
-            bind_groups,
+            bind_group,
             slotmap: SlotMap::with_capacity(capacity),
             capacity,
+            stride,
         }
+    }
+
+    pub fn offset_for(&self, slot: u32) -> u32 {
+        slot * self.stride as u32
     }
 
     pub fn upload(&self, ctx: &GpuContext) {
@@ -345,11 +352,11 @@ In `render()`, after starfield pass, before sprite batch, iterate planet_pool.sl
 ```rust
 if let (Some(pool), Some(mesh)) = (&self.planet_pool, &self.planet_mesh) {
     pool.upload(&self.ctx);
+    pass.set_pipeline(&mesh.pipeline);
+    pass.set_bind_group(0, &self.engine.bind_group, &[]);
     for (h, _) in pool.slotmap.iter() {
-        pass.set_pipeline(&mesh.pipeline);
-        pass.set_bind_group(0, &self.engine.bind_group, &[]);
-        let offset = h.slot as u32 * std::mem::size_of::<PlanetUniforms>() as u32;
-        pass.set_bind_group(1, &pool.bind_groups[h.slot as usize], &[]);
+        // Dynamic offset seleciona o slot dentro do buffer compartilhado.
+        pass.set_bind_group(1, &pool.bind_group, &[pool.offset_for(h.slot)]);
         pass.draw(0..6, 0..1);
     }
 }
@@ -382,13 +389,16 @@ export class PlanetInstance {
     this.base = slot * (r.planetUniformsStride / 4);
   }
 
+  // Views são cacheadas no Renderer (revalidate() recria quando memory grows).
+  // NUNCA reconstruir views aqui — perde sincronia com Float32Array/Int32Array
+  // se memory crescer entre uma chamada e outra.
   private get view(): Float32Array { return this.r.planetUniformsView; }
-  private get iview(): Int32Array {
-    // Some fields are i32 in WGSL; reinterpret same bytes as Int32Array
-    const buf = _wasm.memory.buffer;
-    return new Int32Array(buf, this.r.planetUniformsPtr, this.r.planetUniformsCapacity * this.r.planetUniformsStride / 4);
-  }
+  private get iview(): Int32Array { return this.r.planetUniformsIView; }
 
+  // Offsets abaixo são computados a partir do layout exato de `PlanetUniforms`
+  // em Rust (alinhamento vec4). Idealmente gerados pelo `vite-plugin-wgsl`
+  // via reflection — tabela abaixo é fallback manual que DEVE ser validado
+  // por teste contra `std::mem::offset_of!(PlanetUniforms, field)`.
   set uTime(v: number) { this.view[this.base + 0] = v; }
   set uSeed(v: number) { this.view[this.base + 1] = v; }
   set uRotation(v: number) { this.view[this.base + 2] = v; }
@@ -398,11 +408,16 @@ export class PlanetInstance {
   setWorldPos(x: number, y: number) { this.view[this.base + 19] = x; this.view[this.base + 20] = y; }
   setWorldSize(w: number, h: number) { this.view[this.base + 21] = w; this.view[this.base + 22] = h; }
   setColor(idx: number, r: number, g: number, b: number, a: number) {
-    const off = this.base + 23 + idx * 4;
+    const off = this.base + 24 + idx * 4; // palette começa logo após u_world_size (offset 23 é pad)
     this.view[off + 0] = r; this.view[off + 1] = g; this.view[off + 2] = b; this.view[off + 3] = a;
   }
   // ... setters for remaining ~15 uniforms
 }
+
+// No Renderer (M3 + extensão M5):
+// - planetUniformsView: Float32Array cacheada em revalidate()
+// - planetUniformsIView: Int32Array cacheada em revalidate(), mesmo buffer
+// - planetUniformsStride / Ptr / Capacity: readonly getters do wasm
 
 // Add to Renderer:
 createPlanetShader(wgslSource: string): void {
@@ -603,11 +618,20 @@ impl Renderer {
         }
         self.ctx.queue.submit(Some(encoder.finish()));
 
-        // Register as texture handle
-        let tex_handle = self.textures.insert(crate::texture::Texture {
+        // Register as texture handle. Sampler é criado fresh aqui —
+        // evitar dep em `TextureRegistry::get_default_sampler()` que M3
+        // não expõe publicamente. wgpu::Sampler internamente é Arc, criar
+        // novo é trivial.
+        let sampler = self.ctx.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("planet bake sampler"),
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let tex_handle = self.textures.insert_external(crate::texture::Texture {
             texture: rt.texture,
             view: rt.view,
-            sampler: self.textures.get_default_sampler().clone(), // or create fresh
+            sampler,
             width: size,
             height: size,
         });

@@ -10,6 +10,28 @@
 
 **Depends on:** M2 complete.
 
+## Scope extensions absorved into M3
+
+**A. WebGL2 fallback path (obrigatório pro merge):**
+
+Spec lista Firefox/Safari iOS 17+/PowerVR como Phase A targets. Todos rodam wgpu via WebGL2 backend, que **não suporta storage buffers**. `sprite_batch.wgsl` com `var<storage, read>` trava nesses browsers. Soluções:
+
+- **Path WebGPU:** storage buffer + `instance_index` (já descrito neste plano).
+- **Path WebGL2:** vertex buffer com per-instance attributes via `VertexStepMode::Instance`. Mesmo shader lógico, binding diferente.
+
+Implementar ambas em M3. Detecção no boot via `adapter.get_info().backend`:
+```rust
+let use_storage = matches!(adapter.get_info().backend, wgpu::Backend::BrowserWebGpu | wgpu::Backend::Vulkan | wgpu::Backend::Metal | wgpu::Backend::Dx12);
+```
+→ Seleciona `sprite_batch_storage.wgsl` ou `sprite_batch_instanced.wgsl`. Mesma API pública (`create_sprite`, `render`).
+
+**B. Bright star layer TilingSprite (diferido de M2):**
+
+O bright layer do starfield usa TilingSprite em Pixi hoje. M2 decidiu deixar em Pixi até M3 — agora que sprite pool + texture registry existem, migrar:
+- Adicionar 1 `sprite.wgsl` simples (já no scope original do M2 arquivado).
+- TilingSprite é só um sprite com UV repeat: shader aceita `tile_offset`, `tile_scale` como uniforms extras.
+- Flag `weydra.starfield` em M3 já cobre — ao migrar starfield bright, liga junto.
+
 ---
 
 ## File Structure
@@ -510,6 +532,12 @@ impl Renderer {
 
     pub fn create_sprite(&mut self, texture: u64, display_w: f32, display_h: f32) -> u64 {
         let tex = Handle::from_u64(texture);
+        // Panic if exceeding pre-allocated capacity: Vec::push would realloc
+        // and invalidate typed array views on the TS side silently.
+        assert!(
+            self.sprites.meta.len() < self.sprites.capacity(),
+            "SpritePool overflow: increase SPRITE_CAPACITY. Silent memory growth would invalidate TS typed views."
+        );
         let h = self.sprites.insert(tex, display_w, display_h);
         h.to_u64()
     }
@@ -681,11 +709,14 @@ if (getConfig().weydra.ships) {
     }
     const displaySize = SHIP_DISPLAY_SIZE[tipo] ?? 32;
     const weydraSprite = r.createSprite(sheet.weydraTexture, displaySize, displaySize);
-    // UV for sub-frame:
+    // UV for sub-frame. Cells are 96×96 px. Sheet is 480×384 (5 cols × 4 rows).
+    // Normalize per-axis: uWidth = 96 / sheet.width, vHeight = 96 / sheet.height.
     const row = SHIP_SHEET_ROW[tipo] ?? 0;
     const col = tipo === 'colonizadora' ? 0 : Math.max(0, Math.min(4, tier - 1));
-    const cellSize = 96 / sheet.width; // normalized
-    weydraSprite.setUv(col * cellSize, row * cellSize, cellSize, cellSize * 96 / sheet.height);
+    const CELL_PX = 96;
+    const uW = CELL_PX / sheet.width;
+    const vH = CELL_PX / sheet.height;
+    weydraSprite.setUv(col * uW, row * vH, uW, vH);
     weydraSprite.tint = SHIP_TINT[tipo] ?? 0xFFFFFFFF;
     nave._weydraSprite = weydraSprite;
     return nave;

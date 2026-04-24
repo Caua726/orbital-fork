@@ -97,6 +97,8 @@ git commit -m "feat(weydra-renderer): FogUniforms with up to 64 vision sources"
 - [ ] **Step 1: Write shader**
 
 ```wgsl
+// engine_camera.viewport está em WORLD UNITS (convenção M2, decidida em C5).
+// Caller passa screenW/zoom, screenH/zoom — shader é zoom-agnostic.
 struct CameraUniforms { camera: vec2<f32>, viewport: vec2<f32>, time: f32, _pad: vec3<f32> };
 struct VisionSource { position: vec2<f32>, radius: f32, _pad: f32 };
 struct FogUniforms {
@@ -109,21 +111,34 @@ struct FogUniforms {
 @group(0) @binding(0) var<uniform> engine_camera: CameraUniforms;
 @group(1) @binding(0) var<uniform> fog: FogUniforms;
 
+struct VsOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
 @vertex
-fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
+fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
     let x = f32((idx << 1u) & 2u);
     let y = f32(idx & 2u);
-    return vec4<f32>(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.0, 1.0);
+    var out: VsOut;
+    out.clip_pos = vec4<f32>(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.0, 1.0);
+    out.uv = vec2<f32>(x * 0.5, y * 0.5); // 0..1
+    return out;
 }
 
 @fragment
-fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
-    let world = engine_camera.camera + (pos.xy / engine_camera.viewport * 2.0 - 1.0) * engine_camera.viewport * 0.5;
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    // viewport em world units → world = camera + (uv - 0.5) * viewport
+    let world = engine_camera.camera + (in.uv - 0.5) * engine_camera.viewport;
     var alpha = fog.base_alpha;
     for (var i: u32 = 0u; i < fog.active_count; i = i + 1u) {
         let src = fog.sources[i];
         let d = distance(world, src.position);
-        let coverage = smoothstep(src.radius, src.radius * 0.75, d);
+        // smoothstep(edge0, edge1, x): 0 em edge0, 1 em edge1.
+        // Queremos coverage=0 (fog transparent) DENTRO da vision radius*0.75,
+        // coverage=1 (fog opaque) FORA do radius. edge0 < edge1 (inner→outer).
+        // alpha *= coverage → fog cleared dentro, opaque fora.
+        let coverage = smoothstep(src.radius * 0.75, src.radius, d);
         alpha = alpha * coverage;
     }
     return vec4<f32>(0.008, 0.02, 0.06, alpha);
@@ -159,12 +174,38 @@ impl Renderer {
 - [ ] **Step 2: Add TS wrapper**
 
 ```typescript
-createFogShader(wgsl: string): FogLayer { ... }
+createFogShader(wgsl: string): FogLayer {
+  this.inner.create_fog_shader(wgsl);
+  this.revalidate();
+  const ptr = this.inner.fog_ptr();
+  const max = this.inner.fog_max_sources();
+  // Ambos views começam no MESMO offset (ptr) do mesmo ArrayBuffer.
+  // Layout FogUniforms: [base_alpha:f32, active_count:u32, pad:f32×2, sources: VisionSource×max]
+  // VisionSource: [position:vec2, radius:f32, pad:f32] = 16 bytes = 4 f32
+  const totalF32 = 4 + max * 4; // header(4 floats equivalent) + sources
+  const buf = _wasm.memory.buffer;
+  return new FogLayer(
+    new Float32Array(buf, ptr, totalF32),
+    new Uint32Array(buf, ptr, totalF32),
+    max,
+  );
+}
 
 class FogLayer {
-  setBaseAlpha(v: number): void { views.fog[0] = v; }
-  setSource(idx: number, x: number, y: number, radius: number): void { /* write source */ }
-  setActiveCount(n: number): void { views.fogU32[1] = n; }
+  constructor(
+    private f32: Float32Array,
+    private u32: Uint32Array,
+    public readonly maxSources: number,
+  ) {}
+  setBaseAlpha(v: number): void { this.f32[0] = v; }
+  setActiveCount(n: number): void { this.u32[1] = n; }
+  setSource(idx: number, x: number, y: number, radius: number): void {
+    const base = 4 + idx * 4; // header = 4 f32, then sources stride 4 f32
+    this.f32[base + 0] = x;
+    this.f32[base + 1] = y;
+    this.f32[base + 2] = radius;
+    // [base+3] é pad
+  }
 }
 ```
 

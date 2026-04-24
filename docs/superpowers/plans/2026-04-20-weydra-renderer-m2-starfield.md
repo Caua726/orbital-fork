@@ -10,6 +10,20 @@
 
 **Depends on:** M1 complete.
 
+## Convenção de CameraUniforms (decidida em M2, válida de M2 em diante)
+
+`CameraUniforms.viewport` é **world units visíveis**, não pixels de tela. O caller (camera.ts) computa `viewport = [screenW / zoom, screenH / zoom]` uma vez por frame e escreve no UBO. Shaders ficam zoom-agnostic — nunca multiplicam/dividem por zoom manualmente.
+
+Motivação: bind group 0 é compartilhado por todos os shaders (starfield, planet, fog). Se o contrato for "viewport em pixels + zoom separado", cada shader precisa aplicar zoom certo (fácil de esquecer). Com world-units, o shader só faz `camera + (uv - 0.5) * viewport` e já está correto em qualquer zoom.
+
+Todas as amostras de shader abaixo assumem essa convenção.
+
+## Escopo do M2 — bright star layer
+
+Bright star layer (TilingSprite com texture baked) **fica em Pixi até M3**. M2 scope cobre apenas o procedural starfield (fragment shader) — o único que precisa Mesh + UniformPool. TilingSprite de textura requer texture bind group 2, que M3 provê via sprite pool infra. Critério de merge relaxado: "starfield procedural parity via weydra; bright layer continua em Pixi até M3".
+
+Remover Task 7 (TilingSprite) deste plano — ela reaparece em M3 como sub-task do sprite pool.
+
 ---
 
 ## File Structure
@@ -107,9 +121,13 @@ impl Default for ShaderRegistry {
     fn default() -> Self { Self::new() }
 }
 
+/// Deterministic hash so cache hits on repeated compile calls. `RandomState`
+/// would seed each hasher differently — `ShaderRegistry` cache would never hit.
 fn fxhash(s: &str) -> u64 {
-    use std::hash::{BuildHasher, Hash, Hasher};
-    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    use std::hash::{Hash, Hasher};
+    // DefaultHasher uses SipHash-1-3 with a fixed internal key. Deterministic
+    // across calls within the same process; good enough for cache dedup.
+    let mut h = std::collections::hash_map::DefaultHasher::new();
     s.hash(&mut h);
     h.finish()
 }
@@ -539,30 +557,47 @@ export interface UniformStruct {
   binding: number;
 }
 
+/**
+ * wgsl_reflect (greggman) exposes uniforms as VariableInfo with TypeInfo.
+ * Pin the version in package.json (`"wgsl_reflect": "1.3.x"`) and treat
+ * fields defensively — scalar `m.type` may lack `.name`, or the struct may
+ * be encoded differently across versions. Fall back to raw WGSL-type string.
+ */
 export function reflectWgsl(source: string): UniformStruct[] {
   const reflect = new WgslReflect(source);
   const result: UniformStruct[] = [];
 
-  for (const u of reflect.uniforms) {
-    if (u.group === 0) continue; // engine bind group, not ours
-    const struct = u.type;
-    if (!struct.members) continue;
+  for (const u of (reflect.uniforms ?? [])) {
+    const group = (u as any).group ?? 0;
+    if (group === 0) continue; // engine bind group, not ours
+    const struct: any = (u as any).type;
+    const members = struct?.members;
+    if (!Array.isArray(members)) continue;
 
     result.push({
-      structName: struct.name,
-      byteSize: struct.size,
-      bindGroup: u.group,
-      binding: u.binding,
-      fields: struct.members.map((m: any) => ({
-        name: m.name,
-        offset: m.offset,
-        byteSize: m.size,
-        typeName: m.type.name,
+      structName: String(struct.name ?? `Uniforms_${group}_${(u as any).binding}`),
+      byteSize: Number(struct.size ?? 0),
+      bindGroup: Number(group),
+      binding: Number((u as any).binding ?? 0),
+      fields: members.map((m: any) => ({
+        name: String(m.name),
+        offset: Number(m.offset ?? 0),
+        byteSize: Number(m.size ?? 0),
+        typeName: resolveTypeName(m),
       })),
     });
   }
 
   return result;
+}
+
+function resolveTypeName(m: any): string {
+  // Handle wgsl_reflect variations — some versions put name on m.type.name,
+  // others use m.type.format, others emit raw `f32`/`vec2<f32>` strings.
+  if (typeof m.type === 'string') return m.type;
+  const n = m.type?.name ?? m.type?.format?.name ?? m.type?.format;
+  if (typeof n === 'string') return n;
+  return 'unknown';
 }
 ```
 
@@ -596,9 +631,16 @@ export function generateTsModule(
     lines.push(`} as const;`);
     lines.push('');
 
-    // Typed accessor class
+    // Typed accessor class. Integer fields (i32/u32) need a separate
+    // Int32/Uint32 view over the SAME ArrayBuffer, or writing an integer
+    // via Float32Array would store it as IEEE-754 float bits.
     lines.push(`export class ${s.structName} {`);
-    lines.push(`  constructor(private buffer: Float32Array, private base: number) {}`);
+    lines.push(`  private readonly i32: Int32Array;`);
+    lines.push(`  private readonly u32: Uint32Array;`);
+    lines.push(`  constructor(private buffer: Float32Array, private base: number) {`);
+    lines.push(`    this.i32 = new Int32Array(buffer.buffer, buffer.byteOffset, buffer.length);`);
+    lines.push(`    this.u32 = new Uint32Array(buffer.buffer, buffer.byteOffset, buffer.length);`);
+    lines.push(`  }`);
     for (const f of s.fields) {
       const setterCode = generateSetter(f);
       lines.push(`  ${setterCode}`);
@@ -615,9 +657,10 @@ function generateSetter(f: UniformField): string {
   switch (f.typeName) {
     case 'f32':
       return `set ${f.name}(v: number) { this.buffer[this.base + ${offsetF32}] = v; }`;
-    case 'u32':
     case 'i32':
-      return `set ${f.name}(v: number) { this.buffer[this.base + ${offsetF32}] = v; }`;
+      return `set ${f.name}(v: number) { this.i32[this.base + ${offsetF32}] = v; }`;
+    case 'u32':
+      return `set ${f.name}(v: number) { this.u32[this.base + ${offsetF32}] = v; }`;
     case 'vec2<f32>':
     case 'vec2f':
       return `set ${f.name}(v: [number, number]) { this.buffer[this.base + ${offsetF32}] = v[0]; this.buffer[this.base + ${offsetF32 + 1}] = v[1]; }`;
@@ -665,7 +708,14 @@ git commit -m "feat(vite-plugin-wgsl): naga-style reflection via wgsl_reflect + 
 
 ---
 
-### Task 7: TilingSprite primitive for bright star layer
+### ~~Task 7: TilingSprite primitive for bright star layer~~ — **REMOVIDO DO M2**
+
+Movido pro M3 (precisa texture bind group 2 + sprite pool infra). Bright layer continua em Pixi durante M2. Pula este task.
+
+<details>
+<summary>Conteúdo arquivado (referência pra implementar em M3)</summary>
+
+### Task 7 (archived): TilingSprite primitive for bright star layer
 
 **Files:**
 - Create: `weydra-renderer/core/src/tiling_sprite.rs`
@@ -766,6 +816,8 @@ cargo build --package weydra-renderer
 git add weydra-renderer/core/
 git commit -m "feat(weydra-renderer): sprite.wgsl + TilingSpriteUniforms for bright layer"
 ```
+
+</details>
 
 ---
 

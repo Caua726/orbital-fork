@@ -94,6 +94,7 @@ glam = { version = "0.29", features = ["bytemuck"] }
 pollster = "0.4"
 log = "0.4"
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 console_error_panic_hook = "0.1"
 winit = "0.30"
@@ -124,10 +125,11 @@ Create `weydra-renderer/.gitignore`:
 target/
 pkg/
 **/*.rs.bk
-Cargo.lock
 node_modules/
 dist/
 ```
+
+Nota: `Cargo.lock` **é commitado** — este é um workspace de aplicação (não library), wgpu moves fast, CI sem lock resolve minor version diferente a cada build e quebra silenciosamente.
 
 - [ ] **Step 4: Write empty core crate**
 
@@ -265,6 +267,7 @@ impl GpuContext {
                     required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
                     memory_hints: wgpu::MemoryHints::Performance,
+                    trace: wgpu::Trace::Off,
                 },
                 None,
             )
@@ -712,13 +715,17 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-struct App<'a> {
+struct App {
     window: Option<Arc<Window>>,
     ctx: Option<GpuContext>,
-    surface: Option<RenderSurface<'a>>,
+    // 'static: surface borrows from the Arc<Window>, but because we own both
+    // together in App (and drop in creation-reverse order), the borrow is
+    // effectively 'static for the App's lifetime. winit's ApplicationHandler
+    // doesn't accept non-'static lifetime params on Self.
+    surface: Option<RenderSurface<'static>>,
 }
 
-impl<'a> ApplicationHandler for App<'a> {
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -764,7 +771,7 @@ fn main() {
     env_logger::init();
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
-    let mut app = App { window: None, ctx: None, surface: None };
+    let mut app: App = App { window: None, ctx: None, surface: None };
     event_loop.run_app(&mut app).expect("event loop run");
 }
 ```
@@ -812,9 +819,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 weydra-renderer = { path = "../../core" }
-wgpu = { workspace = true }
+# webgpu+webgl features habilitam os backends browser; sem isso wgpu compila mas
+# não encontra adapter no WASM target.
+wgpu = { workspace = true, features = ["webgpu", "webgl"] }
 wasm-bindgen = { workspace = true }
-wasm-bindgen-futures = "0.4"
+wasm-bindgen-futures = { workspace = true }
 console_error_panic_hook = { workspace = true }
 log = { workspace = true }
 
@@ -852,6 +861,12 @@ pub fn init_panic_hook() {
 }
 
 /// The weydra renderer instance, bound to a specific canvas.
+///
+/// Lifetime: `Surface` borrows from the canvas handle. In WASM the canvas is
+/// moved into `SurfaceTarget::Canvas(canvas)` which takes ownership, and
+/// wgpu stores it internally — the resulting `Surface<'static>` is safe as
+/// long as wgpu owns the canvas copy. We keep the `Instance` alive in
+/// `GpuContext` so the surface remains valid for the lifetime of `Renderer`.
 #[wasm_bindgen]
 pub struct Renderer {
     ctx: GpuContext,
@@ -869,6 +884,9 @@ impl Renderer {
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
+        // SurfaceTarget::Canvas takes ownership of the HtmlCanvasElement.
+        // wgpu stores the canvas internally; `surface` owns whatever it needs.
+        // 'static is valid because wgpu owns the canvas handle, not a borrow.
         let surface_target = wgpu::SurfaceTarget::Canvas(canvas);
         let surface = instance
             .create_surface(surface_target)
@@ -1110,19 +1128,16 @@ Create `weydra-renderer/vite-plugin-wgsl/index.ts`:
  */
 
 import type { Plugin } from 'vite';
-import { readFile } from 'node:fs/promises';
 
 export default function wgslPlugin(): Plugin {
   return {
     name: 'weydra-vite-plugin-wgsl',
-    async transform(_code, id) {
+    // Use `code` (Vite already read + cached it) instead of re-reading disk.
+    // Reading disk bypasses Vite's module graph and breaks HMR.
+    transform(code, id) {
       if (!id.endsWith('.wgsl')) return null;
-
-      const source = await readFile(id, 'utf-8');
-      // Export as default string literal; later will become a module with
-      // typed accessors. This keeps the M2 milestone easy to swap in.
       return {
-        code: `export default ${JSON.stringify(source)};`,
+        code: `export default ${JSON.stringify(code)};`,
         map: null,
       };
     },
@@ -1155,16 +1170,17 @@ git commit -m "feat(weydra-renderer): minimal vite-plugin-wgsl (raw source impor
 - Modify: `package.json`
 - Modify: `vite.config.ts`
 
-- [ ] **Step 1: Install runtime deps**
+- [ ] **Step 1: Set package type to module + install runtime deps**
 
-Run:
+`vite-plugin-top-level-await` + WASM ESM imports requer `"type": "module"` no root `package.json`. Current value `"commonjs"` quebra silenciosamente.
 
 ```bash
 cd /home/caua/Documentos/Projetos-Pessoais/orbital-fork
+# Edit package.json: "type": "commonjs" -> "type": "module"
 npm install --save-dev vite-plugin-wasm vite-plugin-top-level-await
 ```
 
-Expected: `vite-plugin-wasm` and `vite-plugin-top-level-await` added to `devDependencies`.
+Expected: `package.json` `"type": "module"`, + `vite-plugin-wasm` e `vite-plugin-top-level-await` em `devDependencies`.
 
 - [ ] **Step 2: Install weydra-renderer workspace deps**
 
@@ -1299,9 +1315,19 @@ export async function startWeydraM1(): Promise<void> {
   }
 
   // Match canvas backing-store to its display size so rendering isn't stretched.
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = canvas.clientWidth * dpr;
-  canvas.height = canvas.clientHeight * dpr;
+  // At first call clientWidth/Height may still be 0 (layout not yet flushed).
+  // Fallback to window size, then resize handler corrects it on first paint.
+  function currentSize(): { width: number; height: number; dpr: number } {
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth || window.innerWidth;
+    const cssH = canvas.clientHeight || window.innerHeight;
+    return { width: Math.max(1, Math.floor(cssW * dpr)), height: Math.max(1, Math.floor(cssH * dpr)), dpr };
+  }
+  {
+    const { width, height } = currentSize();
+    canvas.width = width;
+    canvas.height = height;
+  }
 
   try {
     await initWeydra();
@@ -1312,14 +1338,14 @@ export async function startWeydraM1(): Promise<void> {
     return;
   }
 
-  // Resize on window resize.
+  // Resize on window resize. Re-read devicePixelRatio each call —
+  // moving window between monitors with different DPI changes it.
   window.addEventListener('resize', () => {
     if (!_renderer) return;
-    const w = canvas.clientWidth * dpr;
-    const h = canvas.clientHeight * dpr;
-    canvas.width = w;
-    canvas.height = h;
-    _renderer.resize(w, h);
+    const { width, height } = currentSize();
+    canvas.width = width;
+    canvas.height = height;
+    _renderer.resize(width, height);
   });
 
   // Render loop via rAF. Independent of Pixi's ticker so M1 can be

@@ -110,28 +110,14 @@ git commit -m "feat(weydra-renderer): RenderTarget abstraction for offscreen ren
 
 Uses web-sys to read ImageData from a canvas and upload:
 
-```rust
-use web_sys::{OffscreenCanvas, HtmlCanvasElement, ImageData};
+**Nenhuma nova API necessária** — `upload_texture(bytes, w, h)` do M3 já é suficiente. Removido o wrapper `upload_texture_from_image_data` que só redirecionava pra `upload_texture` sem adicionar nada.
 
-#[wasm_bindgen]
-impl Renderer {
-    /// Upload an HTMLCanvasElement or OffscreenCanvas contents as a texture.
-    /// Used for baked planets, fog canvas, etc.
-    pub fn upload_texture_from_image_data(
-        &mut self,
-        data: &[u8],
-        width: u32,
-        height: u32,
-    ) -> u64 {
-        // Delegates to upload_texture which expects RGBA8 bytes.
-        self.upload_texture(data, width, height)
-    }
-}
+Game side usa diretamente:
+```typescript
+const imageData = canvas2d.getImageData(0, 0, w, h);
+const rgba = new Uint8Array(imageData.data.buffer, imageData.data.byteOffset, imageData.data.byteLength);
+const h = r.uploadTexture(rgba, w, h);
 ```
-
-Game side can use either:
-- `canvas.getContext('2d').getImageData(...).data` → pass as Uint8Array
-- Or convert OffscreenCanvas via `transferToImageBitmap` → readback
 
 - [ ] **Step 2: Rebuild + commit**
 
@@ -176,13 +162,16 @@ async function bakePlanetaWeydra(planeta: any): Promise<void> {
     antialias: false,
   }) as HTMLCanvasElement;
 
-  const ctx = canvas.getContext('2d')!;
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const texHandle = r.uploadTexture(
-    new Uint8Array(imageData.data.buffer),
-    canvas.width,
-    canvas.height,
+  const ctx2d = canvas.getContext('2d')!;
+  const imageData = ctx2d.getImageData(0, 0, canvas.width, canvas.height);
+  // imageData.data é Uint8ClampedArray; .buffer pode ter byteOffset != 0.
+  // Construir view com offset+length explícitos pra não uploadar lixo.
+  const rgba = new Uint8Array(
+    imageData.data.buffer,
+    imageData.data.byteOffset,
+    imageData.data.byteLength,
   );
+  const texHandle = r.uploadTexture(rgba, canvas.width, canvas.height);
 
   const sprite = r.createSprite(texHandle, frameSize, frameSize);
   sprite.x = planeta.x;
@@ -211,8 +200,10 @@ if ((planeta as any)._weydraBakedSprite) {
 // Auto-bake threshold check (existing AUTO_BAKE_PX logic)
 if (tamPx < AUTO_BAKE_PX && !alreadyBaked) {
   if (getConfig().weydra.planetsBaked) {
-    // async — don't block frame
-    void bakePlanetaWeydra(planeta);
+    // Fila 1-bake-por-frame: fire-and-forget no mesmo frame stacka stalls
+    // (renderer.extract.canvas é sync, 10-50ms cada). Em vez disso enfileira
+    // — o scheduler abaixo processa 1 por frame.
+    enqueueBakeWeydra(planeta);
   } else {
     bakePlaneta(planeta); // existing Pixi path
   }
@@ -223,6 +214,30 @@ if (tamPx > AUTO_UNBAKE_PX && (planeta as any)._weydraBakedSprite) {
   unbakePlanetaWeydra(planeta);
 }
 ```
+
+- [ ] **Step 2b: Bake queue scheduler**
+
+```typescript
+// No mesmo arquivo (planeta-procedural.ts):
+const _bakeQueue: any[] = [];
+const _bakeSet = new WeakSet<object>();
+
+export function enqueueBakeWeydra(planeta: any): void {
+  if (_bakeSet.has(planeta)) return; // já na fila
+  _bakeSet.add(planeta);
+  _bakeQueue.push(planeta);
+}
+
+/** Chamar uma vez por frame a partir do game loop. */
+export function processBakeQueueWeydra(): void {
+  const planeta = _bakeQueue.shift();
+  if (!planeta) return;
+  _bakeSet.delete(planeta);
+  void bakePlanetaWeydra(planeta); // agora sim single-planeta → 1 stall máx por frame
+}
+```
+
+Registrar `processBakeQueueWeydra()` no game loop principal (ex: depois de `atualizarTempoPlanetas`).
 
 - [ ] **Step 3: Unbake destroys weydra sprite**
 
