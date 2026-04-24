@@ -118,10 +118,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let cam = engine_camera.camera;
 
     var col = vec3<f32>(0.0);
-    // 2-layer procedural. Bright layer (cell 200, parallax 0.12) fica no
-    // Pixi TilingSprite até M3 migrar o sprite pool.
     col = col + starLayer(worldPos, cam, 24.0, 0.40, 0.75, 1, 0.80, 1, t, dens);
     col = col + starLayer(worldPos, cam, 60.0, 0.25, 0.40, 1, 0.95, 2, t, dens);
 
-    return vec4<f32>(col, 1.0);
+    // DEBUG TEMP: tint uv em vermelho/verde pra provar que shader roda.
+    // Remove depois de confirmar.
+    let debug = vec3<f32>(in.uv.x * 0.3, in.uv.y * 0.3, 0.0);
+    return vec4<f32>(col + debug, 1.0);
 }

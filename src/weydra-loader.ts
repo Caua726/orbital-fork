@@ -76,11 +76,38 @@ export async function startWeydra(): Promise<void> {
     _renderer.resize(width, height);
   });
 
+  let _frameCount = 0;
   const loop = () => {
-    if (_renderer) _renderer.render();
+    if (_renderer) {
+      try {
+        _renderer.render();
+        _frameCount++;
+        if (_frameCount % 60 === 0) {
+          console.info(`[weydra] frame ${_frameCount} rendered; canvas size ${canvas.width}×${canvas.height}`);
+        }
+      } catch (err) {
+        console.error('[weydra] render error:', err);
+      }
+    }
     _rafHandle = requestAnimationFrame(loop);
   };
   _rafHandle = requestAnimationFrame(loop);
+  (window as any).__weydraFrames = () => _frameCount;
+
+  // Diagnóstico: dump do stacking context após 2s. Mostra se Pixi canvas
+  // tá transparente e se weydra canvas tem tamanho > 0.
+  setTimeout(() => {
+    const cvs = Array.from(document.querySelectorAll('canvas'));
+    console.info('[weydra diag] canvases:', cvs.map((c) => ({
+      id: c.id || '(pixi)',
+      width: c.width,
+      height: c.height,
+      zIndex: getComputedStyle(c).zIndex,
+      opacity: getComputedStyle(c).opacity,
+      visible: getComputedStyle(c).visibility,
+    })));
+    console.info('[weydra diag] __weydraFrames():', _frameCount);
+  }, 2000);
 }
 
 /** Backwards-compat alias so existing bootstrap callers keep working. */
