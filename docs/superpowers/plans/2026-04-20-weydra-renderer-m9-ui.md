@@ -373,13 +373,10 @@ if (getConfig().weydra.ui) {
 }
 ```
 
-Helper `rgbaWithAlpha`:
+`rgbaWithAlpha` vem de `./_dom-helpers` (criado em Task 0). **Não** redefinir local — a versão canônica faz `& 0xFFFFFF` pra truncar RGBA input pra RGB antes de recombinar:
 
 ```typescript
-function rgbaWithAlpha(rgb: number, alpha01: number): number {
-  const a = Math.max(0, Math.min(255, Math.round(alpha01 * 255)));
-  return (rgb << 8) | a;
-}
+import { rgbaWithAlpha } from './_dom-helpers';
 ```
 
 - [ ] **Step 2: Commit**

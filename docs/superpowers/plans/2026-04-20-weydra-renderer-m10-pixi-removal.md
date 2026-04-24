@@ -576,45 +576,44 @@ git commit -m "chore: uninstall pixi.js — renderer is now 100% weydra"
 
 ---
 
-### Task 8: Unified z-order
+### Task 8: Apply unified z-order em todos os world pools
 
 **Files:**
-- Modify: `src/core/render-order.ts` (novo arquivo — ou similar)
+- Modify: `src/world/fundo.ts`, `src/world/naves.ts`, `src/world/planeta-procedural.ts`, `src/world/nevoa.ts`, `src/world/sistema.ts`, `src/world/engine-trails.ts`, `src/world/combate-resolucao.ts`
 
-- [ ] **Step 1: Estabelecer convenção de z**
+- [ ] **Step 1: Verificar render-order.ts existe**
 
-Como Pixi ficou por cima durante migração, havia z fixo entre sistemas (starfield em baixo, UI em cima). No weydra single canvas, todos compartilham a mesma escala `z_order: f32` dos SoA pools. Convenção:
-
-```typescript
-export const Z = {
-  STARFIELD: 0,
-  STARFIELD_BRIGHT: 1,
-  PLANET_BAKED: 10,
-  PLANET_LIVE: 11,
-  ORBITS: 20,
-  ROUTES: 25,
-  SHIP_TRAILS: 28,
-  SHIPS: 30,
-  BEAMS: 35,
-  FOG: 40,
-  UI_BACKGROUND: 50,
-  UI_GRAPHICS: 51,
-  UI_TEXT: 52,
-  UI_HOVER: 55,
-} as const;
-```
-
-Cada objeto usa esse valor ao criar sprite/graphics/text:
-```typescript
-ship.zOrder = Z.SHIPS;
-fogLayer.zOrder = Z.FOG;
-```
-
-- [ ] **Step 2: Commit**
+`src/core/render-order.ts` **já foi criado em M9 Task 0** com todas as constants. Confirmar:
 
 ```bash
-git add src/core/render-order.ts src/world/ src/ui/
-git commit -m "refactor(order): unified z-order constants across renderer"
+cat src/core/render-order.ts
+```
+
+Se o arquivo não tem entries pra world layers (SHIPS, STARFIELD, PLANET_*, etc), adicionar **só os faltantes** — sem duplicar bloco Z. Esperado: M9 já criou tudo. Se por acaso algum M intermediário editou, mergear.
+
+- [ ] **Step 2: Assign zOrder em cada world entity**
+
+Durante M2-M7, cada sistema já deveria ter setado `zOrder` ao criar seus sprites/graphics — se não fizeram, é uma dívida que M10 fecha agora. Auditoria:
+
+```bash
+grep -rn "zOrder" src/world/
+```
+
+Para cada pool/objeto que não tem zOrder explícito, atribuir conforme convenção em `render-order.ts`:
+
+```typescript
+import { Z } from '../core/render-order';
+ship.zOrder = Z.SHIPS;
+planet.zOrder = Z.PLANET_LIVE;
+starfield.zOrder = Z.STARFIELD;
+// etc
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/world/
+git commit -m "refactor(order): apply unified z-order across world pools"
 ```
 
 ---
