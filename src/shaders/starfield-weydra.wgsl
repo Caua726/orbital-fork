@@ -118,8 +118,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let cam = engine_camera.camera;
 
     var col = vec3<f32>(0.0);
-    col = col + starLayer(worldPos, cam, 24.0, 0.40, 0.75, 1, 0.80, 1, t, dens);
-    col = col + starLayer(worldPos, cam, 60.0, 0.25, 0.40, 1, 0.95, 2, t, dens);
+    // 3 layers com parallax (distantes parecem estáticas, próximas se
+    // movem com a camera). sizePx=2 na layer far pra estrelas grandes
+    // que eram o baked TilingSprite antes de M2.
+    col = col + starLayer(worldPos, cam, 24.0,  0.40, 0.75, 1, 0.80, 1, t, dens); // near
+    col = col + starLayer(worldPos, cam, 60.0,  0.25, 0.40, 1, 0.95, 2, t, dens); // mid
+    col = col + starLayer(worldPos, cam, 200.0, 0.12, 0.50, 2, 1.00, 3, t, dens); // far/bright
 
     return vec4<f32>(col, 1.0);
 }

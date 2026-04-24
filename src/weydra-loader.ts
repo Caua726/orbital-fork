@@ -76,15 +76,10 @@ export async function startWeydra(): Promise<void> {
     _renderer.resize(width, height);
   });
 
-  let _frameCount = 0;
   const loop = () => {
     if (_renderer) {
       try {
         _renderer.render();
-        _frameCount++;
-        if (_frameCount % 60 === 0) {
-          console.info(`[weydra] frame ${_frameCount} rendered; canvas size ${canvas.width}×${canvas.height}`);
-        }
       } catch (err) {
         console.error('[weydra] render error:', err);
       }
@@ -92,28 +87,6 @@ export async function startWeydra(): Promise<void> {
     _rafHandle = requestAnimationFrame(loop);
   };
   _rafHandle = requestAnimationFrame(loop);
-  (window as any).__weydraFrames = () => _frameCount;
-
-  // Diagnóstico: dump do stacking context após 2s, inline como string.
-  setTimeout(() => {
-    const cvs = Array.from(document.querySelectorAll('canvas'));
-    const info = cvs.map((c) => {
-      const ctx = c.getContext('webgl2') as WebGL2RenderingContext | null;
-      const attrs = ctx ? ctx.getContextAttributes() : null;
-      return {
-        id: c.id || '(pixi?)',
-        wh: `${c.width}×${c.height}`,
-        z: getComputedStyle(c).zIndex,
-        op: getComputedStyle(c).opacity,
-        bg: getComputedStyle(c).backgroundColor,
-        ctxAlpha: attrs?.alpha,
-        ctxPremult: attrs?.premultipliedAlpha,
-      };
-    });
-    console.info('[weydra diag] canvases:\n' + info.map(i => JSON.stringify(i)).join('\n'));
-    console.info('[weydra diag] body bg:', getComputedStyle(document.body).backgroundColor);
-    console.info('[weydra diag] __weydraFrames():', _frameCount);
-  }, 2000);
 }
 
 /** Backwards-compat alias so existing bootstrap callers keep working. */
