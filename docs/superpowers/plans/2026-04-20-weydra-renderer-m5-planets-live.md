@@ -210,7 +210,14 @@ pub struct PlanetPool {
 
 impl PlanetPool {
     pub fn new(ctx: &GpuContext, capacity: usize) -> Self {
-        let stride = std::mem::size_of::<PlanetUniforms>() as u64;
+        // wgpu exige que dynamic offsets sejam múltiplos de
+        // `min_uniform_buffer_offset_alignment` (tipicamente 256). Stride
+        // cru (size_of::<PlanetUniforms>) pode não alinhar — rounduo para
+        // cima. Ao escrever uniforms para GPU, também copiar com esse stride
+        // (não size_of). Espaço "sobra" por slot é padding e-é inofensivo.
+        let raw_stride = std::mem::size_of::<PlanetUniforms>() as u64;
+        let alignment = ctx.device.limits().min_uniform_buffer_offset_alignment as u64;
+        let stride = (raw_stride + alignment - 1) / alignment * alignment;
         let byte_size = stride * capacity as u64;
 
         let gpu_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -265,7 +272,18 @@ impl PlanetPool {
     }
 
     pub fn upload(&self, ctx: &GpuContext) {
-        ctx.queue.write_buffer(&self.gpu_buffer, 0, bytemuck::cast_slice(&self.instances));
+        // Escreve instance por instance no offset alinhado (stride != size_of
+        // quando alignment forçou padding). write_buffer em bloco só funcionaria
+        // se size_of == stride.
+        let raw_size = std::mem::size_of::<PlanetUniforms>() as u64;
+        if self.stride == raw_size {
+            ctx.queue.write_buffer(&self.gpu_buffer, 0, bytemuck::cast_slice(&self.instances));
+            return;
+        }
+        for (i, inst) in self.instances.iter().enumerate() {
+            let offset = i as u64 * self.stride;
+            ctx.queue.write_buffer(&self.gpu_buffer, offset, bytemuck::bytes_of(inst));
+        }
     }
 
     pub fn instances_ptr(&self) -> *const PlanetUniforms {
@@ -336,7 +354,9 @@ impl Renderer {
     }
 
     pub fn planet_uniforms_stride(&self) -> u32 {
-        std::mem::size_of::<PlanetUniforms>() as u32
+        // Retornar o stride ALINHADO (não size_of), pra TS calcular slot offsets
+        // corretamente no typed array view. Cada slot ocupa `stride` bytes na GPU.
+        self.planet_pool.as_ref().map(|p| p.stride as u32).unwrap_or(0)
     }
 
     pub fn planet_uniforms_capacity(&self) -> u32 {
@@ -395,24 +415,49 @@ export class PlanetInstance {
   private get view(): Float32Array { return this.r.planetUniformsView; }
   private get iview(): Int32Array { return this.r.planetUniformsIView; }
 
-  // Offsets abaixo são computados a partir do layout exato de `PlanetUniforms`
-  // em Rust (alinhamento vec4). Idealmente gerados pelo `vite-plugin-wgsl`
-  // via reflection — tabela abaixo é fallback manual que DEVE ser validado
-  // por teste contra `std::mem::offset_of!(PlanetUniforms, field)`.
-  set uTime(v: number) { this.view[this.base + 0] = v; }
-  set uSeed(v: number) { this.view[this.base + 1] = v; }
-  set uRotation(v: number) { this.view[this.base + 2] = v; }
-  setLightOrigin(x: number, y: number) { this.view[this.base + 4] = x; this.view[this.base + 5] = y; }
-  set uOctaves(v: number) { this.iview[this.base + 10] = v; }
-  set uPlanetType(v: number) { this.iview[this.base + 11] = v; }
-  setWorldPos(x: number, y: number) { this.view[this.base + 19] = x; this.view[this.base + 20] = y; }
-  setWorldSize(w: number, h: number) { this.view[this.base + 21] = w; this.view[this.base + 22] = h; }
+  // **NÃO hard-code offsets manualmente** — é quase impossível acertar
+  // com alinhamento vec4 do WGSL. Duas opções (escolha uma):
+  //
+  // **Opção A (recomendada): plugin-generated.** Deixar o `vite-plugin-wgsl`
+  // gerar PlanetInstance a partir do reflection do planet.wgsl. Cada setter
+  // vira exato com o offset de cada field. Remove esta classe inteira.
+  //
+  // **Opção B (fallback manual): lookup table exportada do Rust.** Criar
+  // export WASM `planet_field_offset(name: &str) -> u32` que retorna
+  // `std::mem::offset_of!(PlanetUniforms, u_world_pos) / 4` no boot. TS
+  // consulta uma vez por field no boot, cacheia num map, setter vira
+  // `this.view[this.base + OFFSETS.u_world_pos] = x`.
+  //
+  // Em NENHUMA das opções use números hardcoded. Esses quebram silenciosamente
+  // se qualquer field é adicionado, reordenado, ou alinhamento WGSL muda.
+
+  // Forma esquelética — adapte com offsets reais via opção A ou B:
+  set uTime(v: number)      { this.view[this.base + OFF.u_time] = v; }
+  set uSeed(v: number)      { this.view[this.base + OFF.u_seed] = v; }
+  set uRotation(v: number)  { this.view[this.base + OFF.u_rotation] = v; }
+  setLightOrigin(x: number, y: number) {
+    this.view[this.base + OFF.u_light_origin + 0] = x;
+    this.view[this.base + OFF.u_light_origin + 1] = y;
+  }
+  set uOctaves(v: number)   { this.iview[this.base + OFF.u_octaves] = v; }
+  set uPlanetType(v: number){ this.iview[this.base + OFF.u_planet_type] = v; }
+  setWorldPos(x: number, y: number) {
+    this.view[this.base + OFF.u_world_pos + 0] = x;
+    this.view[this.base + OFF.u_world_pos + 1] = y;
+  }
+  setWorldSize(w: number, h: number) {
+    this.view[this.base + OFF.u_world_size + 0] = w;
+    this.view[this.base + OFF.u_world_size + 1] = h;
+  }
   setColor(idx: number, r: number, g: number, b: number, a: number) {
-    const off = this.base + 24 + idx * 4; // palette começa logo após u_world_size (offset 23 é pad)
+    const off = this.base + OFF.u_colors + idx * 4;
     this.view[off + 0] = r; this.view[off + 1] = g; this.view[off + 2] = b; this.view[off + 3] = a;
   }
   // ... setters for remaining ~15 uniforms
 }
+
+// OFF é o mapa `field name → f32 offset`. Populado no boot via opção A
+// (gerado pelo plugin) ou B (consultando WASM uma vez por field).
 
 // No Renderer (M3 + extensão M5):
 // - planetUniformsView: Float32Array cacheada em revalidate()

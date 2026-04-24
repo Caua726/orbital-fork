@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans.
 
-**Goal:** Implementar API de vector graphics (circle, rect, roundRect, moveTo/lineTo, arc, fill, stroke, clear) equivalente ao `Pixi.Graphics`, com tessellation via `lyon` crate. Migrar orbit lines, rotas de naves, combat beams, engine trails, rings de seleção. **Re-wire** dos 11 handlers Pixi eventMode (minimap, tutorial, painéis, selection cards) pra DOM addEventListener.
+**Goal:** Implementar API de vector graphics (circle, rect, roundRect, moveTo/lineTo, arc, fill, stroke, clear) equivalente ao `Pixi.Graphics`, com tessellation via `lyon` crate. Migrar orbit lines, rotas de naves, combat beams, rings de seleção. **Trails ficam em M3** (sprite pool, per-particle alpha). **Re-wire** dos 11 handlers Pixi eventMode (minimap, tutorial, painéis, selection cards) pra DOM addEventListener.
 
 **Architecture:** Retained-mode Graphics com dirty flag. Cada Graphics object tem uma command list (circle, line, etc) que é tesselada lazy em vertex buffer via `lyon`. Render pass percorre Graphics objects não-dirty, reusa vertex buffer; dirty recomputa. Integrado no scene graph do scene.rs com z-order. Batching por color/stroke width não-viável em vector arbitrary — cada Graphics vira 1-2 draw calls (fill + stroke).
 
@@ -388,29 +388,29 @@ git commit -m "feat(weydra): Graphics class API mirrors Pixi.Graphics"
 
 ---
 
-### Task 4: Migrate orbit lines, rotas, beams, trails, rings
+### Task 4: Migrate orbit lines, rotas, beams, rings
 
 - [ ] **Step 1: sistema.ts orbit lines**
 
-Replace Pixi Graphics with weydra Graphics behind `weydra.graphics` flag.
+Replace Pixi Graphics with weydra Graphics behind `weydra.graphics` flag. `worldSpace: true`.
 
 - [ ] **Step 2: naves.ts rota lines + selection ring**
 
-Same pattern.
+Same pattern. `worldSpace: true`.
 
-- [ ] **Step 3: engine-trails.ts**
+- [ ] **Step 3: ~~engine-trails.ts~~ — SKIP (migrou em M3 via sprite pool)**
 
-Trails as small circles via Graphics OR as dedicated sprite pool. Decision per perf: Graphics is ~10 circles × 4 naves = 40 tessellated shapes/frame; sprite pool is cheaper but loses line continuity. Recomendo Graphics com dirty flag (só retessela se trail cresceu).
+Per decisão C6 no topo deste plano, trails NÃO migram em M7. Já foram feitos como sprites em M3 (per-particle alpha via write direto em `colors` SoA). Pular este step.
 
 - [ ] **Step 4: combate-resolucao.ts beams**
 
-Linhas rápidas com fade — Graphics com lineTo + stroke.
+Linhas rápidas com fade — Graphics com lineTo + stroke. `worldSpace: true`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/world/
-git commit -m "feat(orbital): migra orbit/rotas/beams/trails pra weydra Graphics"
+git commit -m "feat(orbital): migra orbit/rotas/beams pra weydra Graphics"
 ```
 
 ---
