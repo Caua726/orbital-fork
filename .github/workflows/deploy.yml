@@ -27,8 +27,7 @@ jobs:
       # 1. `dist/` cache keyed on every input that can affect the built
       #    bundle. A hit means "identical inputs to a previous successful
       #    run" — we skip toolchain install, npm ci, wasm-pack, tsc, and
-      #    vite build, and jump straight to upload + deploy (~30s total
-      #    instead of 5+ min).
+      #    vite build, and jump straight to upload + deploy.
       # 2. On miss, `wasm-pack` output (`pkg/`) and the vite-plugin-wgsl
       #    `dist/` are each cached independently so partial changes
       #    (e.g. TS-only PR) don't re-trigger the ~3-5 min cargo build.
@@ -36,26 +35,7 @@ jobs:
         id: cache-dist
         with:
           path: dist
-          key: dist-${{ runner.os }}-${{ hashFiles(
-            'src/**',
-            'public/**',
-            'index.html',
-            'vite.config.ts',
-            'tsconfig.json',
-            'package-lock.json',
-            'package.json',
-            'weydra-renderer/Cargo.lock',
-            'weydra-renderer/**/Cargo.toml',
-            'weydra-renderer/core/src/**/*.rs',
-            'weydra-renderer/core/shaders/**',
-            'weydra-renderer/adapters/wasm/src/**/*.rs',
-            'weydra-renderer/rust-toolchain.toml',
-            'weydra-renderer/vite-plugin-wgsl/*.ts',
-            'weydra-renderer/vite-plugin-wgsl/tsconfig*.json',
-            'weydra-renderer/vite-plugin-wgsl/package.json',
-            'weydra-renderer/ts-bridge/**/*.ts',
-            'weydra-renderer/ts-bridge/package.json'
-          ) }}
+          key: dist-${{ runner.os }}-${{ hashFiles('src/**', 'public/**', 'index.html', 'vite.config.ts', 'tsconfig.json', 'package-lock.json', 'package.json', 'weydra-renderer/Cargo.lock', 'weydra-renderer/**/Cargo.toml', 'weydra-renderer/core/src/**/*.rs', 'weydra-renderer/core/shaders/**', 'weydra-renderer/adapters/wasm/src/**/*.rs', 'weydra-renderer/rust-toolchain.toml', 'weydra-renderer/vite-plugin-wgsl/*.ts', 'weydra-renderer/vite-plugin-wgsl/tsconfig*.json', 'weydra-renderer/vite-plugin-wgsl/package.json', 'weydra-renderer/ts-bridge/**/*.ts', 'weydra-renderer/ts-bridge/package.json') }}
 
       # Rust toolchain for the weydra-renderer wasm crate. rust-toolchain.toml
       # inside weydra-renderer/ pins channel=nightly; install the same channel
@@ -88,14 +68,7 @@ jobs:
         id: cache-wasm-pkg
         with:
           path: weydra-renderer/adapters/wasm/pkg
-          key: wasm-pkg-${{ runner.os }}-${{ hashFiles(
-            'weydra-renderer/Cargo.lock',
-            'weydra-renderer/**/Cargo.toml',
-            'weydra-renderer/core/src/**/*.rs',
-            'weydra-renderer/core/shaders/**',
-            'weydra-renderer/adapters/wasm/src/**/*.rs',
-            'weydra-renderer/rust-toolchain.toml'
-          ) }}
+          key: wasm-pkg-${{ runner.os }}-${{ hashFiles('weydra-renderer/Cargo.lock', 'weydra-renderer/**/Cargo.toml', 'weydra-renderer/core/src/**/*.rs', 'weydra-renderer/core/shaders/**', 'weydra-renderer/adapters/wasm/src/**/*.rs', 'weydra-renderer/rust-toolchain.toml') }}
       - if: steps.cache-dist.outputs.cache-hit != 'true' && steps.cache-wasm-pkg.outputs.cache-hit != 'true'
         run: npm run build:renderer:release
 
@@ -105,11 +78,7 @@ jobs:
         id: cache-plugin-dist
         with:
           path: weydra-renderer/vite-plugin-wgsl/dist
-          key: plugin-dist-${{ runner.os }}-${{ hashFiles(
-            'weydra-renderer/vite-plugin-wgsl/*.ts',
-            'weydra-renderer/vite-plugin-wgsl/tsconfig*.json',
-            'weydra-renderer/vite-plugin-wgsl/package.json'
-          ) }}
+          key: plugin-dist-${{ runner.os }}-${{ hashFiles('weydra-renderer/vite-plugin-wgsl/*.ts', 'weydra-renderer/vite-plugin-wgsl/tsconfig*.json', 'weydra-renderer/vite-plugin-wgsl/package.json') }}
       - if: steps.cache-dist.outputs.cache-hit != 'true' && steps.cache-plugin-dist.outputs.cache-hit != 'true'
         run: npm run build:plugin
 
