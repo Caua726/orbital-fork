@@ -13,6 +13,11 @@ export default defineConfig({
   build: {
     target: 'esnext',
   },
+  // Workaround pro bug do Vite 8 onde __BUNDLED_DEV__ não é substituído
+  // em @vite/client em alguns casos de cache. Force explícito pra false.
+  define: {
+    __BUNDLED_DEV__: 'false',
+  },
   plugins: [
     wasm(),
     wgsl(),
