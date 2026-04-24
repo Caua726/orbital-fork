@@ -17,6 +17,7 @@ pub mod error;
 pub mod frame;
 pub mod mesh;
 pub mod shader;
+pub mod slotmap;
 pub mod surface;
 pub mod uniform_pool;
 
@@ -27,5 +28,6 @@ pub use error::{Result, WeydraError};
 pub use frame::render_clear;
 pub use mesh::Mesh;
 pub use shader::{ShaderHandle, ShaderRegistry};
+pub use slotmap::{Handle, SlotMap};
 pub use surface::RenderSurface;
 pub use uniform_pool::UniformPool;
