@@ -1,0 +1,12 @@
+[package]
+name = "hello-clear"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+weydra-renderer = { path = "../../core" }
+wgpu = { workspace = true }
+winit = { workspace = true }
+pollster = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
