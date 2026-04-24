@@ -119,12 +119,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let cam = engine_camera.camera;
 
     var col = vec3<f32>(0.0);
-    // near + mid: drift 1.0 (estrelas pequenas cintilam/flutuam como no
-    // shader Pixi). far: drift 0.0 (baked TilingSprite do Pixi era
-    // estático — só scroll por parallax, sem vida própria).
-    col = col + starLayer(worldPos, cam, 24.0,  0.40, 0.75, 1, 0.80, 1, t, dens, 1.0); // near
-    col = col + starLayer(worldPos, cam, 60.0,  0.25, 0.40, 1, 0.95, 2, t, dens, 1.0); // mid
-    col = col + starLayer(worldPos, cam, 200.0, 0.12, 0.30, 2, 1.00, 3, t, dens, 0.0); // far/bright
+    // Cópia exata das 2 layers do Pixi starfield.wgsl (post-task#82).
+    // Layer 3 bright continua em Pixi via TilingSprite — weydra só
+    // assume os 2 procedurais.
+    col = col + starLayer(worldPos, cam, 24.0, 0.40, 0.75, 1, 0.80, 1, t, dens, 1.0);
+    col = col + starLayer(worldPos, cam, 60.0, 0.25, 0.40, 1, 0.95, 2, t, dens, 1.0);
 
     return vec4<f32>(col, 1.0);
 }

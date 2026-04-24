@@ -101,16 +101,17 @@ function gerarBrightTile(): Texture {
   const canvas = document.createElement('canvas');
   canvas.width = BRIGHT_TILE_SIZE;
   canvas.height = BRIGHT_TILE_SIZE;
-  const ctx = canvas.getContext('2d', { alpha: false });
+  // alpha:true — tile tem fundo transparente. Com blendMode='normal' no
+  // TilingSprite, pixels sem star (alpha=0) não cobrem o canvas Pixi.
+  // Antes era alpha:false + fundo preto opaco + blend 'add' — isso
+  // fazia o Pixi canvas virar opaco via blendFunc(ONE,ONE) escrevendo
+  // alpha=1 em todo pixel, bloqueando weydra por trás (z-index 0).
+  const ctx = canvas.getContext('2d', { alpha: true });
   if (!ctx) {
-    // Fallback extremo — textura vazia. Pixi não crasha em Texture.from
-    // de um canvas sem ctx, mas a tile fica preta; aceitável para o
-    // caso de "contexto 2D indisponível".
     _sharedBrightTile = Texture.from(canvas);
     return _sharedBrightTile;
   }
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, BRIGHT_TILE_SIZE, BRIGHT_TILE_SIZE);
+  // NÃO preenche fundo preto — fica transparente onde não tem star.
 
   // Densidade da layer 3 antiga: cellSize=200, density=0.30 →
   // 0.30 stars por célula de 200². Tile 1024² tem ~25 stars visíveis
@@ -236,7 +237,12 @@ export function criarFundo(tamanhoMundo: number): FundoContainer {
     height: BRIGHT_TILE_SIZE,
   });
   brightTiles.eventMode = 'none';
-  brightTiles.blendMode = 'add';
+  // Normal blend (respeita alpha do tile) em vez de 'add' — 'add' escreve
+  // alpha=1 em todo pixel do canvas via blendFunc(ONE,ONE), tornando
+  // Pixi canvas opaco e bloqueando weydra atrás. Como o tile agora é
+  // alpha:true com fundo transparente, 'normal' compõe certo: stars
+  // aparecem, fundo não escreve.
+  brightTiles.blendMode = 'normal';
   container.addChild(brightTiles);
 
   container._mesh = mesh;
@@ -281,21 +287,17 @@ export function atualizarFundo(
   const weydraOn = !!getConfig().weydra?.starfield;
 
   if (weydraOn) {
-    // weydra assumiu a camada procedural. Esconder TUDO do Pixi fundo:
-    // - mesh procedural (seria duplicação)
-    // - brightTiles com blend 'add' (fullscreen quad com alpha=1 escrito
-    //   via blendFunc(ONE,ONE) faz o canvas Pixi ficar OPACO mesmo com
-    //   backgroundAlpha=0, bloqueando weydra atrás). Bright layer volta
-    //   quando M3 migrar pra sprite pool weydra.
+    // weydra assumiu só a camada procedural (2 layers, mesmo algoritmo).
+    // brightTiles Pixi permanece visible — tile agora tem bg transparente
+    // + blend 'normal', então compõe corretamente com weydra atrás (não
+    // bloqueia alpha). Visual idêntico ao Pixi puro.
     mesh.visible = false;
-    fundo._brightTiles.visible = false;
     const r = getWeydraRenderer();
     if (r) {
       r.setCamera(jogadorX, jogadorY, telaW, telaH, fundo._tempoAcumMs / 1000);
       r.setStarfieldDensity(getConfig().graphics.densidadeStarfield);
     }
   } else {
-    fundo._brightTiles.visible = true;
     mesh.visible = true;
     const uniforms = fundo._uniforms.uniforms as {
       uCamera: Float32Array;
