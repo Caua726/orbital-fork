@@ -499,15 +499,21 @@ planetUniformsPtr!: number;
 planetUniformsCapacity!: number;
 
 // Em revalidate() (chame após create_planet_shader ou upload que possa
-// ter crescido memory):
+// ter crescido memory). DUPLA checagem: mem_version + buffer identity.
+private _lastPlanetBuffer: ArrayBuffer | null = null;
+private _lastPlanetMemVer = -1;
 private revalidatePlanetViews(): void {
   const buf = _wasm.memory.buffer;
+  const ver = this.inner.mem_version();
+  if (ver === this._lastPlanetMemVer && buf === this._lastPlanetBuffer && this.planetUniformsView) return;
   this.planetUniformsPtr = this.inner.planet_uniforms_ptr();
   this.planetUniformsStride = this.inner.planet_uniforms_stride();
   this.planetUniformsCapacity = this.inner.planet_uniforms_capacity();
   const totalF32 = (this.planetUniformsCapacity * this.planetUniformsStride) / 4;
   this.planetUniformsView = new Float32Array(buf, this.planetUniformsPtr, totalF32);
   this.planetUniformsIView = new Int32Array(buf, this.planetUniformsPtr, totalF32);
+  this._lastPlanetMemVer = ver;
+  this._lastPlanetBuffer = buf;
 }
 ```
 

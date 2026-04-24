@@ -1001,7 +1001,7 @@ export async function initWeydra(): Promise<void> {
 
 export class Renderer {
   private readonly inner: WasmRenderer;
-  private _starfieldUniforms: Float32Array | null = null;
+  private _hasStarfield = false;
 
   private constructor(inner: WasmRenderer) {
     this.inner = inner;
@@ -1014,20 +1014,22 @@ export class Renderer {
   }
 
   setCamera(x: number, y: number, vw: number, vh: number, time: number): void {
+    // Caller passa vw/vh em WORLD UNITS (ou seja, screenW/zoom) conforme
+    // convenção M2. CameraUniforms fica zoom-agnostic.
     this.inner.set_camera(x, y, vw, vh, time);
   }
 
   createStarfield(wgslSource: string): void {
     this.inner.create_starfield(wgslSource);
-    const ptr = this.inner.starfield_uniforms_ptr();
-    if (ptr !== 0) {
-      // Create a typed view over the uniform pool slot 0
-      this._starfieldUniforms = new Float32Array(_wasm.memory.buffer, ptr, 4);
-    }
+    this._hasStarfield = this.inner.starfield_uniforms_ptr() !== 0;
   }
 
   setStarfieldDensity(v: number): void {
-    if (this._starfieldUniforms) this._starfieldUniforms[0] = v;
+    if (!this._hasStarfield) return;
+    // Re-read _wasm.memory.buffer + ptr por write — view cached detacha em
+    // qualquer memory.grow() silenciosamente. Custo ~50ns por call.
+    const ptr = this.inner.starfield_uniforms_ptr();
+    new Float32Array(_wasm.memory.buffer, ptr, 4)[0] = v;
   }
 
   resize(width: number, height: number): void { this.inner.resize(width, height); }

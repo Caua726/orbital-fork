@@ -649,11 +649,15 @@ export class Renderer {
   private _views: PoolViews | null = null;
   private _lastMemVersion: number = 0;
 
+  private _lastBuffer: ArrayBuffer | null = null;
+
   private revalidate(): void {
     const v = this.inner.mem_version();
-    if (v === this._lastMemVersion && this._views) return;
-    const cap = this.inner.sprite_capacity();
     const mem = _wasm.memory.buffer;
+    // DUPLA checagem: mem_version E buffer identity. memory.grow() sem
+    // mem_version bump (edge case ou bug em Rust) ainda deixa views detached.
+    if (v === this._lastMemVersion && mem === this._lastBuffer && this._views) return;
+    const cap = this.inner.sprite_capacity();
     this._views = {
       transforms: new Float32Array(mem, this.inner.sprite_transforms_ptr(), cap * 4),
       uvs: new Float32Array(mem, this.inner.sprite_uvs_ptr(), cap * 4),
@@ -662,6 +666,7 @@ export class Renderer {
       zOrder: new Float32Array(mem, this.inner.sprite_z_ptr(), cap),
     };
     this._lastMemVersion = v;
+    this._lastBuffer = mem;
   }
 
   uploadTexture(bytes: Uint8Array, width: number, height: number): bigint {
