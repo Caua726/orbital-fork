@@ -31,6 +31,40 @@ function anyFlagEnabled(): boolean {
   }
 }
 
+/**
+ * Backend selection with a Firefox-release guard.
+ *
+ * Firefox 149 release ships WebGPU but the parent-process IPC path
+ * (`wgpu_bindings::server::wgpu_server_pack_free_swap_chain_buffer_ids`)
+ * panics with `TryFromSliceError` on `WebGPUParent::SwapChainDrop`,
+ * which kills the entire browser (not just the tab) because the crash
+ * lands in the parent process. Confirmed against AMD Baffin (RX 460/560)
+ * on Arch Linux 6.19; reproducible by reloading any page that ever
+ * created a WebGPU swap chain.
+ *
+ * Firefox marks WebGPU as experimental in release, so silently demoting
+ * `auto` to `webgl2` matches the user's intent ("pick something that
+ * works") without overriding an explicit `webgpu` pick — anyone using
+ * Firefox Nightly with a working driver and an explicit `webgpu` config
+ * still gets WebGPU.
+ */
+function resolveBackend(
+  configured: 'auto' | 'webgpu' | 'webgl2',
+): 'auto' | 'webgpu' | 'webgl2' {
+  if (configured !== 'auto') return configured;
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  // `Gecko/` + `Firefox/` is the canonical UA fingerprint; Seamonkey/Pale
+  // Moon also match, which is fine — they share the same wgpu IPC path.
+  const isFirefox = /Gecko\/\d+ Firefox\//.test(ua);
+  if (isFirefox) {
+    console.info(
+      '[weydra] Firefox detected; forcing backend=webgl2 (WebGPU on Firefox release crashes the parent process on AMD adapters — bug 1873431-class).',
+    );
+    return 'webgl2';
+  }
+  return 'auto';
+}
+
 export async function startWeydra(): Promise<void> {
   if (!anyFlagEnabled()) return;
 
@@ -57,7 +91,7 @@ export async function startWeydra(): Promise<void> {
 
   try {
     await initWeydra();
-    const backend = (getConfig().weydra.backend ?? 'auto') as 'auto' | 'webgpu' | 'webgl2';
+    const backend = resolveBackend(getConfig().weydra.backend ?? 'auto');
     _renderer = await Renderer.create(canvas, backend);
     if (getConfig().weydra.starfield) {
       _renderer.createStarfield(starfieldWgsl);
