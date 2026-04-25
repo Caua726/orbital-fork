@@ -120,7 +120,11 @@ async function bootstrap(): Promise<void> {
   // Qualquer flag weydra ligado → Pixi canvas transparente pra deixar o
   // weydra canvas (z-index 0, atrás) aparecer. Senão o background preto
   // sólido do Pixi cobre tudo que o weydra desenha.
-  const anyWeydraOn = !!(getConfig().weydra && Object.values(getConfig().weydra).some(Boolean));
+  // Only the boolean subsystem flags count — `backend` is a string config
+  // ('auto'/'webgpu'/'webgl2') and would otherwise pass `Boolean()` even
+  // when every subsystem is off, leaving Pixi transparent for nothing.
+  const w = getConfig().weydra as Record<string, unknown> | undefined;
+  const anyWeydraOn = !!(w && Object.entries(w).some(([k, v]) => k !== 'backend' && v === true));
   const baseInit: any = {
     width: window.innerWidth,
     height: window.innerHeight,
