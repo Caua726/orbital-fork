@@ -663,9 +663,16 @@ impl Renderer {
             // Fog (M6): single fullscreen draw on top of every previous
             // weydra layer (Z.FOG = 40 — above SHIPS=30, below the Pixi
             // UI canvas which composites over this surface). Skipped when
-            // the shader hasn't been registered (fog flag off).
+            // the shader hasn't been registered (fog flag off) and when
+            // no vision sources are active — without that second guard,
+            // the menu (where `desenharNeblinaVisao` never runs and
+            // active_count stays 0) gets a fullscreen 75%-alpha navy
+            // overlay covering the procedural planets, washing them out
+            // into a uniform grey/blue cast that reads as "broken".
             if let (Some(mesh), Some(pool)) = (&self.fog_mesh, &self.fog_pool) {
-                mesh.draw(&mut pass, Some(&pool.bind_group));
+                if pool.instances[0].active_count > 0 {
+                    mesh.draw(&mut pass, Some(&pool.bind_group));
+                }
             }
         }
         self.ctx.queue.submit(Some(encoder.finish()));
