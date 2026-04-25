@@ -39,6 +39,39 @@ export function initWeydra(): Promise<InitOutput> {
 }
 
 /**
+ * Field offsets within a single planet's stride window, in f32 indices.
+ * Computed from the canonical PlanetUniforms byte layout
+ * (weydra-renderer/core/src/pools/planet.rs). The Rust struct's
+ * compile-time `offset_of!` test pins the byte offsets; if the struct
+ * order ever changes here we must change there too — keep this table
+ * the single source of truth on the TS side.
+ */
+const OFF = Object.freeze({
+  u_time:           0 / 4,
+  u_seed:           4 / 4,
+  u_rotation:       8 / 4,
+  u_pixels:        12 / 4,
+  u_light_origin:  16 / 4, // vec2 — occupies +0, +1
+  u_time_speed:    24 / 4,
+  u_dither_size:   28 / 4,
+  u_light_border1: 32 / 4,
+  u_light_border2: 36 / 4,
+  u_size:          40 / 4,
+  u_octaves:       44 / 4, // i32
+  u_planet_type:   48 / 4, // i32
+  u_river_cutoff:  52 / 4,
+  u_land_cutoff:   56 / 4,
+  u_cloud_cover:   60 / 4,
+  u_stretch:       64 / 4,
+  u_cloud_curve:   68 / 4,
+  u_tiles:         72 / 4,
+  u_cloud_alpha:   76 / 4,
+  u_world_pos:     80 / 4, // vec2 — occupies +0, +1
+  u_world_size:    88 / 4, // vec2 — occupies +0, +1
+  u_colors:        96 / 4, // 6 × vec4 — start of array; element N occupies +N*4..+N*4+3
+} as const);
+
+/**
  * Pool views — one typed-array per pointer-exposed SoA field on the
  * Rust side. Rebuilt on `revalidate()` when `mem_version` or the
  * underlying `ArrayBuffer` changed.
@@ -59,6 +92,19 @@ export class Renderer {
   private _views: PoolViews | null = null;
   private _lastMemVersion = 0;
   private _lastBuffer: ArrayBuffer | null = null;
+
+  // ─── Planet shared-memory views ───────────────────────────────────────
+  /** @internal — public for PlanetInstance via underscore convention. */
+  _planetUniformsView!: Float32Array;
+  /** @internal — same buffer as _planetUniformsView, i32 reinterpretation. */
+  _planetUniformsIView!: Int32Array;
+  /** @internal — aligned stride in bytes (rounded up to wgpu adapter's
+   *  min_uniform_buffer_offset_alignment). */
+  planetUniformsStride = 0;
+  /** @internal — base pointer of the planet uniform region in WASM memory. */
+  planetUniformsPtr = 0;
+  /** @internal — number of slots in the planet pool. */
+  planetUniformsCapacity = 0;
 
   private constructor(inner: WasmRenderer) {
     this.inner = inner;
@@ -173,6 +219,53 @@ export class Renderer {
     // readers will see `flags[slot] === 0` — a no-op in the render loop.
   }
 
+  // ─── Planet pool ──────────────────────────────────────────────────────
+
+  createPlanetShader(wgslSource: string): void {
+    this.inner.create_planet_shader(wgslSource);
+    // The Rust side bumps mem_version after this call; revalidate() picks
+    // up the new buffer/version pair AND rebuilds the planet views in the
+    // same dual-check branch — no explicit refreshPlanetViews() needed
+    // here.
+    this.revalidate();
+    // Cover the edge case where revalidate's dual-check decided no
+    // rebuild was necessary (e.g. mem_version somehow unchanged) but the
+    // pool was just freshly created — without this call _planetUniformsView
+    // would be undefined.
+    if (!this._planetUniformsView) this.refreshPlanetViews();
+  }
+
+  createPlanetInstance(): PlanetInstance {
+    const h = this.inner.create_planet_instance();
+    this.revalidate();
+    return new PlanetInstance(h, this);
+  }
+
+  destroyPlanetInstance(p: PlanetInstance): void {
+    this.inner.destroy_planet_instance(p.handle);
+  }
+
+  /**
+   * Repopulates planetUniformsPtr/Stride/Capacity and rebuilds the f32
+   * + i32 views over the shared region. Called from createPlanetShader
+   * and from revalidate() when mem_version or the underlying buffer
+   * identity changed (the M2 dual-check pattern).
+   */
+  private refreshPlanetViews(): void {
+    if (!_wasm) return;
+    this.planetUniformsPtr = this.inner.planet_uniforms_ptr();
+    this.planetUniformsStride = this.inner.planet_uniforms_stride();
+    this.planetUniformsCapacity = this.inner.planet_uniforms_capacity();
+    if (this.planetUniformsPtr === 0 || this.planetUniformsStride === 0) {
+      // Pool not created yet — nothing to view.
+      return;
+    }
+    const totalF32 = (this.planetUniformsCapacity * this.planetUniformsStride) / 4;
+    const buffer = _wasm.memory.buffer;
+    this._planetUniformsView = new Float32Array(buffer, this.planetUniformsPtr, totalF32);
+    this._planetUniformsIView = new Int32Array(buffer, this.planetUniformsPtr, totalF32);
+  }
+
   /**
    * Direct accessor for Sprite setters — no revalidate, no wasm-bindgen
    * boundary crossing. Spec "<50ns hot path" depends on this skipping
@@ -217,6 +310,14 @@ export class Renderer {
       flags: new Uint8Array(buffer, this.inner.sprite_flags_ptr(), cap),
       zOrder: new Float32Array(buffer, this.inner.sprite_z_ptr(), cap),
     };
+    // Planet views share the same wasm memory and detach on the same
+    // memory.grow() events; rebuild them in lock-step with sprite views.
+    // Skip if the planet shader hasn't been registered yet — refreshPlanetViews
+    // also early-returns on a zero pointer, but the explicit guard avoids the
+    // wasm-bindgen calls.
+    if (this.planetUniformsPtr !== 0) {
+      this.refreshPlanetViews();
+    }
     this._lastMemVersion = version;
     this._lastBuffer = buffer;
   }
@@ -293,6 +394,84 @@ export class Sprite {
     uvs[b + 1] = v;
     uvs[b + 2] = w;
     uvs[b + 3] = h;
+  }
+}
+
+/**
+ * One live planet driven by the procedural planet shader. Setters write
+ * into the shared WASM memory directly via the cached Renderer typed-
+ * array views — no wasm-bindgen call boundary in the hot path. Each
+ * setter is a single typed-array store, ~3-5 ns.
+ *
+ * Integer setters (`uOctaves`, `uPlanetType`) coerce floats to int32 via
+ * `| 0` so callers passing accidental floats like `1.9999...` from
+ * accumulated math don't store an off-by-one truncation that would
+ * dispatch the wrong planet type body.
+ */
+export class PlanetInstance {
+  /** f32 base offset of this slot inside the shared uniform buffer. */
+  private readonly base: number;
+
+  constructor(public readonly handle: bigint, private readonly r: Renderer) {
+    const slot = Number(handle & 0xFFFFFFFFn);
+    // Stride is ALIGNED bytes; divide by 4 for f32 index. Each planet
+    // occupies stride/4 f32 slots in the shared view, even if the actual
+    // PlanetUniforms struct is smaller (192 B vs 256 B stride on most
+    // adapters — the shader's min_binding_size guards against reading
+    // past 192).
+    this.base = slot * (this.r.planetUniformsStride / 4);
+  }
+
+  // Float views are cached on the Renderer and revalidated when WASM
+  // memory grows. NEVER reconstruct typed arrays here — the f32 and i32
+  // views must agree on which ArrayBuffer they point at.
+  private get f(): Float32Array { return this.r._planetUniformsView; }
+  private get i(): Int32Array { return this.r._planetUniformsIView; }
+
+  set uTime(v: number)         { this.f[this.base + OFF.u_time] = v; }
+  set uSeed(v: number)         { this.f[this.base + OFF.u_seed] = v; }
+  set uRotation(v: number)     { this.f[this.base + OFF.u_rotation] = v; }
+  set uPixels(v: number)       { this.f[this.base + OFF.u_pixels] = v; }
+  set uTimeSpeed(v: number)    { this.f[this.base + OFF.u_time_speed] = v; }
+  set uDitherSize(v: number)   { this.f[this.base + OFF.u_dither_size] = v; }
+  set uLightBorder1(v: number) { this.f[this.base + OFF.u_light_border1] = v; }
+  set uLightBorder2(v: number) { this.f[this.base + OFF.u_light_border2] = v; }
+  set uSize(v: number)         { this.f[this.base + OFF.u_size] = v; }
+  set uOctaves(v: number)      { this.i[this.base + OFF.u_octaves] = Math.round(v) | 0; }
+  set uPlanetType(v: number)   { this.i[this.base + OFF.u_planet_type] = Math.round(v) | 0; }
+  set uRiverCutoff(v: number)  { this.f[this.base + OFF.u_river_cutoff] = v; }
+  set uLandCutoff(v: number)   { this.f[this.base + OFF.u_land_cutoff] = v; }
+  set uCloudCover(v: number)   { this.f[this.base + OFF.u_cloud_cover] = v; }
+  set uStretch(v: number)      { this.f[this.base + OFF.u_stretch] = v; }
+  set uCloudCurve(v: number)   { this.f[this.base + OFF.u_cloud_curve] = v; }
+  set uTiles(v: number)        { this.f[this.base + OFF.u_tiles] = v; }
+  set uCloudAlpha(v: number)   { this.f[this.base + OFF.u_cloud_alpha] = v; }
+
+  setLightOrigin(x: number, y: number): void {
+    const off = this.base + OFF.u_light_origin;
+    this.f[off] = x;
+    this.f[off + 1] = y;
+  }
+
+  setWorldPos(x: number, y: number): void {
+    const off = this.base + OFF.u_world_pos;
+    this.f[off] = x;
+    this.f[off + 1] = y;
+  }
+
+  setWorldSize(w: number, h: number): void {
+    const off = this.base + OFF.u_world_size;
+    this.f[off] = w;
+    this.f[off + 1] = h;
+  }
+
+  /** Set palette slot 0..5 to RGBA (0..1 floats). */
+  setColor(idx: number, r: number, g: number, b: number, a: number): void {
+    const off = this.base + OFF.u_colors + idx * 4;
+    this.f[off + 0] = r;
+    this.f[off + 1] = g;
+    this.f[off + 2] = b;
+    this.f[off + 3] = a;
   }
 }
 
