@@ -17,9 +17,9 @@ use bytemuck::{Pod, Zeroable};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use weydra_renderer::{
-    CameraUniforms, EngineBindings, GpuContext, Handle, Mesh, PlanetPool, RenderSurface,
+    CameraUniforms, EngineBindings, FogPool, GpuContext, Handle, Mesh, PlanetPool, RenderSurface,
     RenderTarget, ShaderRegistry, SpritePool, Texture, TextureRegistry, UniformPool,
-    FLAG_VISIBLE,
+    FLAG_VISIBLE, FOG_MAX_SOURCES, FOG_UNIFORMS_SIZE,
 };
 
 /// Max sprites across all textures. Backing SoA Vecs are sized once at boot
@@ -92,6 +92,10 @@ pub struct Renderer {
     // M5 planets (live shader)
     planet_pool: Option<PlanetPool>,
     planet_mesh: Option<Mesh>,
+
+    // M6 fog-of-war (singleton)
+    fog_pool: Option<FogPool>,
+    fog_mesh: Option<Mesh>,
 
     // M3 sprite batcher
     textures: TextureRegistry,
@@ -206,6 +210,8 @@ impl Renderer {
             starfield_mesh: None,
             planet_pool: None,
             planet_mesh: None,
+            fog_pool: None,
+            fog_mesh: None,
             textures: TextureRegistry::new(),
             sprites: SpritePool::with_capacity(SPRITE_CAPACITY),
             sprite_path: None,
@@ -324,6 +330,59 @@ impl Renderer {
             .as_ref()
             .map(|p| p.capacity() as u32)
             .unwrap_or(0)
+    }
+
+    // ─── Fog (M6) ────────────────────────────────────────────────────────
+
+    /// Compile the fog shader and allocate the singleton FogPool. Calling
+    /// this twice is a usage error; the second call would drop the prior
+    /// pool and invalidate any TS-side typed-array view that hadn't yet
+    /// re-read `fog_uniforms_ptr`.
+    pub fn create_fog_shader(&mut self, wgsl_source: &str) {
+        assert!(
+            self.fog_pool.is_none(),
+            "create_fog_shader called twice — would invalidate the TS view over the previous pool",
+        );
+        let shader = self
+            .shader_registry
+            .compile(&self.ctx, wgsl_source, "fog");
+        let pool = FogPool::new(&self.ctx, "fog pool");
+        let mesh = Mesh::new(
+            &self.ctx,
+            &self.shader_registry,
+            shader,
+            self.surface.format,
+            &self.engine.layout,
+            // fog.wgsl returns straight alpha (`vec4(rgb, alpha)`) and is
+            // explicit about the contract in its header. ALPHA_BLENDING is
+            // the only correct choice — PREMULTIPLIED_ALPHA_BLENDING would
+            // darken the fog by alpha and REPLACE would erase whatever the
+            // fog should overlay (starfield, planets, ships).
+            wgpu::BlendState::ALPHA_BLENDING,
+            Some(&pool.bind_group_layout),
+            "fog",
+        );
+        self.fog_pool = Some(pool);
+        self.fog_mesh = Some(mesh);
+        self.mem_version = self.mem_version.wrapping_add(1);
+    }
+
+    pub fn fog_uniforms_ptr(&self) -> u32 {
+        self.fog_pool
+            .as_ref()
+            .map(|p| p.instances_ptr() as u32)
+            .unwrap_or(0)
+    }
+
+    /// Total FogUniforms byte size (1040). TS uses this to size the
+    /// typed-array view — `Float32Array(buffer, ptr, size/4)` covers
+    /// header + every source slot in one shared view.
+    pub fn fog_uniforms_size(&self) -> u32 {
+        FOG_UNIFORMS_SIZE as u32
+    }
+
+    pub fn fog_max_sources(&self) -> u32 {
+        FOG_MAX_SOURCES as u32
     }
 
     /// Render a single planet instance into a freshly-allocated texture
@@ -490,6 +549,9 @@ impl Renderer {
         if let Some(pool) = &self.starfield_pool {
             pool.upload(&self.ctx);
         }
+        if let Some(pool) = &self.fog_pool {
+            pool.upload(&self.ctx);
+        }
 
         let maybe_frame = self
             .surface
@@ -596,6 +658,14 @@ impl Renderer {
                         }
                     }
                 }
+            }
+
+            // Fog (M6): single fullscreen draw on top of every previous
+            // weydra layer (Z.FOG = 40 — above SHIPS=30, below the Pixi
+            // UI canvas which composites over this surface). Skipped when
+            // the shader hasn't been registered (fog flag off).
+            if let (Some(mesh), Some(pool)) = (&self.fog_mesh, &self.fog_pool) {
+                mesh.draw(&mut pass, Some(&pool.bind_group));
             }
         }
         self.ctx.queue.submit(Some(encoder.finish()));

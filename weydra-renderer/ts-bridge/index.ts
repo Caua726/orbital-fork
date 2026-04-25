@@ -219,6 +219,43 @@ export class Renderer {
     // readers will see `flags[slot] === 0` — a no-op in the render loop.
   }
 
+  // ─── Fog (M6) ─────────────────────────────────────────────────────────
+
+  /** @internal — populated by `createFogShader`, consumed by FogLayer. */
+  fog: FogLayer | null = null;
+  /** @internal — number of vision source slots in the FogPool (matches
+   *  `FOG_MAX_SOURCES` on the Rust side, currently 64). Readonly after
+   *  `createFogShader`; FogLayer also exposes its own copy. */
+  readonly fogMaxSources: number = 0;
+
+  /**
+   * Compile the fog shader and allocate the singleton FogPool. After
+   * this call `renderer.fog` is non-null and writes through it land in
+   * shared WASM memory; the Rust-side render loop picks them up on the
+   * next frame.
+   */
+  createFogShader(wgslSource: string): FogLayer {
+    this.inner.create_fog_shader(wgslSource);
+    this.revalidate();
+    const max = this.inner.fog_max_sources();
+    // Cast through unknown so the readonly modifier is honoured at every
+    // other call site; this is the single intentional mutation site.
+    (this as { fogMaxSources: number }).fogMaxSources = max;
+    const sizeBytes = this.inner.fog_uniforms_size();
+    this.fog = new FogLayer(this, max, sizeBytes);
+    return this.fog;
+  }
+
+  /**
+   * @internal — current pointer to the FogUniforms region in shared
+   * WASM memory. Consumed by `FogLayer` once per write so a
+   * `memory.grow()` between writes can never leave the layer reading
+   * a stale buffer. Costs one wasm-bindgen call (~50 ns).
+   */
+  _fogUniformsPtr(): number {
+    return this.inner.fog_uniforms_ptr();
+  }
+
   // ─── Planet pool ──────────────────────────────────────────────────────
 
   createPlanetShader(wgslSource: string): void {
@@ -486,6 +523,104 @@ export class PlanetInstance {
     this.f[off + 1] = g;
     this.f[off + 2] = b;
     this.f[off + 3] = a;
+  }
+}
+
+/**
+ * Singleton fog state. Writes go directly into shared WASM memory; the
+ * Rust render loop uploads the buffer at the start of each frame.
+ *
+ * Unlike `Sprite` and `PlanetInstance`, this class re-reads the WASM
+ * memory buffer **per write** instead of caching a typed-array view.
+ * Reasoning: the fog setters are called O(active_count) per frame from
+ * `nevoa.ts`, which is small (typically ≤ 32, capped at 64) — paying ~50ns
+ * per `_wasm.memory.buffer + fog_uniforms_ptr()` round-trip is cheap and
+ * eliminates an entire class of bug where a cached view points into
+ * detached memory after `memory.grow()` has fired since the previous
+ * frame. The starfield/planet hot paths cache views because they fire
+ * thousands of times per frame; fog does not.
+ */
+export class FogLayer {
+  /** Total f32 indices covered by one FogUniforms instance. Header is
+   *  4 f32 (base_alpha, active_count, _pad×2); each source is 4 f32 (x,
+   *  y, radius, _pad). Total = 4 + maxSources × 4. */
+  private readonly totalF32: number;
+
+  /**
+   * @param r — the renderer that owns the underlying FogPool.
+   * @param maxSources — hard cap mirrored from `FOG_MAX_SOURCES` on the
+   *   Rust side (currently 64). `setSource` rejects `idx >= maxSources`.
+   * @param sizeBytes — total `FogUniforms` byte size (1040 with the
+   *   current cap). Used to size the typed-array view; if the cap ever
+   *   shifts, this value tracks it via the `fog_uniforms_size` WASM
+   *   export rather than a hand-computed `4 + max * 4`.
+   */
+  constructor(
+    private readonly r: Renderer,
+    public readonly maxSources: number,
+    sizeBytes: number,
+  ) {
+    this.totalF32 = sizeBytes >>> 2;
+  }
+
+  private f32(): Float32Array {
+    if (!_wasm) throw new Error('weydra: WASM not initialised');
+    return new Float32Array(_wasm.memory.buffer, this.r._fogUniformsPtr(), this.totalF32);
+  }
+
+  private u32(): Uint32Array {
+    if (!_wasm) throw new Error('weydra: WASM not initialised');
+    return new Uint32Array(_wasm.memory.buffer, this.r._fogUniformsPtr(), this.totalF32);
+  }
+
+  setBaseAlpha(v: number): void {
+    this.f32()[0] = v;
+  }
+
+  /**
+   * Number of populated source slots; the shader loop terminates here.
+   * Internally clamped to `[0, maxSources]` so a caller bug can't drive
+   * the WGSL loop past the declared `array<VisionSource, 64>` length —
+   * GLSL ES 3.0 (the WebGL2 path) does not mandate robust uniform-array
+   * access, so an OOB index could read adjacent UBO data.
+   */
+  setActiveCount(n: number): void {
+    const clamped = Math.min(Math.max(0, n | 0), this.maxSources);
+    // u32 view writes to the same buffer at the same byte offset (4); the
+    // shader reads it back as a u32 since `active_count: u32` in WGSL.
+    this.u32()[1] = clamped >>> 0;
+  }
+
+  /**
+   * Populate one vision source slot. `idx` indexes the `sources` array;
+   * the four f32 fields land at byte offset `16 + idx * 16` (header is
+   * 16 B, each source is 16 B). The pad slot is left untouched — it's
+   * zero-initialised and the shader ignores it.
+   *
+   * Out-of-range indices throw rather than silently no-op. Without the
+   * guard, a typed-array OOB write is a no-op per JS spec (no error,
+   * no log) — the slot would never populate even though the caller
+   * thinks it did, and the shader would see a zeroed source ring with
+   * radius 0 (`smoothstep(0, 0, d) == 1` → invisible to fog).
+   */
+  setSource(idx: number, x: number, y: number, radius: number): void {
+    // Coerce to int32 before the range check so a float like 1.5 can't
+    // pass the guard and then land at a misaligned base (4 + 1.5*4 = 10
+    // would write across the boundary between source 0's pad and
+    // source 1's position). Mirrors the `n | 0` coercion in
+    // setActiveCount.
+    const i = idx | 0;
+    if (i < 0 || i >= this.maxSources) {
+      throw new Error(
+        `FogLayer.setSource: idx ${idx} out of range [0, ${this.maxSources})`,
+      );
+    }
+    const base = 4 + i * 4;
+    const view = this.f32();
+    view[base + 0] = x;
+    view[base + 1] = y;
+    view[base + 2] = radius;
+    // [base + 3] is std140 _pad; leave alone.
   }
 }
 
