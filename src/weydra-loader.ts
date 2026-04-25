@@ -12,10 +12,11 @@
 
 import { initWeydra, Renderer } from '@weydra/renderer';
 import starfieldWgsl from './shaders/starfield-weydra.wgsl';
-import { getConfig } from './core/config';
+import { getConfig, isAnyWeydraSubsystemOn } from './core/config';
 
 let _renderer: Renderer | null = null;
 let _rafHandle: number | null = null;
+let _resizeAbort: AbortController | null = null;
 
 export function getWeydraRenderer(): Renderer | null {
   return _renderer;
@@ -23,18 +24,7 @@ export function getWeydraRenderer(): Renderer | null {
 
 function anyFlagEnabled(): boolean {
   try {
-    const w = getConfig().weydra;
-    if (!w) return false;
-    // Any subsystem flag should boot the renderer. Previously only
-    // `starfield` was checked here, so a player enabling `ships` or
-    // `planetsBaked` in isolation never saw the weydra canvas init.
-    return !!(
-      w.starfield
-      || w.ships
-      || w.shipTrails
-      || w.starfieldBright
-      || w.planetsBaked
-    );
+    return isAnyWeydraSubsystemOn(getConfig());
   } catch {
     return false;
   }
@@ -80,15 +70,16 @@ export async function startWeydra(): Promise<void> {
     return;
   }
 
-  // Resize on window resize. Re-read devicePixelRatio each call —
-  // moving window between monitors with different DPI changes it.
+  // Re-read DPR each call — moving the window across monitors changes it.
+  // AbortController lets stopWeydra detach so re-init doesn't stack listeners.
+  _resizeAbort = new AbortController();
   window.addEventListener('resize', () => {
     if (!_renderer) return;
     const { width, height } = currentSize();
     canvas.width = width;
     canvas.height = height;
     _renderer.resize(width, height);
-  });
+  }, { signal: _resizeAbort.signal });
 
   const loop = () => {
     if (_renderer) {
@@ -110,6 +101,10 @@ export function stopWeydra(): void {
   if (_rafHandle !== null) {
     cancelAnimationFrame(_rafHandle);
     _rafHandle = null;
+  }
+  if (_resizeAbort !== null) {
+    _resizeAbort.abort();
+    _resizeAbort = null;
   }
   _renderer = null;
 }

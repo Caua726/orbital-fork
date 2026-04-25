@@ -241,3 +241,17 @@ export function resetConfigForTest(): void {
   _listeners.clear();
   _notifying = false;
 }
+
+/**
+ * True when any weydra subsystem flag is on. Skips the `backend` field
+ * (it's a string config, not a feature toggle). Single source of truth for
+ * the loader, the engine-dropdown UI, and the renderer-info modal.
+ */
+export function isAnyWeydraSubsystemOn(cfg: OrbitalConfig): boolean {
+  const w = cfg.weydra as Record<string, unknown> | undefined;
+  if (!w) return false;
+  for (const [k, v] of Object.entries(w)) {
+    if (k !== 'backend' && v === true) return true;
+  }
+  return false;
+}

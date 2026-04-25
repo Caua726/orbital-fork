@@ -57,7 +57,7 @@ import { reconciliarMundo, resumirDiagnosticos } from './world/save/reconciler';
 import { abrirSaveModal } from './ui/save-modal';
 import type { MundoDTO } from './world/save';
 import { toast } from './ui/toast';
-import { getConfig, setConfigDuranteBoot, onConfigChange } from './core/config';
+import { getConfig, setConfigDuranteBoot, onConfigChange, isAnyWeydraSubsystemOn } from './core/config';
 import { abrirNewWorldModal } from './ui/new-world-modal';
 import { criarLoadingScreen, mostrarCarregando, esconderCarregando, setLoadingFase } from './ui/loading-screen';
 import { t } from './core/i18n/t';
@@ -117,14 +117,10 @@ async function bootstrap(): Promise<void> {
   // only the backing-store resolution changes.
   const baselineDpr = window.devicePixelRatio || 1;
   const renderScale = gfx.renderScale ?? 1;
-  // Qualquer flag weydra ligado → Pixi canvas transparente pra deixar o
-  // weydra canvas (z-index 0, atrás) aparecer. Senão o background preto
+  // Qualquer subsistema weydra ligado → Pixi canvas transparente pra deixar
+  // o weydra canvas (z-index 0, atrás) aparecer. Senão o background preto
   // sólido do Pixi cobre tudo que o weydra desenha.
-  // Only the boolean subsystem flags count — `backend` is a string config
-  // ('auto'/'webgpu'/'webgl2') and would otherwise pass `Boolean()` even
-  // when every subsystem is off, leaving Pixi transparent for nothing.
-  const w = getConfig().weydra as Record<string, unknown> | undefined;
-  const anyWeydraOn = !!(w && Object.entries(w).some(([k, v]) => k !== 'backend' && v === true));
+  const anyWeydraOn = isAnyWeydraSubsystemOn(getConfig());
   const baseInit: any = {
     width: window.innerWidth,
     height: window.innerHeight,

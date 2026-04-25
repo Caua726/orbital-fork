@@ -241,17 +241,15 @@ export function abrirRendererInfoModal(app: Application): void {
   title.textContent = t('renderer_info.titulo');
   const closeX = document.createElement('button');
   closeX.className = 'renderer-info-close-x';
-  closeX.setAttribute('aria-label', 'Fechar');
+  closeX.setAttribute('aria-label', t('renderer_info.fechar'));
   closeX.textContent = '✕';
   closeX.addEventListener('click', () => fecharRendererInfoModal());
   header.append(title, closeX);
   card.appendChild(header);
 
-  // ── Engine: which TS-side renderer is the player using? ──────────
-  // Skip the `backend` config key — it's a string ('auto'/'webgpu'/...),
-  // not a subsystem boolean, but `Boolean('auto')` would still pass the
-  // filter and overinflate the count to 6/5.
-  const w = getConfig().weydra;
+  // The `backend` key is a string config; this filter keeps only the
+  // boolean subsystem flags so the count matches the real subsystem list.
+  const w = getConfig().weydra as Record<string, unknown> | undefined;
   const enabledSubs = w
     ? Object.entries(w)
         .filter(([k, v]) => k !== 'backend' && v === true)

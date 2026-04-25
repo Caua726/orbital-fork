@@ -18,6 +18,10 @@ let _overlay: HTMLDivElement | null = null;
 let _currentTab: Tab = 'audio';
 let _refreshBody: (() => void) | null = null;
 let _fullscreenListenerInstalled = false;
+// Flag the engine select sets when changing engine — read by the next
+// renderGraphicsTabMotor() invocation so the reload banner survives the
+// _refreshBody() that wipes the body it was inserted into.
+let _pendingEngineReloadBanner = false;
 
 function instalarFullscreenListener(): void {
   if (_fullscreenListenerInstalled) return;
@@ -37,7 +41,8 @@ type TooltipKey =
   | 'qualidade' | 'fullscreen' | 'scanlines' | 'fps' | 'ram' | 'fpsCap' | 'vsync' | 'renderScale'
   | 'renderer' | 'webglVersion' | 'gpuPref' | 'verInfo' | 'orbitas'
   | 'starfield' | 'fantasmas' | 'shaderLive' | 'autosave' | 'saveMode'
-  | 'confirmar' | 'edge' | 'touchMode';
+  | 'confirmar' | 'edge' | 'touchMode'
+  | 'engine' | 'weydraBackend' | 'weydraSubsystem';
 
 function tooltip(key: TooltipKey): string {
   return t(`tooltips.${key}`);
@@ -357,7 +362,7 @@ export function abrirSettings(opts?: AbrirSettingsOptions): void {
   title.textContent = t('settings.titulo');
   const close = document.createElement('button');
   close.className = 'settings-close';
-  close.setAttribute('aria-label', 'Fechar');
+  close.setAttribute('aria-label', t('settings.fechar'));
   close.textContent = '\u2715';
   close.addEventListener('click', () => fecharSettings());
   header.append(title, close);
@@ -1037,16 +1042,16 @@ function renderWeydraOptOuts(host: HTMLDivElement): void {
 
   // Weydra backend selector — backend de wgpu interno.
   {
-    const [row] = rowWithLabel(t('settings.row.weydra_backend'), 'renderer');
-    const cur = (getConfig().weydra as WeydraConfig & { backend: 'auto' | 'webgpu' | 'webgl2' }).backend ?? 'auto';
+    const [row] = rowWithLabel(t('settings.row.weydra_backend'), 'weydraBackend');
+    const cur = getConfig().weydra.backend ?? 'auto';
     const select = criarSelect([
       ['auto', t('settings.opt.auto')],
       ['webgpu', t('settings.opt.weydra_webgpu')],
       ['webgl2', t('settings.opt.weydra_webgl2')],
     ], cur);
     select.addEventListener('change', () => {
-      const next = { ...(getConfig().weydra as any), backend: select.dataset.value };
-      setConfig({ weydra: next });
+      const v = select.dataset.value as 'auto' | 'webgpu' | 'webgl2';
+      setConfig({ weydra: { ...getConfig().weydra, backend: v } });
       showReloadBanner(row);
     });
     row.appendChild(select);
@@ -1059,15 +1064,16 @@ function renderWeydraOptOuts(host: HTMLDivElement): void {
   host.appendChild(hint);
 
   for (const flag of WEYDRA_FLAGS) {
-    const [row, label] = rowWithLabel(t(flag.labelKey), 'qualidade');
+    const [row, label] = rowWithLabel(t(flag.labelKey), 'weydraSubsystem');
+    // The per-flag tip overrides the generic weydraSubsystem help text via
+    // .title (the help icon shows the generic copy; long-hover on the label
+    // surfaces the flag-specific note).
     label.title = t(flag.tipKey);
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    const cur = getConfig().weydra as WeydraConfig;
-    cb.checked = !!cur[flag.key];
+    cb.checked = !!getConfig().weydra[flag.key];
     cb.addEventListener('change', () => {
-      const next: WeydraConfig = { ...(getConfig().weydra as WeydraConfig), [flag.key]: cb.checked };
-      setConfig({ weydra: next });
+      setConfig({ weydra: { ...getConfig().weydra, [flag.key]: cb.checked } });
       showReloadBanner(row);
     });
     row.appendChild(cb);
@@ -1090,7 +1096,7 @@ function renderGraphicsTabMotor(body: HTMLDivElement): void {
   // pixi flips them all off. Below the engine row we render either the
   // Pixi-specific knobs (backend / WebGL version / GPU pref) or the
   // Weydra opt-out checkboxes.
-  const engineRow = rowWithLabel(t('settings.row.engine'), 'renderer')[0];
+  const engineRow = rowWithLabel(t('settings.row.engine'), 'engine')[0];
   const engineSelect = criarSelect(
     [
       ['pixi', t('settings.opt.pixi_classico')],
@@ -1101,13 +1107,21 @@ function renderGraphicsTabMotor(body: HTMLDivElement): void {
   engineRow.appendChild(engineSelect);
   body.appendChild(engineRow);
 
+  // Surfaced when the engine flipped on a previous render — _refreshBody
+  // wipes the body (banner included), so we re-show it here on the new
+  // engineRow instead of inserting before the refresh.
+  if (_pendingEngineReloadBanner) {
+    showReloadBanner(engineRow);
+    _pendingEngineReloadBanner = false;
+  }
+
   const optOutHost = document.createElement('div');
   body.appendChild(optOutHost);
 
   engineSelect.addEventListener('change', () => {
     const pickWeydra = engineSelect.dataset.value === 'weydra';
     setWeydraAll(pickWeydra);
-    showReloadBanner(engineRow);
+    _pendingEngineReloadBanner = true;
     // Full panel refresh — without this, the Pixi-only Backend / WebGL
     // version / GPU preference dropdowns rendered earlier remain in the
     // DOM after switching to weydra (and the weydra opt-outs persist
@@ -1313,7 +1327,7 @@ function renderGraphicsTabAvancado(body: HTMLDivElement): void {
       ['5', 'Cada 5 frames'],
       ['10', 'Cada 10 frames'],
       ['20', 'Cada 20 frames'],
-    ], String(gfx.fogThrottle ?? 3));
+    ], String(gfx.fogThrottle));
     select.addEventListener('change', () => {
       setConfig({ graphics: { ...getConfig().graphics, fogThrottle: Number(select.dataset.value!) } });
     });

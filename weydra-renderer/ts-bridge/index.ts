@@ -67,14 +67,9 @@ export class Renderer {
   /**
    * Create a new Renderer on the given canvas.
    *
-   * `backend` selects the wgpu backend:
-   *  - `'auto'` lets wgpu pick. WebGPU when navigator.gpu is present,
-   *    WebGL2 otherwise.
-   *  - `'webgpu'` requires WebGPU.
-   *  - `'webgl2'` requires WebGL2. Implemented by hiding navigator.gpu
-   *    during instance creation so wgpu's auto-detection goes through
-   *    the wgpu-core/cfg(webgl) path. The original navigator.gpu is
-   *    restored afterward; existing references stay valid.
+   * `backend` selects the wgpu backend on the Rust side — see
+   * `WasmRenderer::create` doc for the int code mapping. The TS layer is
+   * pure pass-through; no navigator mutation.
    *
    * Must call `initWeydra()` first.
    */
@@ -86,26 +81,7 @@ export class Renderer {
       throw new Error('initWeydra() must be called before Renderer.create()');
     }
     await _initPromise;
-    const code = backend === 'webgpu' ? 1 : 0;
-    if (backend === 'webgl2' && typeof navigator !== 'undefined') {
-      const nav = navigator as Navigator & { gpu?: unknown };
-      const original = nav.gpu;
-      // delete nav.gpu — descriptor may be non-configurable on some
-      // browsers, so use defineProperty to override before instance
-      // creation, then restore.
-      try {
-        Object.defineProperty(nav, 'gpu', { value: undefined, configurable: true });
-      } catch { /* fallthrough — wgpu may still detect undefined gpu */ }
-      try {
-        const inner = await WasmRenderer.create(canvas, code);
-        return new Renderer(inner);
-      } finally {
-        if (original !== undefined) {
-          try { Object.defineProperty(nav, 'gpu', { value: original, configurable: true }); }
-          catch { /* tolerate immutable descriptor */ }
-        }
-      }
-    }
+    const code = backend === 'webgpu' ? 1 : backend === 'webgl2' ? 2 : 0;
     const inner = await WasmRenderer.create(canvas, code);
     return new Renderer(inner);
   }
