@@ -31,7 +31,10 @@ pub use device::GpuContext;
 pub use error::{Result, WeydraError};
 pub use frame::render_clear;
 pub use mesh::Mesh;
-pub use pools::{PlanetPool, PlanetUniforms, PLANET_UNIFORMS_SIZE};
+pub use pools::{
+    FogPool, FogUniforms, PlanetPool, PlanetUniforms, VisionSource, FOG_MAX_SOURCES,
+    FOG_UNIFORMS_SIZE, PLANET_UNIFORMS_SIZE,
+};
 pub use render_target::RenderTarget;
 pub use shader::{ShaderHandle, ShaderRegistry};
 pub use slotmap::{Handle, SlotMap};
