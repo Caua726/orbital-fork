@@ -18,7 +18,8 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use weydra_renderer::{
     CameraUniforms, EngineBindings, GpuContext, Handle, Mesh, PlanetPool, RenderSurface,
-    ShaderRegistry, SpritePool, TextureRegistry, UniformPool, FLAG_VISIBLE,
+    RenderTarget, ShaderRegistry, SpritePool, Texture, TextureRegistry, UniformPool,
+    FLAG_VISIBLE,
 };
 
 /// Max sprites across all textures. Backing SoA Vecs are sized once at boot
@@ -323,6 +324,96 @@ impl Renderer {
             .as_ref()
             .map(|p| p.capacity() as u32)
             .unwrap_or(0)
+    }
+
+    /// Render a single planet instance into a freshly-allocated texture
+    /// and return a TextureRegistry handle compatible with create_sprite.
+    /// The same pipeline + uniforms used by the live-shader path are
+    /// re-used, so the bake produces a frame visually identical to the
+    /// live render at that uTime / uRotation snapshot.
+    ///
+    /// Replaces the M4 Pixi-extract round-trip — the bake never leaves
+    /// the GPU.
+    pub fn bake_planet(&mut self, instance_handle: u64, size: u32) -> u64 {
+        let h = Handle::from_u64(instance_handle);
+
+        // Sprite-path texture bind groups must exist before the resulting
+        // tex handle can be sampled by `create_sprite`. The bind group is
+        // built after the texture is registered below; ensure_sprite_pipeline
+        // is called eagerly here so the layout exists for that build.
+        // Done before taking the &pool borrow because it takes &mut self.
+        self.ensure_sprite_pipeline();
+
+        let pool = self
+            .planet_pool
+            .as_ref()
+            .expect("create_planet_shader must be called before bake_planet");
+        let mesh = self
+            .planet_mesh
+            .as_ref()
+            .expect("create_planet_shader must be called before bake_planet");
+
+        // RenderTarget with the same color format the swap chain uses so
+        // the in-pass pipeline (compiled against surface.format) is valid
+        // for this attachment.
+        let rt = RenderTarget::new(&self.ctx, size, size, self.surface.format);
+
+        // Push the latest pool state to GPU before drawing — same upload
+        // path the per-frame render uses.
+        pool.upload(&self.ctx);
+
+        let mut encoder =
+            self.ctx
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("planet bake"),
+                });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("planet bake pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &rt.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&mesh.pipeline);
+            pass.set_bind_group(0, &self.engine.bind_group, &[]);
+            pass.set_bind_group(1, &pool.bind_group, &[pool.offset_for(h.slot)]);
+            pass.draw(0..6, 0..1);
+        }
+        self.ctx.queue.submit(Some(encoder.finish()));
+
+        // Wrap the freshly-rendered texture in a Texture struct and hand
+        // it to TextureRegistry. The sampler is created locally because
+        // TextureRegistry's default sampler (in upload_with_address_mode)
+        // is private — Nearest filter matches the pixel-art convention
+        // used by the M3 sprite uploads.
+        let sampler = self.ctx.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("planet bake sampler"),
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let tex = Texture {
+            texture: rt.texture,
+            view: rt.view,
+            sampler,
+            width: size,
+            height: size,
+        };
+        let tex_handle = self.textures.insert(tex);
+        self.build_texture_bind_group(tex_handle);
+        self.mem_version = self.mem_version.wrapping_add(1);
+        tex_handle.to_u64()
     }
 
     // ─── Sprite batcher (M3) ─────────────────────────────────────────────

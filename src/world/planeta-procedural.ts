@@ -802,6 +802,38 @@ async function bakePlanetaWeydra(planeta: any): Promise<void> {
   // invisibility here also prevents stale positions on planets that cull
   // mid-queue.
   if (!(planeta as any).visible) return;
+
+  // M5 fast path: planet was created with weydra.planetsLive on, so it
+  // already has a PlanetInstance in the pool. Bake directly to a
+  // RenderTarget — no Pixi readback round-trip. Visually identical to
+  // the live render at this snapshot since both paths reuse the same
+  // pipeline + uniform slot.
+  const liveInstance = (planeta as any)._weydraPlanet as PlanetInstance | undefined;
+  if (liveInstance) {
+    try {
+      const tamanhoLive = (planeta as any).scale?.x ?? 1;
+      const frameSizeLive = Math.max(64, Math.ceil(tamanhoLive * 1.08));
+      const texHandle = r.bakePlanet(liveInstance, frameSizeLive);
+      const sprite = r.createSprite(texHandle, frameSizeLive, frameSizeLive);
+      sprite.x = planeta.x;
+      sprite.y = planeta.y;
+      sprite.zOrder = Z.PLANET_BAKED;
+      sprite.visible = true;
+      (planeta as any)._weydraBakedSprite = sprite;
+      // Keep liveInstance alive — auto-unbake on zoom-in flips back to
+      // the live render path without re-allocating the pool slot. Live
+      // shader keeps drawing into the same pool slot but at tamPx<40 the
+      // baked sprite covers it in z-order; the wasted cycles are a
+      // documented trade-off (deferred: pool-level visibility flag).
+    } catch (err) {
+      console.warn('[planeta-procedural] weydra full bake failed:', err);
+    }
+    return;
+  }
+
+  // M4 hybrid path (Pixi-extract → upload) for legacy mesh planets that
+  // don't carry a _weydraPlanet handle (weydra.planetsLive off, or shader
+  // mode without weydra-live).
   const mesh = planeta as Mesh;
   const shader = (mesh as any)._planetShader as Shader | undefined;
   if (!shader) return;

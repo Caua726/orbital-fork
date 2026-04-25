@@ -1089,3 +1089,118 @@ Intocado. M3 já expõe `upload_texture(bytes, w, h) -> u64` com a assinatura co
 ### Next
 M5 (planet shader live port — port de `planeta.wgsl` pra convenção weydra + determinism test + full-weydra bake substitui pipeline híbrido do M4).
 
+## M5 Status: Complete (2026-04-25)
+
+Live procedural planet shader migrated to weydra-renderer. The same WGSL
+that previously drove Pixi (group 0/1/2 with auto-injected matrices) is
+now ported to the weydra bind group convention (group 0 engine, group 1
+custom PlanetUniforms) at `src/shaders/planeta-weydra.wgsl`. Pixi
+shaders (`planeta.wgsl` + `planeta.frag`/`vert`) remain intact for the
+classic engine path.
+
+### Verificação automática
+- `cargo build --workspace` clean
+- `cargo test --workspace` — 13/13 (slotmap 4 + sprite 4 + camera 2 +
+  device 1 + planet_uniforms_layout + default_is_zeroable_compatible)
+- `./scripts/check-all-platforms.sh` → 4 pass / 4 skip / 0 fail
+- `./scripts/check-platform-guards.sh` → 0 violations
+- `wasm-pack build --release` clean
+- `bunx tsc --noEmit` clean
+
+### Novas primitivas
+- `core/src/pools/{mod.rs, planet.rs}` — PlanetUniforms #[repr(C)] (24
+  fields, 192 bytes — pinned by compile-time assert + offset_of! test
+  at canonical row starts 0/16/32/48/64/80/88/96). PlanetPool stores N
+  instances in one shared GPU buffer with one shared BindGroup +
+  has_dynamic_offset=true; stride aligned to wgpu's
+  min_uniform_buffer_offset_alignment so per-slot offsets pass
+  validation.
+- `Mesh::new` now takes a `blend: wgpu::BlendState` parameter — caller
+  picks REPLACE for opaque fullscreen quads (starfield) or
+  PREMULTIPLIED_ALPHA_BLENDING for shaders whose fragments emit a
+  transparent disc edge (planet).
+
+### WASM adapter
+- `Renderer::create_planet_shader/create_planet_instance/destroy_planet_instance`
+- `planet_uniforms_ptr/_stride/_capacity` for shared-memory views
+- `bake_planet(handle, size) -> texture_handle` — full-weydra bake to
+  a RenderTarget, no Pixi readback. Reuses the live pipeline, just
+  swaps the render attachment.
+- Render loop draws each live planet between starfield and sprite
+  passes (Z.PLANET_LIVE = 11) with one draw call per slot.
+
+### TS bridge
+- `PlanetInstance` class with typed setters (uTime, uSeed, uRotation,
+  uPixels, uTimeSpeed, uDitherSize, uLightBorder1/2, uSize, uOctaves
+  i32, uPlanetType i32, uRiverCutoff, uLandCutoff, uCloudCover,
+  uStretch, uCloudCurve, uTiles, uCloudAlpha, setLightOrigin,
+  setWorldPos, setWorldSize, setColor).
+- Field offsets in a frozen `OFF` constant computed from the canonical
+  PlanetUniforms byte layout (single source of truth on TS side).
+- Cached `_planetUniformsView` (Float32Array) + `_planetUniformsIView`
+  (Int32Array) rebuilt lock-step with sprite views in revalidate().
+- Integer setters apply `Math.round(v) | 0` to avoid silent truncation
+  of float inputs into the i32 enum fields.
+
+### Game integration
+- `config.weydra.planetsLive: boolean` (default false). When on +
+  weydra renderer is up, `criarPlanetaProceduralSprite` returns a
+  Container stub flagged with `_weydraPlanet` instead of a Pixi Mesh —
+  pixels come from the weydra canvas behind the Pixi canvas.
+- `atualizarTempoPlanetas` and `atualizarLuzPlaneta` push uTime,
+  uRotation, worldPos, lightOrigin to PlanetInstance setters with
+  byte-identical math to the Pixi path so the determinism harness
+  stays meaningful.
+- M4 auto-bake / auto-unbake stays functional; live shader and baked
+  sprite coexist per-planet. Task 7 wired the auto-bake path to the
+  full-weydra `bakePlanet` when a `_weydraPlanet` instance is present;
+  legacy mesh planets (no `_weydraPlanet`) keep the M4 Pixi-extract
+  fallback.
+
+### Determinism harness
+- `weydra-renderer/tests/determinism/runner.mjs` — Playwright runner
+  that captures both engines under a fixed scene
+  (`?weydra_determinism_test=1&engine=pixi|weydra`), hashes via
+  SHA-256, and reports divergence. Currently exits 0 even on hash
+  mismatch (bit-exact across compilers is aspirational); a TODO in
+  the runner marks where pngjs+pixelmatch with the spec's <1% Δ≥3 RGB
+  tolerance should land before CI gating.
+- `src/world/determinism-scene.ts` — hidden boot path that snapshots
+  and restores the user's localStorage `orbital_config` so running
+  the test doesn't pollute the real game config.
+
+### Adaptações vs plano
+- `PlanetPool::new(ctx, label, capacity)` — extra `label: &str` for
+  better RenderDoc/wgpu validation diagnostics. Plan template was
+  `(ctx, capacity)`.
+- `Default` values track the game runtime (uPixels=100,
+  uLightOrigin=[0.39, 0.39], uWorldSize=[128, 128]) instead of plan
+  placeholders.
+- WGSL shader port lives at `src/shaders/planeta-weydra.wgsl` (new
+  file alongside the existing Pixi `planeta.wgsl`/`.frag`/`.vert`),
+  matching the M2 starfield-weydra.wgsl pattern instead of overwriting
+  the Pixi shader.
+- Determinism runner exits 0 on hash mismatch (documented as a
+  follow-up gate), not a hard CI gate per the plan's literal reading.
+- `bake_planet` registers the freshly-rendered texture via
+  `TextureRegistry::insert` — sampler is constructed locally because
+  the registry's default-sampler helper is private. Texture handles
+  aren't released on unbake (M4-era gap, deferred to M5+ texture
+  destroy API).
+
+### Reviewer gate
+4 reviewers (spec / plan / quality / bugs) dispatched in parallel after
+each Task. Findings fixed in-tree and re-reviewed until clean in the
+same round. Notable findings caught:
+- Task 1 round 1: rotting "M5"/"Pixi-bound" comments + `vUV` vs `uv`
+  interpolant naming inconsistency; trimmed and renamed.
+- Task 2: PlanetPool default values diverge from plan template — accepted
+  as adaptation tracking game runtime.
+- Task 4: i32 setters silently truncated float inputs; switched to
+  `Math.round(v) | 0`.
+- Task 6: `setConfigDuranteBoot` polluted user localStorage —
+  added snapshot/restore around the harness; sentinel set inside
+  rAF so screenshot doesn't capture pre-paint frame.
+
+### Next
+M6 (fog-of-war shader) or M7 (graphics primitives via lyon).

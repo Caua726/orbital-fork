@@ -246,6 +246,20 @@ export class Renderer {
   }
 
   /**
+   * Render the given PlanetInstance into a baked texture and return its
+   * sprite-compatible texture handle. Caller can then `createSprite`
+   * with that handle to draw the planet as a static sprite.
+   *
+   * Replaces the M4 hybrid path (Pixi `extract.canvas` → readback bytes
+   * → `uploadTexture`) — the bake stays entirely on the GPU.
+   */
+  bakePlanet(p: PlanetInstance, size: number): bigint {
+    const h = this.inner.bake_planet(p.handle, size);
+    this.revalidate();
+    return h;
+  }
+
+  /**
    * Repopulates planetUniformsPtr/Stride/Capacity and rebuilds the f32
    * + i32 views over the shared region. Called from createPlanetShader
    * and from revalidate() when mem_version or the underlying buffer
