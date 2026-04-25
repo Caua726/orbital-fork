@@ -1025,7 +1025,7 @@ function renderGraphicsTab(body: HTMLDivElement): void {
 
 // ─── Graphics tab: weydra subsystem helpers ──────────────────────────
 
-type WeydraKey = 'starfield' | 'ships' | 'shipTrails' | 'starfieldBright' | 'planetsBaked' | 'planetsLive';
+type WeydraKey = 'starfield' | 'ships' | 'shipTrails' | 'starfieldBright' | 'planetsBaked' | 'planetsLive' | 'fog';
 const WEYDRA_FLAGS: Array<{ key: WeydraKey; labelKey: string; tipKey: string }> = [
   { key: 'starfield', labelKey: 'settings.weydra.label_starfield', tipKey: 'settings.weydra.tip_starfield' },
   { key: 'starfieldBright', labelKey: 'settings.weydra.label_starfieldBright', tipKey: 'settings.weydra.tip_starfieldBright' },
@@ -1033,6 +1033,7 @@ const WEYDRA_FLAGS: Array<{ key: WeydraKey; labelKey: string; tipKey: string }> 
   { key: 'shipTrails', labelKey: 'settings.weydra.label_shipTrails', tipKey: 'settings.weydra.tip_shipTrails' },
   { key: 'planetsBaked', labelKey: 'settings.weydra.label_planetsBaked', tipKey: 'settings.weydra.tip_planetsBaked' },
   { key: 'planetsLive', labelKey: 'settings.weydra.label_planetsLive', tipKey: 'settings.weydra.tip_planetsLive' },
+  { key: 'fog', labelKey: 'settings.weydra.label_fog', tipKey: 'settings.weydra.tip_fog' },
 ];
 
 type WeydraConfig = Record<WeydraKey, boolean>;

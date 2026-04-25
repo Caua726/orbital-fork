@@ -66,6 +66,7 @@ export interface OrbitalConfig {
     starfieldBright: boolean; // M3 — bright-tile layer via weydra tiling
     planetsBaked: boolean; // M4 — baked planets via weydra sprite pool
     planetsLive: boolean;  // M5 — procedural planets via weydra live shader
+    fog: boolean;          // M6 — fog-of-war via per-pixel uniform-array shader
     /** Backend selection inside the weydra renderer. */
     backend: 'auto' | 'webgpu' | 'webgl2';
   };
@@ -129,6 +130,7 @@ export const DEFAULTS: OrbitalConfig = {
     starfieldBright: false,
     planetsBaked: false,
     planetsLive: false,
+    fog: false,
     backend: 'auto',
   },
 

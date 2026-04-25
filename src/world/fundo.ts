@@ -314,6 +314,21 @@ export function atualizarFundo(
   telaW: number,
   telaH: number,
 ): void {
+  // Camera uniforms feed every weydra subsystem (starfield, planet, fog),
+  // so push them whenever the renderer is up — independent of which
+  // particular Pixi background path the player is on. Without this the
+  // weydra fog shader runs with a zero camera/viewport on the static
+  // and canvas fundo branches: fog appears anchored at world (0, 0)
+  // and never moves with the player, creating a black overlay anywhere
+  // off-origin. The shared time field is taken from this fundo even if
+  // its mesh isn't being driven this frame so the starfield ticker
+  // doesn't desync between branches.
+  const r = getWeydraRenderer();
+  if (r !== null) {
+    fundo._tempoAcumMs += 16.67;
+    r.setCamera(jogadorX, jogadorY, telaW, telaH, fundo._tempoAcumMs / 1000);
+  }
+
   if ((fundo as any)._isStaticFundo) {
     atualizarFundoEstatico(fundo as any, jogadorX, jogadorY, telaW, telaH);
     return;
@@ -327,12 +342,16 @@ export function atualizarFundo(
   mesh.y = jogadorY - telaH / 2;
   mesh.scale.set(telaW, telaH);
 
-  fundo._tempoAcumMs += 16.67;
-  const r = getWeydraRenderer();
-  // Hide the Pixi starfield mesh ONLY when weydra is actually rendering.
-  // If the player flipped `weydra.starfield` on but the renderer failed
-  // to init (no WebGPU adapter, browser unsupported, etc.), keep the
-  // Pixi path so the fallback isn't a black screen.
+  // _tempoAcumMs is now advanced above (in the renderer-up branch) to
+  // keep weydra's `uTime` continuous across fundo paths. When weydra
+  // is off, advance it here so the Pixi shader path keeps its tick.
+  if (r === null) {
+    fundo._tempoAcumMs += 16.67;
+  }
+  // Hide the Pixi starfield mesh ONLY when weydra is actually rendering
+  // it. If the player flipped `weydra.starfield` on but the renderer
+  // failed to init (no WebGPU adapter, browser unsupported, etc.), keep
+  // the Pixi path so the fallback isn't a black screen.
   const weydraOn = !!getConfig().weydra?.starfield && r !== null;
 
   if (weydraOn) {
@@ -341,7 +360,6 @@ export function atualizarFundo(
     // + blend 'normal', então compõe corretamente com weydra atrás (não
     // bloqueia alpha). Visual idêntico ao Pixi puro.
     mesh.visible = false;
-    r!.setCamera(jogadorX, jogadorY, telaW, telaH, fundo._tempoAcumMs / 1000);
     r!.setStarfieldDensity(getConfig().graphics.densidadeStarfield);
   } else {
     mesh.visible = true;

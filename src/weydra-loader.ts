@@ -13,6 +13,7 @@
 import { initWeydra, Renderer } from '@weydra/renderer';
 import starfieldWgsl from './shaders/starfield-weydra.wgsl';
 import planetWgsl from './shaders/planeta-weydra.wgsl';
+import fogWgsl from './shaders/fog.wgsl';
 import { getConfig, isAnyWeydraSubsystemOn } from './core/config';
 
 let _renderer: Renderer | null = null;
@@ -47,6 +48,11 @@ function anyFlagEnabled(): boolean {
  * works") without overriding an explicit `webgpu` pick — anyone using
  * Firefox Nightly with a working driver and an explicit `webgpu` config
  * still gets WebGPU.
+ *
+ * Caveat: an explicit `webgpu` config on Firefox **release** bypasses
+ * this guard and is still vulnerable to the parent-process crash; the
+ * opt-in is intentional (Nightly + working driver) but the policy is
+ * "your config, your risk", not "we mitigated the crash for you".
  */
 function resolveBackend(
   configured: 'auto' | 'webgpu' | 'webgl2',
@@ -98,6 +104,9 @@ export async function startWeydra(): Promise<void> {
     }
     if (getConfig().weydra.planetsLive) {
       _renderer.createPlanetShader(planetWgsl);
+    }
+    if (getConfig().weydra.fog) {
+      _renderer.createFogShader(fogWgsl);
     }
     console.info('[weydra] renderer initialized; flags:', getConfig().weydra);
     // Expose for live console debugging — typing __weydraRenderer in

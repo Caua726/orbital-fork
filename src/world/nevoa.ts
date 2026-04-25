@@ -385,6 +385,7 @@ export function removerMemoriaPlaneta(mundo: Mundo, planeta: Planeta): void {
 import { Sprite, Texture, ImageSource } from 'pixi.js';
 import { config } from '../ui/debug';
 import { profileMark, profileAcumular } from './profiling';
+import { getWeydraRenderer } from '../weydra-loader';
 
 // Fog resolution deliberadamente baixa mesmo no preset 'alto'. O fog
 // é composto de círculos `destination-out` com borda suave por
@@ -439,6 +440,35 @@ let _fogProfFrames: number = 0;
 export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], camera: Camera, screenW: number, screenH: number, zoom: number): void {
   _fogFrame++;
 
+  // weydra path: shader-based fog. Skip the canvas draw + GPU upload
+  // entirely and push vision sources directly into the FogPool. The
+  // weydra render loop draws a fullscreen quad that smooth-clears the
+  // fog inside each vision radius. Camera uniforms are pushed by
+  // fundo.ts (independent of the starfield flag since M6) so the
+  // shader's world-coord recompose is already correct here.
+  if (getConfig().weydra.fog) {
+    const r = getWeydraRenderer();
+    if (r && r.fog) {
+      // Hide the Pixi sprite if it was previously laid down (flag toggled
+      // mid-session). Don't destroy the singletons — toggling back to
+      // Pixi would have to re-create them otherwise, costing a canvas
+      // alloc + texture upload on the next frame.
+      if (_fogSprite && _fogSprite.parent) _fogSprite.parent.removeChild(_fogSprite);
+
+      r.fog.setBaseAlpha(config.fogAlpha);
+      const max = r.fog.maxSources;
+      const count = Math.min(fontesVisao.length, max);
+      for (let i = 0; i < count; i++) {
+        const f = fontesVisao[i];
+        r.fog.setSource(i, f.x, f.y, f.raio);
+      }
+      r.fog.setActiveCount(count);
+      return;
+    }
+    // Renderer not up yet (boot race) — fall through to the Pixi path
+    // so the player isn't staring at unfogged space until weydra inits.
+  }
+
   // margemMin=0 (sem piso constante), margemMultiplier=1500 (replica
   // exatamente o comportamento original margem=1500*invZoom).
   const bounds = calcularBoundsViewport(camera.x, camera.y, zoom, screenW, screenH, 0, 1500, _fogBoundsScratch);
@@ -471,6 +501,17 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
   const fogT = Math.max(1, gfxCfg.fogThrottle);
   const redesenhar = _fogFrame % fogT === 0;
 
+  // Re-attach the fog sprite every frame regardless of whether the
+  // canvas is being redrawn this tick. Without this, switching the
+  // weydra.fog flag back to false at a high fogThrottle setting (e.g.
+  // throttle 20) would leave the sprite detached for up to 20 frames
+  // — visible as a flash of unfogged space on the toggle. The
+  // visaoTotal cheat also benefits: toggling visaoTotal off after on
+  // re-attaches immediately instead of on the next throttle tick.
+  if (_fogSprite && !_fogSprite.parent) {
+    mundo.visaoContainer.addChild(_fogSprite);
+  }
+
   if (redesenhar) {
     const tCanvas0 = profileMark();
     const ctx = _fogCtx!;
@@ -495,7 +536,6 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
 
     // Upload textura
     const tUp0 = profileMark();
-    const visao = mundo.visaoContainer;
 
     if (!_fogSprite) {
       // scaleMode 'linear' é default mas explicitado aqui porque o
@@ -504,11 +544,9 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
       _fogSource = new ImageSource({ resource: _fogCanvas, scaleMode: 'linear' });
       _fogTexture = new Texture({ source: _fogSource });
       _fogSprite = new Sprite(_fogTexture);
-    }
-
-    // Re-adicionar se foi removido (ex: visaoTotal toggle)
-    if (!_fogSprite.parent) {
-      visao.addChild(_fogSprite);
+      // Newly-allocated sprite has no parent yet — attach so the next
+      // frame's update() lands on a visible target.
+      mundo.visaoContainer.addChild(_fogSprite);
     }
 
     _fogSource!.resource = _fogCanvas;

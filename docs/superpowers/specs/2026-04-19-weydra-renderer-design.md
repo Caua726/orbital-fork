@@ -1204,3 +1204,168 @@ same round. Notable findings caught:
 
 ### Next
 M6 (fog-of-war shader) or M7 (graphics primitives via lyon).
+
+## M6 Status: Complete (2026-04-25)
+
+Fog-of-war migrated to a per-pixel uniform-array shader. The Pixi path
+(canvas 2D `destination-out` + texture upload per frame from
+`src/world/nevoa.ts`) is preserved as a fallback; when
+`config.weydra.fog` is on AND the weydra renderer is up, fog rendering
+goes through `src/shaders/fog.wgsl` instead. The canvas draw + GPU
+upload spike that previously dominated p95 fog frame time is gone — the
+shader walks up to 64 vision sources per fragment and zero bytes leave
+JS each frame.
+
+### Verificação automática
+- `cargo build --workspace` clean
+- `cargo test --workspace` — 13/13 (slotmap 4 + sprite 4 + camera 2 +
+  device 1 + planet 2 + fog 2)
+- `./scripts/check-all-platforms.sh` → 4 pass / 4 skip / 0 fail
+- `./scripts/check-platform-guards.sh` → 0 violations
+- `wasm-pack build --release` clean
+- `bunx tsc --noEmit` clean
+- `bun run test` — 198/198 (1 skipped, pre-existing)
+
+### Novas primitivas
+- `core/src/pools/{mod.rs, fog.rs}` — `FogUniforms` (#[repr(C)], 1040
+  bytes — pinned by compile-time assert + offset_of! tests on the
+  header rows 0/4/8/16 and on `VisionSource`'s 0/8/12). `VisionSource`
+  is exactly one std140 row (16 bytes: vec2 position + f32 radius +
+  f32 _pad). `FOG_MAX_SOURCES = 64` mirrored on both sides; raising
+  the cap requires updating the WGSL `array<VisionSource, 64>` too.
+  `FogPool` is a singleton (`has_dynamic_offset: false`) — one
+  fullscreen draw per frame, the entire 1040-byte buffer fits well
+  under the 64 KiB UBO max.
+- `pools/mod.rs` docstring now distinguishes the two pool patterns
+  (multi-instance with dynamic offset for `PlanetPool`, singleton
+  without dynamic offset for `FogPool`) so the difference is visible
+  to anyone wiring a new pool.
+
+### WASM adapter
+- `Renderer::create_fog_shader` (assert-guarded against double-create
+  to keep TS-side typed-array views valid), `fog_uniforms_ptr/_size/_max_sources`.
+- Fog pipeline uses `wgpu::BlendState::ALPHA_BLENDING` — straight
+  alpha output from `fog.wgsl`, NOT `PREMULTIPLIED_ALPHA_BLENDING`
+  (would darken fog by alpha) and NOT `REPLACE` (would erase the
+  layers behind it). Contract is documented in fog.wgsl's header.
+- Render loop draws fog as the LAST weydra pass (above starfield,
+  planets, sprites — Z.FOG = 40 in `src/core/render-order.ts`). The
+  Pixi UI canvas composites above the weydra surface, so HUD chrome
+  stays unfogged automatically.
+
+### TS bridge
+- `FogLayer` class with `setBaseAlpha`, `setActiveCount`, `setSource`.
+  Unlike `Sprite`/`PlanetInstance` (which cache a typed-array view on
+  the Renderer), `FogLayer` re-reads `_wasm.memory.buffer +
+  _fogUniformsPtr()` per write — fog setters fire O(active_count) per
+  frame (≤ 64), so the ~50 ns round-trip is cheap and eliminates the
+  detached-view bug class entirely.
+- `setActiveCount` clamps internally to `[0, maxSources]` so a caller
+  bug can't drive the WGSL loop past the declared array length —
+  GLSL ES 3.0 (the WebGL2 path) does not mandate robust uniform-array
+  access. `setSource` coerces `idx` to int32 before its bounds check
+  to refuse non-integer indices that would otherwise land at
+  misaligned offsets, and throws (rather than silently no-op-ing the
+  typed-array OOB write) when `idx` is out of range.
+- `Renderer._fogUniformsPtr()` is the `@internal` accessor consumed
+  per setter, mirroring the underscore convention used by
+  `_planetUniformsView` / `_planetUniformsIView`.
+
+### Game integration
+- `config.weydra.fog: boolean` (default false) in `OrbitalConfig`.
+- `src/weydra-loader.ts` calls `_renderer.createFogShader(fogWgsl)`
+  when the flag is on.
+- `src/world/nevoa.ts::desenharNeblinaVisao` early-branch: when
+  `weydra.fog` is on AND the renderer + FogLayer are up, push base
+  alpha + clamped vision sources through the FogLayer setters and
+  return. The Pixi sprite is removed from its parent on entry so a
+  mid-session toggle doesn't leave a stale fog texture composited
+  on top.
+- `src/world/fundo.ts::atualizarFundo` now pushes `setCamera` to the
+  weydra renderer **independently of the starfield flag**. Previously
+  the call sat inside the starfield-only branch, so enabling
+  `weydra.fog` without `weydra.starfield` would leave the fog shader
+  reading a zeroed camera/viewport. Camera uniforms feed every weydra
+  subsystem; the push has to be subsystem-agnostic.
+
+### Adaptações vs plano
+- WASM API names: `fog_uniforms_ptr/_size/_max_sources` instead of
+  the plan's shorter `fog_ptr/_max_sources`. Aligns with the existing
+  `planet_uniforms_*` / `starfield_uniforms_*` family — the plan's
+  shorter names were placeholder stubs. Additionally, `fog_uniforms_size`
+  is a new export (not in the plan) so the TS view sizing comes from
+  the Rust constant rather than a hand-computed `4 + max * 4` that
+  would silently drift if the struct ever grows.
+- vs_main vertex pattern: explicit 6-corner array (matching M2
+  `starfield-weydra.wgsl`) instead of the plan's
+  `(idx << 1u) & 2u` bit trick. Both compile to identical naga
+  output.
+- Blend mode contract: the plan was silent on which `BlendState` to
+  pick. The shader's straight-alpha output requires `ALPHA_BLENDING`,
+  documented in `fog.wgsl`'s header so any future pipeline rewrite
+  can't pick `PREMULTIPLIED_ALPHA_BLENDING` (planet's choice) by
+  copy-paste.
+- Color constants: `vec4(0.008, 0.02, 0.0627, alpha)` instead of
+  `vec4(0.008, 0.02, 0.06, alpha)` — `0.06` rounds to 15 at 8-bit,
+  not 16, diverging from the Pixi `rgba(2, 5, 16)`. `0.0627` round-
+  trips back to 16 cleanly.
+
+### Reviewer gate
+4 reviewers (spec / plan / quality / bugs) dispatched in parallel
+after each Task. Findings fixed in-tree and re-reviewed until clean
+in the same round. Notable findings caught:
+- Task 1: `pools/mod.rs` docstring described every pool as
+  multi-instance dynamic-offset, contradicting `FogPool`'s singleton
+  design — rewrote to document both patterns. `default_zeroes_all_sources`
+  test missed the only non-zero default field (`base_alpha = 0.75`);
+  added the assertion.
+- Task 2: blue channel `0.06` was 1 LSB darker than Pixi at 8-bit
+  round-trip — bumped to `0.0627`. Smoothstep direction comment
+  narrated the WHAT of the signature instead of the WHY of the
+  ordering constraint; trimmed. Added an explicit blend-mode contract
+  block for Task 3 to honour.
+- Task 3: FogLayer originally pierced `Renderer.inner` via
+  `as unknown as { inner: any }` — replaced with a proper
+  `_fogUniformsPtr()` accessor matching the `_planetUniformsView`
+  underscore convention. `setSource` accepted non-integer `idx`
+  values that bypassed the bounds guard (`idx = 1.5` would write at a
+  misaligned offset across two source slots) — added `idx | 0`
+  coercion mirroring `setActiveCount`'s `n | 0`. `fogMaxSources`
+  on Renderer was a public mutable field; marked `readonly` with the
+  single intentional mutation site cast-localised in
+  `createFogShader`.
+- Task 4: `fundo.ts::atualizarFundo` only pushed `setCamera` when
+  `weydra.starfield` was on — fog without starfield would render
+  with zeroed camera. Hoisted the `setCamera` call out of the
+  starfield branch.
+
+### Hotfix shipped during M6
+`src/weydra-loader.ts::resolveBackend` demotes `auto` → `webgl2` when
+the user agent is Firefox, regardless of `config.weydra.backend`.
+Firefox 149 release crashes the parent process (not just the tab) on
+`WebGPUParent::SwapChainDrop` for AMD Baffin adapters and other
+WebGPU + AMD combinations — confirmed via the Mozilla crash report
+`bp-cf6c58fa-47b5-4c0f-a133-581d10260425` (`Result::unwrap()` on
+`TryFromSliceError(())` in `wgpu_bindings::server::wgpu_server_pack_free_swap_chain_buffer_ids`).
+Explicit `webgpu` config still passes through so Firefox Nightly
+users with a working driver opt in.
+
+### Verification pendente no usuário (browser)
+- `config.weydra.starfield / ships / shipTrails / starfieldBright /
+  planetsBaked / planetsLive` (M2-M5) ainda funcionam, não regrediram.
+- `config.weydra.fog = true` NOVO — fog renderiza via shader, bordas
+  suaves comparáveis ao `destination-out` do Pixi, acompanha
+  camera/zoom, cobre o viewport todo.
+- Pixi fallback validado: `weydra.fog = false` → canvas 2D path
+  ainda renderiza idêntico ao baseline pre-M6.
+- Stress: cena com player espalhado em vários sistemas + 30+ naves
+  com raio de visão ativo (≥ 40 sources). Frame time `fog` constante
+  (elimina o spike p95 do canvas+upload). Se passar de 64 sources,
+  `setActiveCount` clampa silenciosamente e o excedente fica
+  invisível ao shader — decidir se vale ampliar o cap ou priorizar
+  por proximidade.
+- Chrome (WebGPU) + Firefox (WebGL2 via fallback hotfix) — ambos
+  renderizam.
+
+### Next
+M7 (graphics primitives via lyon) ou M8 (text via fontdue).
