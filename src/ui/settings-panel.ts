@@ -1000,49 +1000,60 @@ function renderGraphicsTab(body: HTMLDivElement): void {
     body.appendChild(row);
   }
 
-  // Motor section (Task 26)
+  // Motor section (Task 26) — engine + backend + weydra opt-outs.
   renderGraphicsTabMotor(body);
-  // Weydra experimental renderer toggles
-  renderGraphicsTabWeydra(body);
   // Avan\u00E7ado section (Task 27)
   renderGraphicsTabAvancado(body);
 }
 
-// ─── Graphics tab: Weydra experimental section ───────────────────────
-//
-// Each subsystem toggles independently so players can opt into pieces
-// that are visually identical and ship-ready, while leaving the rest
-// in Pixi.
+// ─── Graphics tab: weydra subsystem helpers ──────────────────────────
 
 type WeydraKey = 'starfield' | 'ships' | 'shipTrails' | 'starfieldBright' | 'planetsBaked';
-const WEYDRA_FLAGS: Array<{ key: WeydraKey; label: string; tooltip: string }> = [
-  { key: 'starfield', label: 'Starfield', tooltip: 'Starfield procedural via weydra (M2). Substitui o shader Pixi.' },
-  { key: 'starfieldBright', label: 'Bright tiles', tooltip: 'Camada brilhante de estrelas tile-wrapped via weydra (M3).' },
-  { key: 'ships', label: 'Naves', tooltip: 'Sprite pool weydra pra todas as naves (M3). Visual identico ao Pixi.' },
-  { key: 'shipTrails', label: 'Trails', tooltip: 'Rastros dos motores via sprite pool weydra (M3). Fade por particula.' },
-  { key: 'planetsBaked', label: 'Planetas (baked)', tooltip: 'Planetas pequenos via sprite weydra (M4). Pixi ainda gera a textura.' },
+const WEYDRA_FLAGS: Array<{ key: WeydraKey; labelKey: string; tipKey: string }> = [
+  { key: 'starfield', labelKey: 'settings.weydra.label_starfield', tipKey: 'settings.weydra.tip_starfield' },
+  { key: 'starfieldBright', labelKey: 'settings.weydra.label_starfieldBright', tipKey: 'settings.weydra.tip_starfieldBright' },
+  { key: 'ships', labelKey: 'settings.weydra.label_ships', tipKey: 'settings.weydra.tip_ships' },
+  { key: 'shipTrails', labelKey: 'settings.weydra.label_shipTrails', tipKey: 'settings.weydra.tip_shipTrails' },
+  { key: 'planetsBaked', labelKey: 'settings.weydra.label_planetsBaked', tipKey: 'settings.weydra.tip_planetsBaked' },
 ];
 
-function renderGraphicsTabWeydra(body: HTMLDivElement): void {
-  const sec = document.createElement('div');
-  sec.className = 'settings-section';
-  sec.textContent = 'Weydra (experimental)';
-  body.appendChild(sec);
+type WeydraConfig = Record<WeydraKey, boolean>;
+
+function isWeydraOn(): boolean {
+  const w = getConfig().weydra as WeydraConfig | undefined;
+  return !!(w && WEYDRA_FLAGS.some((f) => w[f.key]));
+}
+
+function setWeydraAll(on: boolean): void {
+  const cur = getConfig().weydra as WeydraConfig;
+  const next = { ...cur };
+  for (const f of WEYDRA_FLAGS) next[f.key] = on;
+  setConfig({ weydra: next });
+}
+
+function renderWeydraOptOuts(host: HTMLDivElement): void {
+  host.replaceChildren();
+  if (!isWeydraOn()) return;
+
+  const hint = document.createElement('div');
+  hint.style.cssText = 'opacity:0.6; font-size: calc(var(--hud-unit) * 0.7); margin: calc(var(--hud-unit) * 0.4) 0 calc(var(--hud-unit) * 0.4);';
+  hint.textContent = t('settings.weydra.desabilitar_hint');
+  host.appendChild(hint);
 
   for (const flag of WEYDRA_FLAGS) {
-    const [row, label] = rowWithLabel(flag.label, 'qualidade');
-    label.title = flag.tooltip;
+    const [row, label] = rowWithLabel(t(flag.labelKey), 'qualidade');
+    label.title = t(flag.tipKey);
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.checked = !!(getConfig().weydra as any)[flag.key];
+    const cur = getConfig().weydra as WeydraConfig;
+    cb.checked = !!cur[flag.key];
     cb.addEventListener('change', () => {
-      setConfig({
-        weydra: { ...getConfig().weydra, [flag.key]: cb.checked } as any,
-      });
+      const next: WeydraConfig = { ...(getConfig().weydra as WeydraConfig), [flag.key]: cb.checked };
+      setConfig({ weydra: next });
       showReloadBanner(row);
     });
     row.appendChild(cb);
-    body.appendChild(row);
+    host.appendChild(row);
   }
 }
 
@@ -1056,52 +1067,87 @@ function renderGraphicsTabMotor(body: HTMLDivElement): void {
   sec.textContent = t('settings.secao_motor');
   body.appendChild(sec);
 
-  // Renderer
-  {
-    const [row] = rowWithLabel(t('settings.row.renderer'), 'renderer');
-    const select = criarSelect([
-      ['webgl', t('settings.opt.webgl')],
-      ['webgpu', t('settings.opt.webgpu')],
-      ['software', t('settings.opt.software')],
-    ], gfx.renderer);
-    select.addEventListener('change', () => {
-      setConfig({ graphics: { ...getConfig().graphics, renderer: select.dataset.value! as any } });
-      showReloadBanner(row);
-    });
-    row.appendChild(select);
-    body.appendChild(row);
-  }
+  // ── Engine: Pixi (clássico) vs Weydra (experimental) ──────────────
+  // Picking weydra flips every subsystem on (planetsBaked too); picking
+  // pixi flips them all off. Below the engine row we render either the
+  // Pixi-specific knobs (backend / WebGL version / GPU pref) or the
+  // Weydra opt-out checkboxes.
+  const engineRow = rowWithLabel(t('settings.row.engine'), 'renderer')[0];
+  const engineSelect = criarSelect(
+    [
+      ['pixi', t('settings.opt.pixi_classico')],
+      ['weydra', t('settings.opt.weydra_exp')],
+    ],
+    isWeydraOn() ? 'weydra' : 'pixi',
+  );
+  engineRow.appendChild(engineSelect);
+  body.appendChild(engineRow);
 
-  // WebGL version (only if renderer=webgl)
-  if (gfx.renderer === 'webgl') {
-    const [row] = rowWithLabel(t('settings.row.webgl_version'), 'webglVersion');
-    const select = criarSelect([
-      ['auto', t('settings.opt.automatico')],
-      ['2', t('settings.opt.webgl2_forcado')],
-      ['1', t('settings.opt.webgl1_forcado')],
-    ], gfx.webglVersion);
-    select.addEventListener('change', () => {
-      setConfig({ graphics: { ...getConfig().graphics, webglVersion: select.dataset.value! as typeof gfx.webglVersion } });
-      showReloadBanner(row);
-    });
-    row.appendChild(select);
-    body.appendChild(row);
-  }
+  const optOutHost = document.createElement('div');
+  body.appendChild(optOutHost);
 
-  // GPU preference
-  {
-    const [row] = rowWithLabel(t('settings.row.gpu_pref'), 'gpuPref');
-    const select = criarSelect([
-      ['auto', t('settings.opt.automatico')],
-      ['high-performance', t('settings.opt.alta_perf')],
-      ['low-power', t('settings.opt.economia')],
-    ], gfx.gpuPreference);
-    select.addEventListener('change', () => {
-      setConfig({ graphics: { ...getConfig().graphics, gpuPreference: select.dataset.value! as typeof gfx.gpuPreference } });
-      showReloadBanner(row);
-    });
-    row.appendChild(select);
-    body.appendChild(row);
+  engineSelect.addEventListener('change', () => {
+    const pickWeydra = engineSelect.dataset.value === 'weydra';
+    setWeydraAll(pickWeydra);
+    showReloadBanner(engineRow);
+    // Full panel refresh — without this, the Pixi-only Backend / WebGL
+    // version / GPU preference dropdowns rendered earlier remain in the
+    // DOM after switching to weydra (and the weydra opt-outs persist
+    // when switching back to pixi).
+    _refreshBody?.();
+  });
+  renderWeydraOptOuts(optOutHost);
+
+  // Backend (Pixi-only — weydra picks its backend via wgpu adapter
+  // selection automatically). Hidden when engine=weydra so the user
+  // doesn't think they're configuring weydra's backend.
+  if (!isWeydraOn()) {
+    {
+      const [row] = rowWithLabel(t('settings.row.backend'), 'renderer');
+      const select = criarSelect([
+        ['webgl', t('settings.opt.webgl')],
+        ['webgpu', t('settings.opt.webgpu')],
+        ['software', t('settings.opt.software')],
+      ], gfx.renderer);
+      select.addEventListener('change', () => {
+        setConfig({ graphics: { ...getConfig().graphics, renderer: select.dataset.value! as any } });
+        showReloadBanner(row);
+      });
+      row.appendChild(select);
+      body.appendChild(row);
+    }
+
+    // WebGL version (only if renderer=webgl)
+    if (gfx.renderer === 'webgl') {
+      const [row] = rowWithLabel(t('settings.row.webgl_version'), 'webglVersion');
+      const select = criarSelect([
+        ['auto', t('settings.opt.automatico')],
+        ['2', t('settings.opt.webgl2_forcado')],
+        ['1', t('settings.opt.webgl1_forcado')],
+      ], gfx.webglVersion);
+      select.addEventListener('change', () => {
+        setConfig({ graphics: { ...getConfig().graphics, webglVersion: select.dataset.value! as typeof gfx.webglVersion } });
+        showReloadBanner(row);
+      });
+      row.appendChild(select);
+      body.appendChild(row);
+    }
+
+    // GPU preference
+    {
+      const [row] = rowWithLabel(t('settings.row.gpu_pref'), 'gpuPref');
+      const select = criarSelect([
+        ['auto', t('settings.opt.automatico')],
+        ['high-performance', t('settings.opt.alta_perf')],
+        ['low-power', t('settings.opt.economia')],
+      ], gfx.gpuPreference);
+      select.addEventListener('change', () => {
+        setConfig({ graphics: { ...getConfig().graphics, gpuPreference: select.dataset.value! as typeof gfx.gpuPreference } });
+        showReloadBanner(row);
+      });
+      row.appendChild(select);
+      body.appendChild(row);
+    }
   }
 
   // "Ver informa\u00E7\u00F5es" button

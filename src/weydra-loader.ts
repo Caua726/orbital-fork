@@ -71,6 +71,9 @@ export async function startWeydra(): Promise<void> {
       _renderer.createStarfield(starfieldWgsl);
     }
     console.info('[weydra] renderer initialized; flags:', getConfig().weydra);
+    // Expose for live console debugging — typing __weydraRenderer in
+    // DevTools gives access to setCamera/setStarfieldDensity etc.
+    (window as any).__weydraRenderer = _renderer;
   } catch (err) {
     console.error('[weydra] init failed:', err);
     return;

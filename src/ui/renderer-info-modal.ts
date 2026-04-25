@@ -1,6 +1,7 @@
 import type { Application } from 'pixi.js';
 import { getConfig } from '../core/config';
 import { t } from '../core/i18n/t';
+import { getWeydraRenderer } from '../weydra-loader';
 
 interface RendererInfo {
   motor: string;
@@ -246,11 +247,38 @@ export function abrirRendererInfoModal(app: Application): void {
   header.append(title, closeX);
   card.appendChild(header);
 
-  // ── Config section: what the user selected ──
+  // ── Engine: which TS-side renderer is the player using? ──────────
+  const w = getConfig().weydra;
+  const enabledSubs = w
+    ? Object.entries(w).filter(([, v]) => v).map(([k]) => k)
+    : [];
+  card.append(
+    row(
+      t('renderer_info.engine'),
+      enabledSubs.length > 0
+        ? t('renderer_info.engine_weydra', { n: enabledSubs.length })
+        : t('renderer_info.engine_pixi'),
+    ),
+  );
+  if (enabledSubs.length > 0) {
+    card.append(row(t('renderer_info.weydra_subs'), enabledSubs.join(', ')));
+    const r = getWeydraRenderer();
+    const wRow = row(
+      t('renderer_info.weydra_adapter'),
+      r ? t('renderer_info.weydra_ok') : t('renderer_info.weydra_fail'),
+    );
+    if (!r) {
+      const v = wRow.querySelector('.value') as HTMLElement | null;
+      if (v) v.style.color = '#ff6b6b';
+    }
+    card.appendChild(wRow);
+  }
+
+  // ── Config section: what the user selected for Pixi ──
   const cfg = getConfig().graphics;
   const rendererLabels: Record<string, string> = { webgl: 'WebGL', webgpu: 'WebGPU', software: t('renderer_info.renderer_software') };
   const gpuPrefLabels: Record<string, string> = { auto: t('renderer_info.automatico'), 'high-performance': t('renderer_info.gpu_alta'), 'low-power': t('renderer_info.gpu_economia') };
-  card.append(row(t('renderer_info.modo_configurado'), rendererLabels[cfg.renderer] ?? cfg.renderer));
+  card.append(row(t('renderer_info.backend_pixi'), rendererLabels[cfg.renderer] ?? cfg.renderer));
   if (cfg.renderer === 'webgl') {
     card.append(row(t('renderer_info.versao_webgl'), cfg.webglVersion === 'auto' ? t('renderer_info.automatico') : t('renderer_info.webgl_forcado', { v: cfg.webglVersion })));
   }
