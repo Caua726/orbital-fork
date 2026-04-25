@@ -66,14 +66,23 @@ export class Renderer {
 
   /**
    * Create a new Renderer on the given canvas.
+   *
+   * `backend` is a hint passed straight to wgpu's `Backends` bitflag:
+   * `'auto'` (default) tries WebGPU then falls back to WebGL2;
+   * `'webgpu'` forces WebGPU only; `'webgl2'` forces WebGL2 only.
+   *
    * Must call `initWeydra()` first.
    */
-  static async create(canvas: HTMLCanvasElement): Promise<Renderer> {
+  static async create(
+    canvas: HTMLCanvasElement,
+    backend: 'auto' | 'webgpu' | 'webgl2' = 'auto',
+  ): Promise<Renderer> {
     if (!_initPromise) {
       throw new Error('initWeydra() must be called before Renderer.create()');
     }
     await _initPromise;
-    const inner = await WasmRenderer.create(canvas);
+    const code = backend === 'webgpu' ? 1 : backend === 'webgl2' ? 2 : 0;
+    const inner = await WasmRenderer.create(canvas, code);
     return new Renderer(inner);
   }
 

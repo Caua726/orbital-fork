@@ -109,11 +109,29 @@ pub struct Renderer {
 
 #[wasm_bindgen]
 impl Renderer {
-    pub async fn create(canvas: HtmlCanvasElement) -> Result<Renderer, JsValue> {
+    /// Create the renderer bound to a canvas.
+    ///
+    /// `backend` is a hint:
+    /// * `0` (default) — Auto: try WebGPU, fall back to WebGL2.
+    /// * `1` — Force WebGPU only. Fails if `navigator.gpu` is missing.
+    /// * `2` — Force WebGL2 only.
+    ///
+    /// Mismatched values fall back to Auto. The wgpu instance honours the
+    /// hint via its `Backends` bitflag.
+    pub async fn create(canvas: HtmlCanvasElement, backend: u32) -> Result<Renderer, JsValue> {
         let width = canvas.width();
         let height = canvas.height();
 
-        let instance = wgpu::Instance::default();
+        let backends = match backend {
+            1 => wgpu::Backends::BROWSER_WEBGPU,
+            2 => wgpu::Backends::GL,
+            _ => wgpu::Backends::all(),
+        };
+        let instance_desc = wgpu::InstanceDescriptor {
+            backends,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        };
+        let instance = wgpu::Instance::new(instance_desc);
         let surface = instance
             .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
             .map_err(|e| JsValue::from_str(&format!("surface: {e}")))?;

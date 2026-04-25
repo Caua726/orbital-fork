@@ -1035,6 +1035,24 @@ function renderWeydraOptOuts(host: HTMLDivElement): void {
   host.replaceChildren();
   if (!isWeydraOn()) return;
 
+  // Weydra backend selector — auto/webgpu/webgl2.
+  {
+    const [row] = rowWithLabel(t('settings.row.weydra_backend'), 'renderer');
+    const cur = (getConfig().weydra as WeydraConfig & { backend: 'auto' | 'webgpu' | 'webgl2' }).backend ?? 'auto';
+    const select = criarSelect([
+      ['auto', t('settings.opt.auto')],
+      ['webgpu', t('settings.opt.weydra_webgpu')],
+      ['webgl2', t('settings.opt.weydra_webgl2')],
+    ], cur);
+    select.addEventListener('change', () => {
+      const next = { ...(getConfig().weydra as any), backend: select.dataset.value };
+      setConfig({ weydra: next });
+      showReloadBanner(row);
+    });
+    row.appendChild(select);
+    host.appendChild(row);
+  }
+
   const hint = document.createElement('div');
   hint.style.cssText = 'opacity:0.6; font-size: calc(var(--hud-unit) * 0.7); margin: calc(var(--hud-unit) * 0.4) 0 calc(var(--hud-unit) * 0.4);';
   hint.textContent = t('settings.weydra.desabilitar_hint');
