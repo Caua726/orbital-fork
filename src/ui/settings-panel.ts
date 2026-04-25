@@ -42,7 +42,7 @@ type TooltipKey =
   | 'renderer' | 'webglVersion' | 'gpuPref' | 'verInfo' | 'orbitas'
   | 'starfield' | 'fantasmas' | 'shaderLive' | 'autosave' | 'saveMode'
   | 'confirmar' | 'edge' | 'touchMode'
-  | 'engine' | 'weydraBackend' | 'weydraSubsystem';
+  | 'engine' | 'weydraBackend';
 
 function tooltip(key: TooltipKey): string {
   return t(`tooltips.${key}`);
@@ -229,11 +229,18 @@ function injectStyles(): void {
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function rowWithLabel(text: string, tooltipKey: TooltipKey): [HTMLDivElement, HTMLLabelElement] {
+  return rowWithLabelTip(text, tooltip(tooltipKey));
+}
+
+/** Variant of rowWithLabel that accepts an already-resolved tooltip string —
+ *  used when the per-row help text comes from a flag-specific i18n key
+ *  outside the static TooltipKey union. */
+function rowWithLabelTip(text: string, tipText: string): [HTMLDivElement, HTMLLabelElement] {
   const row = document.createElement('div');
   row.className = 'settings-row';
   const lbl = document.createElement('label');
   lbl.textContent = text;
-  comHelp(lbl, tooltip(tooltipKey));
+  comHelp(lbl, tipText);
   row.appendChild(lbl);
   return [row, lbl];
 }
@@ -449,6 +456,11 @@ export function fecharSettings(): void {
     window.removeEventListener('keydown', _escListener);
     _escListener = null;
   }
+  // Drop the engine-banner pending flag — re-opening the panel later
+  // shouldn't re-show a banner from a stale change the user never followed
+  // through on (page-reload would clear it anyway, but the panel can be
+  // reopened in the same session).
+  _pendingEngineReloadBanner = false;
   // Only null _refreshBody if it was set by the overlay, not by renderSettingsInto
   if (_overlay) _refreshBody = null;
   if (!_overlay) return;
@@ -1064,11 +1076,7 @@ function renderWeydraOptOuts(host: HTMLDivElement): void {
   host.appendChild(hint);
 
   for (const flag of WEYDRA_FLAGS) {
-    const [row, label] = rowWithLabel(t(flag.labelKey), 'weydraSubsystem');
-    // The per-flag tip overrides the generic weydraSubsystem help text via
-    // .title (the help icon shows the generic copy; long-hover on the label
-    // surfaces the flag-specific note).
-    label.title = t(flag.tipKey);
+    const [row] = rowWithLabelTip(t(flag.labelKey), t(flag.tipKey));
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.checked = !!getConfig().weydra[flag.key];

@@ -180,6 +180,12 @@ function migrarChavesLegadas(cfg: OrbitalConfig): void {
     cfg.graphics.vsync = false;
     cfg.graphics.fpsCap = 0;
   }
+  // Coerce fogThrottle into a value the dropdown actually offers; otherwise
+  // criarSelect would render the raw number with no label.
+  const VALID_FOG = [1, 2, 3, 5, 10, 20];
+  if (!VALID_FOG.includes(cfg.graphics.fogThrottle)) {
+    cfg.graphics.fogThrottle = 1;
+  }
 }
 
 function load(): OrbitalConfig {
