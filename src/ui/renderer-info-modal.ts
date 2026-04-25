@@ -248,9 +248,14 @@ export function abrirRendererInfoModal(app: Application): void {
   card.appendChild(header);
 
   // ── Engine: which TS-side renderer is the player using? ──────────
+  // Skip the `backend` config key — it's a string ('auto'/'webgpu'/...),
+  // not a subsystem boolean, but `Boolean('auto')` would still pass the
+  // filter and overinflate the count to 6/5.
   const w = getConfig().weydra;
   const enabledSubs = w
-    ? Object.entries(w).filter(([, v]) => v).map(([k]) => k)
+    ? Object.entries(w)
+        .filter(([k, v]) => k !== 'backend' && v === true)
+        .map(([k]) => k)
     : [];
   card.append(
     row(

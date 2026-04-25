@@ -141,33 +141,54 @@ impl Renderer {
             backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         };
-        let instance = wgpu::Instance::new(instance_desc);
+        // `util::new_instance_with_webgpu_detection` runs an async probe
+        // that actually requests a WebGPU adapter, not just checking for
+        // `navigator.gpu`. Browsers like Chrome on older AMD GPUs expose
+        // navigator.gpu but the adapter request returns null. The probe
+        // catches that and strips BROWSER_WEBGPU from the bitmask so the
+        // subsequent surface + adapter request fall through to wgpu-core's
+        // WebGL2 path (cfg(webgl)). Plain `Instance::new` is sync and
+        // can't probe, so it leaves BROWSER_WEBGPU set and adapter
+        // request later fails with no fallback.
+        let instance = wgpu::util::new_instance_with_webgpu_detection(instance_desc).await;
 
-        // wgpu 29's safe `SurfaceTarget::Canvas` path passes
-        // `raw_display_handle: None` when constructing the canvas surface.
-        // That trips wgpu-core's `MissingDisplayHandle` guard whenever the
-        // GL backend gets reached on web (no navigator.gpu, or
-        // BROWSER_WEBGPU stripped from the bitmask). The wgpu-hal-gl wasm
-        // backend never reads the display, but the early validation in
-        // wgpu-core fires before it dispatches.
+        // Try the safe `SurfaceTarget::Canvas` path first. On
+        // navigator.gpu-capable browsers wgpu dispatches straight to the
+        // BROWSER_WEBGPU backend with no display-handle check, and the
+        // safe path keeps the canvas's normal context lifecycle untouched
+        // (the `unsafe` variant skips a couple of bookkeeping steps that
+        // appear to interact badly with neighbour WebGL contexts under
+        // SwiftShader, triggering CONTEXT_LOST on Pixi).
         //
-        // We bypass the safe path by manually constructing a `WebDisplay`
-        // marker handle alongside the canvas window handle. The marker is
-        // an empty struct from raw-window-handle, accepted by wgpu-core's
-        // check and ignored by the actual GL/web surface implementation.
-        let canvas_value: &wasm_bindgen::JsValue = canvas.as_ref();
-        let canvas_obj = core::ptr::NonNull::from(canvas_value).cast();
-        let raw_window_handle: raw_window_handle::RawWindowHandle =
-            raw_window_handle::WebCanvasWindowHandle::new(canvas_obj).into();
-        let raw_display_handle: raw_window_handle::RawDisplayHandle =
-            raw_window_handle::WebDisplayHandle::new().into();
-        let surface = unsafe {
-            instance
-                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                    raw_display_handle: Some(raw_display_handle),
-                    raw_window_handle,
-                })
-                .map_err(|e| JsValue::from_str(&format!("surface: {e}")))?
+        // Fall back to the unsafe path only when the safe call fails with
+        // `MissingDisplayHandle` — that's the wgpu-core/GL fallback
+        // route which needs a `WebDisplayHandle::new()` marker to clear
+        // the validator. The marker is an empty struct from
+        // raw-window-handle, accepted by wgpu-core's `(None, None)` guard
+        // and ignored by the actual GL/web surface implementation.
+        let canvas_for_unsafe = canvas.clone();
+        let surface = match instance.create_surface(wgpu::SurfaceTarget::Canvas(canvas)) {
+            Ok(s) => s,
+            Err(safe_err) => {
+                let value: &wasm_bindgen::JsValue = canvas_for_unsafe.as_ref();
+                let obj = core::ptr::NonNull::from(value).cast();
+                let raw_window_handle: raw_window_handle::RawWindowHandle =
+                    raw_window_handle::WebCanvasWindowHandle::new(obj).into();
+                let raw_display_handle: raw_window_handle::RawDisplayHandle =
+                    raw_window_handle::WebDisplayHandle::new().into();
+                unsafe {
+                    instance
+                        .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                            raw_display_handle: Some(raw_display_handle),
+                            raw_window_handle,
+                        })
+                        .map_err(|fallback_err| {
+                            JsValue::from_str(&format!(
+                                "surface: safe={safe_err}, fallback={fallback_err}"
+                            ))
+                        })?
+                }
+            }
         };
 
         let ctx = GpuContext::new_with_surface(instance, &surface)
