@@ -1035,7 +1035,7 @@ function renderWeydraOptOuts(host: HTMLDivElement): void {
   host.replaceChildren();
   if (!isWeydraOn()) return;
 
-  // Weydra backend selector — auto/webgpu/webgl2.
+  // Weydra backend selector — backend de wgpu interno.
   {
     const [row] = rowWithLabel(t('settings.row.weydra_backend'), 'renderer');
     const cur = (getConfig().weydra as WeydraConfig & { backend: 'auto' | 'webgpu' | 'webgl2' }).backend ?? 'auto';

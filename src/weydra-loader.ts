@@ -66,7 +66,7 @@ export async function startWeydra(): Promise<void> {
 
   try {
     await initWeydra();
-    const backend = getConfig().weydra.backend ?? 'auto';
+    const backend = (getConfig().weydra.backend ?? 'auto') as 'auto' | 'webgpu' | 'webgl2';
     _renderer = await Renderer.create(canvas, backend);
     if (getConfig().weydra.starfield) {
       _renderer.createStarfield(starfieldWgsl);

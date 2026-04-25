@@ -114,24 +114,39 @@ impl Renderer {
     /// `backend` is a hint:
     /// * `0` (default) — Auto: try WebGPU, fall back to WebGL2.
     /// * `1` — Force WebGPU only. Fails if `navigator.gpu` is missing.
-    /// * `2` — Force WebGL2 only.
     ///
-    /// Mismatched values fall back to Auto. The wgpu instance honours the
-    /// hint via its `Backends` bitflag.
+    /// WebGL2-only forcing isn't possible in browser — wgpu's WebGL2 path
+    /// is gated on `navigator.gpu` being absent. Mismatched values fall
+    /// back to Auto.
     pub async fn create(canvas: HtmlCanvasElement, backend: u32) -> Result<Renderer, JsValue> {
         let width = canvas.width();
         let height = canvas.height();
 
+        // Backends bitmask:
+        //   * 1 = WebGPU only — fail loudly when navigator.gpu is absent.
+        //   * else = Auto. Wgpu uses BROWSER_WEBGPU when navigator.gpu is
+        //     present and falls through to wgpu-core's WebGL2 path
+        //     (cfg(webgl) feature) otherwise.
+        // Note: forcing the GL backend alone (without BROWSER_WEBGPU set)
+        // breaks browser surface creation — wgpu-core's GL backend wants a
+        // DisplayHandle that canvas surfaces don't supply. The Auto path is
+        // the only way to land on WebGL2 in browser, so the UI exposes
+        // 'auto' (which transparently falls back) and 'webgpu' (which
+        // refuses the fallback).
         let backends = match backend {
             1 => wgpu::Backends::BROWSER_WEBGPU,
-            2 => wgpu::Backends::GL,
             _ => wgpu::Backends::all(),
         };
         let instance_desc = wgpu::InstanceDescriptor {
             backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         };
-        let instance = wgpu::Instance::new(instance_desc);
+        // util::new_instance_with_webgpu_detection probes navigator.gpu
+        // first and removes BROWSER_WEBGPU from the bitmask when the API
+        // is unavailable. Without this probe, asking for `Backends::all()`
+        // on a browser without WebGPU still tries the WebGPU path and
+        // wgpu-core's GL backend then trips on missing DisplayHandle.
+        let instance = wgpu::util::new_instance_with_webgpu_detection(instance_desc).await;
         let surface = instance
             .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
             .map_err(|e| JsValue::from_str(&format!("surface: {e}")))?;
