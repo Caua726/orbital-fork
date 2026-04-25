@@ -16,6 +16,7 @@ wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 console_error_panic_hook = { workspace = true }
 log = { workspace = true }
+raw-window-handle = { version = "0.6", default-features = false }
 
 [dependencies.web-sys]
 workspace = true

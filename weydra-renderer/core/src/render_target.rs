@@ -36,9 +36,16 @@ impl RenderTarget {
 
         // `remove_srgb_suffix` returns the input unchanged when it has no
         // srgb variant, so the linear slot stays empty for non-srgb inputs.
+        // Skip the aliasing entirely on adapters without VIEW_FORMATS
+        // (WebGL2) — wgpu-core rejects the descriptor otherwise.
+        let supports_view_formats = ctx
+            .adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::VIEW_FORMATS);
         let linear = format.remove_srgb_suffix();
         let linear_arr = [linear];
-        let view_formats: &[wgpu::TextureFormat] = if linear != format {
+        let view_formats: &[wgpu::TextureFormat] = if supports_view_formats && linear != format {
             &linear_arr
         } else {
             &[]

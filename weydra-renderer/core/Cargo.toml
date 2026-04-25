@@ -12,3 +12,5 @@ log = { workspace = true }
 
 [dev-dependencies]
 pollster = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png"] }
+bytemuck = { workspace = true }

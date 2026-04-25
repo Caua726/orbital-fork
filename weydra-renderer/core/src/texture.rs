@@ -72,6 +72,20 @@ impl TextureRegistry {
         );
         assert!(width > 0 && height > 0, "zero-sized texture");
 
+        // Only request the linear-view alias when the adapter advertises
+        // the VIEW_FORMATS downlevel flag. WebGL2 (the default backend on
+        // browsers without WebGPU) doesn't support texture aliasing — the
+        // wgpu-core validator rejects the descriptor outright.
+        let supports_view_formats = ctx
+            .adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::VIEW_FORMATS);
+        let view_formats: &[wgpu::TextureFormat] = if supports_view_formats {
+            &[wgpu::TextureFormat::Rgba8Unorm]
+        } else {
+            &[]
+        };
         let texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("weydra texture"),
             size: wgpu::Extent3d {
@@ -84,10 +98,7 @@ impl TextureRegistry {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            // Allow a linear (non-srgb) view to be created later — M5 bake
-            // and any future blit pass may want to read raw bytes without
-            // the hardware sRGB→linear decode on sample.
-            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+            view_formats,
         });
 
         ctx.queue.write_texture(
