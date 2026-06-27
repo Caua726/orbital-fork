@@ -57,11 +57,24 @@ function anyFlagEnabled(): boolean {
 function resolveBackend(
   configured: 'auto' | 'webgpu' | 'webgl2',
 ): 'auto' | 'webgpu' | 'webgl2' {
-  if (configured !== 'auto') return configured;
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   // `Gecko/` + `Firefox/` is the canonical UA fingerprint; Seamonkey/Pale
   // Moon also match, which is fine — they share the same wgpu IPC path.
   const isFirefox = /Gecko\/\d+ Firefox\//.test(ua);
+
+  // An explicit `webgpu` config on Firefox **release** bypasses the
+  // auto→webgl2 demotion below and is still vulnerable to the parent-
+  // process crash. Warn once at boot so the choice is observable in
+  // DevTools instead of silently killing the browser tab later. The
+  // policy is still "your config, your risk" — Nightly + working driver
+  // is the legitimate use case — but the user should know.
+  if (configured === 'webgpu' && isFirefox) {
+    console.warn(
+      '[weydra] backend=webgpu forced on Firefox release is known to crash the parent process on some AMD adapters (bug 1873431-class). To switch to webgl2, set localStorage.orbital_config → weydra.backend = "webgl2" then reload.',
+    );
+  }
+
+  if (configured !== 'auto') return configured;
   if (isFirefox) {
     console.info(
       '[weydra] Firefox detected; forcing backend=webgl2 (WebGPU on Firefox release crashes the parent process on AMD adapters — bug 1873431-class).',
