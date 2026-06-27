@@ -67,6 +67,7 @@ export interface OrbitalConfig {
     planetsBaked: boolean; // M4 — baked planets via weydra sprite pool
     planetsLive: boolean;  // M5 — procedural planets via weydra live shader
     fog: boolean;          // M6 — fog-of-war via per-pixel uniform-array shader
+    graphics: boolean;     // M7 — vector graphics (orbitas, rotas, beams, rings) via lyon tessellation
     /** Backend selection inside the weydra renderer. */
     backend: 'auto' | 'webgpu' | 'webgl2';
   };
@@ -131,6 +132,7 @@ export const DEFAULTS: OrbitalConfig = {
     planetsBaked: false,
     planetsLive: false,
     fog: false,
+    graphics: false,
     backend: 'auto',
   },
 

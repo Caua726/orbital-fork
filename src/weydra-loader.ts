@@ -14,6 +14,7 @@ import { initWeydra, Renderer } from '@weydra/renderer';
 import starfieldWgsl from './shaders/starfield-weydra.wgsl';
 import planetWgsl from './shaders/planeta-weydra.wgsl';
 import fogWgsl from './shaders/fog.wgsl';
+import graphicsWgsl from './shaders/graphics.wgsl';
 import { getConfig, isAnyWeydraSubsystemOn } from './core/config';
 
 let _renderer: Renderer | null = null;
@@ -120,6 +121,9 @@ export async function startWeydra(): Promise<void> {
     }
     if (getConfig().weydra.fog) {
       _renderer.createFogShader(fogWgsl);
+    }
+    if (getConfig().weydra.graphics) {
+      _renderer.createGraphicsShader(graphicsWgsl);
     }
     console.info('[weydra] renderer initialized; flags:', getConfig().weydra);
     // Expose for live console debugging — typing __weydraRenderer in
