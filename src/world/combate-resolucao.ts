@@ -1,4 +1,4 @@
-import { Graphics } from 'pixi.js';
+import { GraphicsAdapter } from '../core/graphics-adapter';
 import type { Mundo, Nave } from '../types';
 import { saoHostis } from './constantes';
 import { getStatsCombate, podeAtacar } from './combate';
@@ -79,13 +79,13 @@ const _particles: ImpactParticle[] = [];
 // was ~5k short-lived objects per second of combat.
 const _beamPool: BeamVisual[] = [];
 const _particlePool: ImpactParticle[] = [];
-let _beamGfx: Graphics | null = null;
+let _beamGfx: GraphicsAdapter | null = null;
 
-function ensureBeamGfx(mundo: Mundo): Graphics {
-  if (_beamGfx && _beamGfx.parent === mundo.rotasContainer) return _beamGfx;
-  const g = new Graphics();
+function ensureBeamGfx(mundo: Mundo): GraphicsAdapter {
+  if (_beamGfx && _beamGfx.pixi && _beamGfx.pixi.parent === mundo.rotasContainer) return _beamGfx;
+  const g = GraphicsAdapter.create({ worldSpace: true, zOrder: 35 /* Z.BEAMS */ });
   g.eventMode = 'none';
-  mundo.rotasContainer.addChild(g);
+  g.attachTo(mundo.rotasContainer);
   _beamGfx = g;
   return g;
 }
