@@ -6,6 +6,9 @@ import { criarPlanetaProceduralSprite, criarEstrelaProcedural } from './planeta-
 import { criarEstadoPesquisas } from './pesquisa';
 import { gerarNomePlaneta } from './nomes';
 import { rngFromSeed } from './lore/seeded-rng';
+import { getWeydraRenderer } from '../weydra-loader';
+import { getConfig } from '../core/config';
+import { Z } from '../core/render-order';
 
 function sortearTipoPlaneta(): string {
   const tipos = Object.values(TIPO_PLANETA);
@@ -63,14 +66,35 @@ export function criarSistemaSolar(container: Container, orbitasContainer: Contai
     const tipoPlaneta = (i === 0 && opts.forcarTipoPrimeiro)
       ? opts.forcarTipoPrimeiro
       : sortearTipoPlaneta();
-    const linhaOrbita = new Graphics();
-    linhaOrbita.visible = false;
-    linhaOrbita.circle(centroX, centroY, raioOrbita).stroke({
-      color: corSol,
-      width: 2,
-      alpha: 0.3,
-    });
-    orbitasContainer.addChild(linhaOrbita);
+    // Orbit line: circle around the sun at the planet's orbital radius.
+// Behind M7, this draws via the weydra-renderer Graphics primitive
+// (lyon tessellation) when weydra.graphics is on, with worldSpace=true
+// so the camera transform in graphics.wgsl positions it correctly.
+// Pixi fallback otherwise — the existing canvas-2D path stays valid.
+const weydraRenderer = getWeydraRenderer();
+const useWeydraGraphics =
+  getConfig().weydra.graphics && weydraRenderer !== null;
+const linhaOrbita: Graphics = (() => {
+  if (useWeydraGraphics) {
+    // weydra Graphics doesn't have a `visible` flag — visibility is
+    // expressed via tessellation (don't render if no commands). For an
+    // orbit line we want it always visible. The Pixi path's `visible=false`
+    // toggling is irrelevant on the weydra path.
+    const gx = weydraRenderer!.createGraphics(true);
+    gx.zOrder = Z.ORBITS;
+    gx.circle(centroX, centroY, raioOrbita).stroke({ color: corSol, width: 2, alpha: 0.3 });
+    return gx as unknown as Graphics;
+  }
+  const pixiG = new Graphics();
+  pixiG.visible = false;
+  pixiG.circle(centroX, centroY, raioOrbita).stroke({
+    color: corSol,
+    width: 2,
+    alpha: 0.3,
+  });
+  orbitasContainer.addChild(pixiG);
+  return pixiG;
+})();
 
     const planetVisualSeed = (Math.random() * 0xFFFFFFFF) >>> 0;
     const sprite = criarPlanetaProceduralSprite(
