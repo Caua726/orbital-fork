@@ -115,8 +115,14 @@ export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
       const card = new Container() as AnimatedCard;
       card.x = cardStartX + i * (largCard + gap);
       card.y = cardY;
-      card.eventMode = 'static';
-      card.cursor = 'pointer';
+      // M7: card interactions move to DOM events. The Pixi eventMode +
+// .on('pointertap') pattern is replaced by a canvas-level
+// pointermove/pointerdown/pointerup listener that hit-tests each
+// card in turn. card.eventMode='static' is left in place for the
+// Pixi fallback path (cfg.weydra.graphics off).
+
+card.eventMode = 'static';
+card.cursor = 'pointer';
 
       // Card initial offset for staggered animation
       card._baseY = cardY;

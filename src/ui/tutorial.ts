@@ -141,12 +141,26 @@ export function criarTutorial(app: Application): TutorialContainer | null {
   closeBtn.addChild(closeTxt);
   closeBtn.x = -btnW / 2;
   closeBtn.y = hH - btnH - 10;
-  closeBtn.on('pointertap', () => {
+  tutorial.addChild(closeBtn);
+
+  // M7: Pixi eventMode + .on('pointertap') replaced by a DOM
+  // pointerdown listener. Hit-test the button's CSS-pixel bounds,
+  // which equal (tutorial.x + closeBtn.x, tutorial.y + closeBtn.y)
+  // and size (btnW × btnH).
+  const closeBtnBounds = () => {
+    const left = tutorial.x + closeBtn.x;
+    const top = tutorial.y + closeBtn.y;
+    return { left, top, right: left + btnW, bottom: top + btnH };
+  };
+  app.canvas.addEventListener('pointerdown', (e: PointerEvent) => {
+    if (!(e.target as HTMLElement)?.closest?.('canvas')) return;
+    const b = closeBtnBounds();
+    if (e.clientX < b.left || e.clientX > b.right) return;
+    if (e.clientY < b.top || e.clientY > b.bottom) return;
     markSeen();
     tutorial._persisted = true;
     tutorial._fadeOut = true;
   });
-  tutorial.addChild(closeBtn);
 
   tutorial.x = app.screen.width / 2;
   tutorial.y = app.screen.height / 2;
