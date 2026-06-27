@@ -107,3 +107,57 @@ describe('shader source parity: JS port matches the shader hash', () => {
     expect(canvas).toContain('Math.imul');
   });
 });
+
+describe('shader source parity: fog', () => {
+  // The M6 fog shader is WGSL-only (no GLSL predecessor exists — the
+  // canvas-2D fallback in src/world/nevoa.ts is the only Pixi-side
+  // counterpart). What we CAN pin lexically is the constants that, if
+  // they drifted, would silently reintroduce one of the three M6
+  // post-merge regressions:
+  //   - array<VisionSource, 64>  ↔ Rust FOG_MAX_SOURCES = 64
+  //     (Rust-side cargo test pins the byte layout, but a drift here
+  //     would make the shader read past the declared array length.)
+  //   - smoothstep(radius * 0.75, radius, d) — swapping edge0/edge1
+  //     silently inverts the mask (fog opaque inside, clear outside).
+  //   - pow(vec3(0.008, 0.02, 0.0627), vec3(2.2)) — the 258b5dc sRGB
+  //     pre-decode for the navy color.
+  //   - the loop bounded by active_count, not array length.
+  //   - non-premultiplied output (would break ALPHA_BLENDING contract).
+  const wgsl = carregar('fog.wgsl');
+
+  it('declares array<VisionSource, 64> matching Rust FOG_MAX_SOURCES', () => {
+    expect(wgsl).toContain('array<VisionSource, 64>');
+  });
+
+  it('uses smoothstep(radius * 0.75, radius, d) as the soft-edge knob', () => {
+    expect(wgsl).toMatch(/smoothstep\([^)]*\*\s*0\.75\s*,[^)]*,[^)]*\)/);
+    // The exact form (edge0 first, then edge1) must match the contract
+    // documented in fog.wgsl:91-94 — swapping these inverts the mask.
+    expect(wgsl).toContain('smoothstep(src.radius * 0.75, src.radius, d)');
+  });
+
+  it('pre-decodes the navy color with pow(..., 2.2) to cancel the sRGB swap chain', () => {
+    // The exact 0.008/0.02/0.0627 numbers are 8-bit sRGB bytes 2/5/16
+    // re-interpreted as f32 — drifting any of these would shift the
+    // navy one LSB and break visual parity with the Pixi canvas path.
+    expect(wgsl).toContain('vec3<f32>(0.008, 0.02, 0.0627)');
+    expect(wgsl).toMatch(/pow\(.+,\s*vec3<f32>\(2\.2\)\)/);
+  });
+
+  it('loop bound is fog.active_count (not the array length)', () => {
+    // The WGSL for-loop MUST iterate i < fog.active_count so sources
+    // past the count keep stale values but aren't visited. A refactor
+    // that bound the loop on `arrayLength(&fog.sources)` would either
+    // re-visit stale slots (cosmetic bug) or, with the wrong type,
+    // fail to compile.
+    expect(wgsl).toMatch(/i\s*<\s*fog\.active_count/);
+  });
+
+  it('does NOT premultiply rgb by alpha (would break ALPHA_BLENDING contract)', () => {
+    // adapters/wasm/src/lib.rs configures the fog mesh with
+    // wgpu::BlendState::ALPHA_BLENDING (NOT PREMULTIPLIED). The fragment
+    // must therefore return `vec4(rgb, alpha)` — premultiplying would
+    // darken the fog by alpha and ship an off-by-one visual.
+    expect(wgsl).not.toMatch(/return\s+vec4<f32>\(\s*[a-zA-Z_]+\s*\*\s*alpha\s*,\s*alpha\s*\)/);
+  });
+});
