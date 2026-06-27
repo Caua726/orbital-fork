@@ -27,6 +27,10 @@ web-sys = "0.3"
 console_error_panic_hook = "0.1"
 winit = "0.31.0-beta.2"
 env_logger = "0.11"
+# M7 — vector graphics tessellation. lyon is pure Rust, no platform deps,
+# works under wasm32-unknown-unknown. Default features enable
+# lyon_path, lyon_tessellation, lyon_algorithms — that's all M7 uses.
+lyon = "1"
 
 [profile.release]
 opt-level = 3

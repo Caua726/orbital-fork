@@ -15,6 +15,7 @@ pub mod camera;
 pub mod device;
 pub mod error;
 pub mod frame;
+pub mod graphics;
 pub mod mesh;
 pub mod pools;
 pub mod render_target;
@@ -30,6 +31,7 @@ pub use camera::CameraUniforms;
 pub use device::GpuContext;
 pub use error::{Result, WeydraError};
 pub use frame::render_clear;
+pub use graphics::{Graphics, GraphicsCmd, GraphicsPool, GraphicsUniforms, GraphicsVertex};
 pub use mesh::Mesh;
 pub use pools::{
     FogPool, FogUniforms, PlanetPool, PlanetUniforms, VisionSource, FOG_MAX_SOURCES,
