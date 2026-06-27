@@ -1,4 +1,5 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container } from 'pixi.js';
+import { GraphicsAdapter } from '../core/graphics-adapter';
 import type { Sol, Planeta, Sistema } from '../types';
 import { DIST_MIN_SISTEMA } from './constantes';
 import { TIPO_PLANETA } from './planeta';
@@ -74,7 +75,7 @@ export function criarSistemaSolar(container: Container, orbitasContainer: Contai
 const weydraRenderer = getWeydraRenderer();
 const useWeydraGraphics =
   getConfig().weydra.graphics && weydraRenderer !== null;
-const linhaOrbita: Graphics = (() => {
+const linhaOrbita: GraphicsAdapter = (() => {
   if (useWeydraGraphics) {
     // weydra Graphics doesn't have a `visible` flag — visibility is
     // expressed via tessellation (don't render if no commands). For an
@@ -83,16 +84,16 @@ const linhaOrbita: Graphics = (() => {
     const gx = weydraRenderer!.createGraphics(true);
     gx.zOrder = Z.ORBITS;
     gx.circle(centroX, centroY, raioOrbita).stroke({ color: corSol, width: 2, alpha: 0.3 });
-    return gx as unknown as Graphics;
+    return gx as unknown as GraphicsAdapter;
   }
-  const pixiG = new Graphics();
+  const pixiG = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.ORBITS });
   pixiG.visible = false;
   pixiG.circle(centroX, centroY, raioOrbita).stroke({
     color: corSol,
     width: 2,
     alpha: 0.3,
   });
-  orbitasContainer.addChild(pixiG);
+  pixiG.attachTo(orbitasContainer);
   return pixiG;
 })();
 
@@ -142,8 +143,8 @@ const linhaOrbita: Graphics = (() => {
     p._visivelAoJogador = false;
     p._descobertoAoJogador = false;
 
-    const anel = new Graphics();
-    p.addChild(anel);
+    const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: 55 /* Z.UI_HOVER */ });
+    anel.attachTo(p);
     p._anel = anel;
 
     p.visible = false;

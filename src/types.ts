@@ -72,8 +72,8 @@ export interface Planeta extends Container {
   dados: DadosPlaneta;
   _tipoAlvo: 'planeta';
   _orbita: OrbitaPlaneta;
-  _linhaOrbita: Graphics;
-  _anel: Graphics;
+  _linhaOrbita: GraphicsAdapter;
+  _anel: GraphicsAdapter;
   _visivelAoJogador: boolean;
   _descobertoAoJogador: boolean;
   /** Per-planet visual RNG seed. Drives the procedural palette + shader
@@ -96,6 +96,8 @@ export interface Sol extends Container {
 }
 
 // === Nave ===
+import type { GraphicsAdapter } from './core/graphics-adapter';
+
 export interface OrbitaNave {
   raio: number;
   angulo: number;
@@ -129,7 +131,7 @@ export interface Nave {
     fase: 'origem' | 'destino';
   } | null;
   gfx: Container;
-  rotaGfx: Graphics;
+  rotaGfx: GraphicsAdapter;
   _tipoAlvo: 'nave';
   orbita: OrbitaNave | null;
   _selecaoAnterior?: boolean;
@@ -138,7 +140,7 @@ export interface Nave {
    *  refunded in comum resources. */
   _scrapAoChegar?: boolean;
   _sprite?: Sprite;
-  _ring?: Graphics;
+  _ring?: GraphicsAdapter;
   _trail?: Graphics;
   _trailParticles?: Array<{ x: number; y: number; age: number }>;
   /** Weydra sprite handle when `config.weydra.ships` is on. `_sprite` stays

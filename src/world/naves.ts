@@ -1,4 +1,5 @@
 import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { GraphicsAdapter } from '../core/graphics-adapter';
 import type { Nave, Mundo, Planeta, Sol, AlvoPonto, AcaoNaveParsed, Recursos } from '../types';
 import { VELOCIDADE_NAVE, VELOCIDADE_ORBITA_NAVE, TEMPO_SURVEY_MS, CUSTO_NAVE_COMUM, formatarId } from './constantes';
 import { cheats } from '../ui/debug';
@@ -402,12 +403,13 @@ export function entrarEmOrbita(nave: Nave, alvo: Planeta | Sol | AlvoPonto): voi
 export function criarVisualNave(tipo: string, tier: number): {
   gfx: Container;
   sprite: Sprite;
-  ring: Graphics;
+  ring: GraphicsAdapter;
 } {
   const gfx = new Container();
   const sprite = criarShipSprite(tipo, tier);
-  const ring = new Graphics();
-  gfx.addChild(sprite, ring);
+  const ring = GraphicsAdapter.create({ worldSpace: true, zOrder: 30 /* Z.SHIPS */ });
+  gfx.addChild(sprite);
+  ring.attachTo(gfx);
   return { gfx, sprite, ring };
 }
 
@@ -485,7 +487,7 @@ export function criarNave(mundo: Mundo, planetaOrigem: Planeta, tipo: string, ti
     rotaManual: [],
     rotaCargueira: null,
     gfx: gfxContainer,
-    rotaGfx: new Graphics(),
+    rotaGfx: GraphicsAdapter.create({ worldSpace: true, zOrder: 25 /* Z.ROUTES */ }),
     _tipoAlvo: 'nave',
     orbita: null,
     _sprite: sprite,
@@ -493,7 +495,7 @@ export function criarNave(mundo: Mundo, planetaOrigem: Planeta, tipo: string, ti
   };
   atualizarSelecaoNave(nave);
   nave.rotaGfx.eventMode = 'none';
-  mundo.rotasContainer.addChild(nave.rotaGfx);
+  nave.rotaGfx.attachTo(mundo.rotasContainer);
   mundo.navesContainer.addChild(nave.gfx);
   mundo.naves.push(nave);
   entrarEmOrbita(nave, planetaOrigem);
@@ -541,7 +543,9 @@ export function removerNave(mundo: Mundo, nave: Nave): void {
   const pendingIdx = _pendingSprites.findIndex((p) => p.sprite === nave._sprite);
   if (pendingIdx >= 0) _pendingSprites.splice(pendingIdx, 1);
   if (nave.rotaGfx) {
-    mundo.rotasContainer.removeChild(nave.rotaGfx);
+    if (nave.rotaGfx.pixi) {
+      mundo.rotasContainer.removeChild(nave.rotaGfx.pixi);
+    }
     nave.rotaGfx.destroy();
   }
   if (nave.gfx) {

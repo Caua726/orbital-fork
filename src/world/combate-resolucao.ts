@@ -372,7 +372,9 @@ function _removerNaveDoMundo(mundo: Mundo, nave: Nave): void {
   esquecerLastSeen(nave.id);
   if (nave.rotaGfx) {
     try {
-      mundo.rotasContainer.removeChild(nave.rotaGfx);
+      if (nave.rotaGfx.pixi) {
+        mundo.rotasContainer.removeChild(nave.rotaGfx.pixi);
+      }
       nave.rotaGfx.destroy();
     } catch { /* noop */ }
   }
