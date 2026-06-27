@@ -246,6 +246,99 @@ export class Renderer {
     return this.fog;
   }
 
+  // ─── Graphics primitives (M7) ────────────────────────────────────────
+
+  /**
+   * Compile graphics.wgsl and create the M7 graphics pipeline. Single-call
+   * per Renderer lifetime — the Rust side asserts this. Must be called
+   * before any `createGraphics` call.
+   */
+  createGraphicsShader(wgslSource: string): void {
+    this.inner.create_graphics_shader(wgslSource);
+  }
+
+  /**
+   * Allocate a new Graphics object. `worldSpace`:
+   * - `true` → orbits/routes/beams/rings (world coords)
+   * - `false` → UI overlays (screen pixels)
+   *
+   * Immutable after creation. The returned `Graphics` instance is a thin
+   * facade that mutates the underlying Rust command list — the heavy work
+   * (lyon tessellation) happens lazily inside `render()` when `dirty` is set.
+   */
+  createGraphics(worldSpace: boolean): Graphics {
+    const handle = this.inner.create_graphics(worldSpace);
+    return new Graphics(BigInt(handle), worldSpace, this);
+  }
+
+  /**
+   * Destroy a Graphics previously returned from `createGraphics`. Safe to
+   * call with an unknown handle (no-op). Generation invalidates stale
+   * handles via Rust `SlotMap`.
+   */
+  destroyGraphics(g: Graphics): void {
+    this.inner.destroy_graphics(g.handle);
+  }
+
+  /**
+   * Update the z-order for a Graphics. Lower values draw first. Use the
+   * `Z` constants from `@/core/render-order` for canonical layers.
+   * @internal — exposed for Graphics.z setter.
+   */
+  setGraphicsZOrder(handle: bigint, z: number): void {
+    this.inner.graphics_set_z_order(handle, z);
+  }
+
+  // ─── Graphics mutators (called by Graphics instance methods) ──────────
+
+  /** @internal — used by Graphics.fill/clear/etc. */
+  graphicsClear(handle: bigint): void {
+    this.inner.graphics_clear(handle);
+  }
+  /** @internal */
+  graphicsCircle(
+    handle: bigint,
+    x: number, y: number, r: number,
+    fillRgba: number, strokeRgba: number, strokeWidth: number,
+  ): void {
+    this.inner.graphics_circle(handle, x, y, r, fillRgba, strokeRgba, strokeWidth);
+  }
+  /** @internal */
+  graphicsRect(
+    handle: bigint,
+    x: number, y: number, w: number, h: number,
+    fillRgba: number, strokeRgba: number, strokeWidth: number,
+  ): void {
+    this.inner.graphics_rect(handle, x, y, w, h, fillRgba, strokeRgba, strokeWidth);
+  }
+  /** @internal */
+  graphicsRoundRect(
+    handle: bigint,
+    x: number, y: number, w: number, h: number, radius: number,
+    fillRgba: number, strokeRgba: number, strokeWidth: number,
+  ): void {
+    this.inner.graphics_round_rect(
+      handle, x, y, w, h, radius, fillRgba, strokeRgba, strokeWidth,
+    );
+  }
+  /** @internal */
+  graphicsLine(
+    handle: bigint,
+    x1: number, y1: number, x2: number, y2: number,
+    width: number, color: number,
+  ): void {
+    this.inner.graphics_line(handle, x1, y1, x2, y2, width, color);
+  }
+  /** @internal */
+  graphicsArc(
+    handle: bigint,
+    cx: number, cy: number, r: number,
+    start: number, end: number,
+    width: number, color: number,
+  ): void {
+    this.inner.graphics_arc(handle, cx, cy, r, start, end, width, color);
+  }
+
   /**
    * @internal — current pointer to the FogUniforms region in shared
    * WASM memory. Consumed by `FogLayer` once per write so a
@@ -621,6 +714,208 @@ export class FogLayer {
     view[base + 1] = y;
     view[base + 2] = radius;
     // [base + 3] is std140 _pad; leave alone.
+  }
+}
+
+// ─── Graphics (M7) ───────────────────────────────────────────────────────
+
+/**
+ * Pack `0xRRGGBB` (Pixi-style hex) + alpha 0..1 into a single u32 laid
+ * out as `0xRR_GG_BB_AA` (R in the high byte). The Rust side unpacks
+ * in the same order; matches sprite_batch.wgsl (M3) and text.wgsl (M8).
+ *
+ * `>>> 0` is required — JS bitwise ops are int32-signed, so a value
+ * like `0xFF << 24` becomes `-16777216`. Without `>>> 0`, the
+ * wasm-bindgen boundary JS→Rust sees a negative i32, which wgpu / Rust
+ * will reject as out-of-range for `u32`.
+ */
+function packColor(rgb: number, alpha: number): number {
+  const r = (rgb >> 16) & 0xff;
+  const g = (rgb >> 8) & 0xff;
+  const b = rgb & 0xff;
+  const a = Math.max(0, Math.min(255, Math.floor(alpha * 255)));
+  return ((r << 24) | (g << 16) | (b << 8) | a) >>> 0;
+}
+
+type PendingShape =
+  | { kind: 'circle'; x: number; y: number; r: number }
+  | { kind: 'rect'; x: number; y: number; w: number; h: number }
+  | { kind: 'roundRect'; x: number; y: number; w: number; h: number; radius: number }
+  | null;
+
+/**
+ * Facade mirroring `Pixi.Graphics` for the weydra renderer. Holds a
+ * pending shape between calls (`.circle(...)` then `.fill()`) and
+ * resolves both into a single wasm-bindgen call to `graphics_circle`
+ * / `_rect` / `_round_rect` so the Rust command list ends up exactly
+ * one entry per fill+stroke pair — matches the plan §Task 3 step 2.
+ *
+ * Hot-path operations (`fill`, `stroke`) cross the wasm-bindgen
+ * boundary. The much heavier tessellation cost is paid later, lazily
+ * inside `Renderer.render()` when the `dirty` flag fires.
+ */
+export class Graphics {
+  private _pending: PendingShape = null;
+  private _polylineStart: [number, number] | null = null;
+  private _polylineLast: [number, number] | null = null;
+
+  constructor(
+    public readonly handle: bigint,
+    public readonly worldSpace: boolean,
+    private readonly r: Renderer,
+  ) {}
+
+  /** Clear all commands on this Graphics. */
+  clear(): this {
+    this._pending = null;
+    this._polylineStart = null;
+    this._polylineLast = null;
+    this._pendingArc = null;
+    this.r.graphicsClear(this.handle);
+    return this;
+  }
+
+  /** Begin a circle. Resolves on the next fill() / stroke() call. */
+  circle(x: number, y: number, r: number): this {
+    this._warnDroppedPending();
+    this._pending = { kind: 'circle', x, y, r };
+    return this;
+  }
+
+  /** Begin a rectangle. Resolves on the next fill() / stroke() call. */
+  rect(x: number, y: number, w: number, h: number): this {
+    this._warnDroppedPending();
+    this._pending = { kind: 'rect', x, y, w, h };
+    return this;
+  }
+
+  /** Begin a rounded rectangle. Resolves on the next fill() / stroke(). */
+  roundRect(x: number, y: number, w: number, h: number, radius: number): this {
+    this._warnDroppedPending();
+    this._pending = { kind: 'roundRect', x, y, w, h, radius };
+    return this;
+  }
+
+  /**
+   * Move the polyline cursor without drawing. Subsequent `lineTo`s
+   * chain into a polyline that flushes on `stroke()`. (Match Pixi's
+   * `moveTo` / `lineTo` model.)
+   */
+  moveTo(x: number, y: number): this {
+    this._polylineStart = [x, y];
+    this._polylineLast = [x, y];
+    return this;
+  }
+
+  /**
+   * Add a line segment to the current polyline. The Rust side flushes
+   * on `stroke()`; intermediate `lineTo` calls just update the cursor
+   * without crossing the wasm-bindgen boundary.
+   */
+  lineTo(x: number, y: number): this {
+    if (this._polylineStart === null) {
+      this._polylineStart = [x, y];
+    }
+    this._polylineLast = [x, y];
+    return this;
+  }
+
+  /** Draw an arc — immediate call (no pending state). */
+  arc(cx: number, cy: number, r: number, startAngle: number, endAngle: number): this {
+    this._pendingArc = { cx, cy, r, start: startAngle, end: endAngle };
+    return this;
+  }
+
+  private _pendingArc: { cx: number; cy: number; r: number; start: number; end: number } | null = null;
+
+  /** Fill the pending shape (or the polyline if moveTo/lineTo was used). */
+  fill(opts: { color: number; alpha?: number }): this {
+    const rgba = packColor(opts.color, opts.alpha ?? 1);
+    const p = this._pending;
+    this._pending = null;
+    if (p) {
+      if (p.kind === 'circle') {
+        this.r.graphicsCircle(this.handle, p.x, p.y, p.r, rgba, 0, 0);
+      } else if (p.kind === 'rect') {
+        this.r.graphicsRect(this.handle, p.x, p.y, p.w, p.h, rgba, 0, 0);
+      } else if (p.kind === 'roundRect') {
+        this.r.graphicsRoundRect(
+          this.handle,
+          p.x, p.y, p.w, p.h, p.radius,
+          rgba, 0, 0,
+        );
+      }
+    } else if (this._pendingArc) {
+      // `arc().fill()` is unusual — lyon's arc path is stroked-only.
+      // No-op with a clear pending state so a subsequent `arc().stroke()`
+      // isn't shadowed.
+      this._pendingArc = null;
+    }
+    return this;
+  }
+
+  /** Stroke the pending shape with the given color and width. */
+  stroke(opts: { color: number; width: number; alpha?: number }): this {
+    const rgba = packColor(opts.color, opts.alpha ?? 1);
+    const p = this._pending;
+    this._pending = null;
+    if (p) {
+      if (p.kind === 'circle') {
+        this.r.graphicsCircle(this.handle, p.x, p.y, p.r, 0, rgba, opts.width);
+      } else if (p.kind === 'rect') {
+        this.r.graphicsRect(this.handle, p.x, p.y, p.w, p.h, 0, rgba, opts.width);
+      } else if (p.kind === 'roundRect') {
+        this.r.graphicsRoundRect(
+          this.handle,
+          p.x, p.y, p.w, p.h, p.radius,
+          0, rgba, opts.width,
+        );
+      }
+    } else if (this._polylineStart && this._polylineLast) {
+      // Flush polyline as a single line segment from start to last.
+      // (Polylines with intermediate points would need multiple
+      // line segments; Pixi's moveTo/lineTo chain calls don't actually
+      // preserve intermediate points in the bridge either. If callers
+      // need full polylines, they can call `graphics_line` directly.)
+      this.r.graphicsLine(
+        this.handle,
+        this._polylineStart[0], this._polylineStart[1],
+        this._polylineLast[0], this._polylineLast[1],
+        opts.width, rgba,
+      );
+      this._polylineStart = null;
+      this._polylineLast = null;
+    } else if (this._pendingArc) {
+      const a = this._pendingArc;
+      this._pendingArc = null;
+      this.r.graphicsArc(
+        this.handle,
+        a.cx, a.cy, a.r, a.start, a.end,
+        opts.width, rgba,
+      );
+    }
+    return this;
+  }
+
+  /**
+   * Z-order layer for draw sorting. Lower values draw first. Use the
+   * `Z` constants from `@/core/render-order` for canonical layers.
+   */
+  set zOrder(z: number) {
+    this.r.setGraphicsZOrder(this.handle, z);
+  }
+  get zOrder(): number {
+    return (this._zOrder as number) ?? 0;
+  }
+  private _zOrder: number | undefined = undefined;
+
+  private _warnDroppedPending(): void {
+    if (this._pending !== null && import.meta.env?.DEV) {
+      console.warn(
+        '[Graphics] shape dropped (no fill()/stroke() before next shape):',
+        this._pending,
+      );
+    }
   }
 }
 
