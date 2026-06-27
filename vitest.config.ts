@@ -11,7 +11,10 @@ export default defineConfig({
     // happy-dom provides `document`/`window` stubs — pixi.js faz GlProgram
     // lookups no import (getMaxFragmentPrecision), quebra em Node puro.
     environment: 'happy-dom',
-    include: ['src/**/__tests__/**/*.test.ts'],
+    include: [
+      'src/**/__tests__/**/*.test.ts',
+      'weydra-renderer/**/__tests__/**/*.test.ts',
+    ],
     globals: false,
   },
 });
