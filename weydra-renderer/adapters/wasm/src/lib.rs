@@ -17,9 +17,9 @@ use bytemuck::{Pod, Zeroable};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use weydra_renderer::{
-    CameraUniforms, EngineBindings, FogPool, GpuContext, Handle, Mesh, PlanetPool, RenderSurface,
-    RenderTarget, ShaderRegistry, SpritePool, Texture, TextureRegistry, UniformPool,
-    FLAG_VISIBLE, FOG_MAX_SOURCES, FOG_UNIFORMS_SIZE,
+    CameraUniforms, EngineBindings, FogPool, GpuContext, Graphics, GraphicsPool, GraphicsVertex,
+    Handle, Mesh, PlanetPool, RenderSurface, RenderTarget, ShaderRegistry, SpritePool, Texture,
+    TextureRegistry, UniformPool, FLAG_VISIBLE, FOG_MAX_SOURCES, FOG_UNIFORMS_SIZE,
 };
 
 /// Max sprites across all textures. Backing SoA Vecs are sized once at boot
@@ -109,6 +109,10 @@ pub struct Renderer {
     /// Scratch buffer reused each frame to pack visible sprites into AoS.
     /// Preallocated to SPRITE_CAPACITY so the hot path never reallocates.
     sprite_scratch: Vec<SpriteData>,
+
+    // M7 vector graphics primitives (lyon tessellation)
+    graphics_pool: Option<GraphicsPool>,
+    graphics_pipeline: Option<wgpu::RenderPipeline>,
 
     /// Bumps after every op that may have grown the WASM linear memory
     /// (texture upload, lazy bind-group construction, etc.). TS pairs this
@@ -218,6 +222,8 @@ impl Renderer {
             sprite_texture_layout: None,
             texture_bind_groups: HashMap::new(),
             sprite_scratch: Vec::with_capacity(SPRITE_CAPACITY),
+            graphics_pool: None,
+            graphics_pipeline: None,
             mem_version: 0,
         })
     }
@@ -383,6 +389,255 @@ impl Renderer {
 
     pub fn fog_max_sources(&self) -> u32 {
         FOG_MAX_SOURCES as u32
+    }
+
+    // ─── Graphics primitives (M7) ─────────────────────────────────────────
+
+    /// Compile graphics.wgsl and create the graphics pipeline. Called once
+    /// at boot when `weydra.graphics` is on. Single-call: a second call
+    /// would invalidate the existing pipeline and orphan any in-flight
+    /// render pass holding a reference.
+    pub fn create_graphics_shader(&mut self, wgsl_source: &str) {
+        assert!(
+            self.graphics_pipeline.is_none(),
+            "create_graphics_shader called twice — would invalidate the pipeline",
+        );
+        let shader = self
+            .shader_registry
+            .compile(&self.ctx, wgsl_source, "graphics");
+
+        // Build the bind group layouts once now so all Graphics share them.
+        // graphics.wgsl: group 0 = engine camera (already on engine.layout),
+        // group 1 = per-Graphics uniforms. Pipeline uses &[engine_layout]
+        // directly; the per-Graphics bind group is bound per draw.
+        let graphics_uniform_layout = self
+            .ctx
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("graphics uniform layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<weydra_renderer::GraphicsUniforms>() as u64,
+                        ),
+                    },
+                    count: None,
+                }],
+            });
+
+        let mut layouts: Vec<Option<&wgpu::BindGroupLayout>> = vec![Some(&self.engine.layout)];
+        layouts.push(Some(&graphics_uniform_layout));
+
+        let pipeline_layout =
+            self.ctx
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("graphics pipeline layout"),
+                    bind_group_layouts: &layouts,
+                    immediate_size: 0,
+                });
+
+        // Vertex buffer layout matches GraphicsVertex:
+        //   @location(0) pos: vec2<f32>  → Float32x2, offset 0
+        //   @location(1) color: vec4<f32> → Float32x4, offset 8
+        const GRAPHICS_VERTEX_LAYOUT: wgpu::VertexBufferLayout<'static> =
+            wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<GraphicsVertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![
+                    0 => Float32x2,
+                    1 => Float32x4,
+                ],
+            };
+
+        let shader_module = &self
+            .shader_registry
+            .get(shader)
+            .expect("shader just compiled")
+            .module;
+
+        let pipeline =
+            self.ctx
+                .device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("graphics"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: shader_module,
+                        entry_point: Some("vs_main"),
+                        buffers: &[GRAPHICS_VERTEX_LAYOUT],
+                        compilation_options: Default::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: shader_module,
+                        entry_point: Some("fs_main"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: self.surface.format,
+                            // Pixi Graphics defaults to ALPHA_BLENDING;
+                            // match exactly (graphics.wgsl header comment
+                            // documents the contract).
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                });
+
+        self.graphics_pipeline = Some(pipeline);
+        self.graphics_pool = Some(GraphicsPool::new());
+        // No mem_version bump — pool is empty, no TS-side view to rebuild.
+    }
+
+    /// Allocate a new Graphics object. Returns an opaque u64 handle.
+    /// `world_space`: true for orbits/routes/beams/rings (world coords);
+    /// false for UI overlays (screen pixels). Immutable after creation.
+    pub fn create_graphics(&mut self, world_space: bool) -> u64 {
+        let pool = self
+            .graphics_pool
+            .as_mut()
+            .expect("create_graphics_shader must be called before create_graphics");
+        let g = Graphics::new(&self.ctx, world_space);
+        pool.insert(g).to_u64()
+    }
+
+    pub fn destroy_graphics(&mut self, h: u64) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            pool.remove(Handle::from_u64(h));
+        }
+    }
+
+    pub fn graphics_clear(&mut self, h: u64) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                g.clear();
+            }
+        }
+    }
+
+    pub fn graphics_circle(
+        &mut self,
+        h: u64,
+        x: f32,
+        y: f32,
+        r: f32,
+        fill_rgba: u32,
+        stroke_rgba: u32,
+        stroke_width: f32,
+    ) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                g.circle(x, y, r, unpack_rgba_opt(fill_rgba), unpack_stroke(stroke_rgba, stroke_width));
+            }
+        }
+    }
+
+    pub fn graphics_rect(
+        &mut self,
+        h: u64,
+        x: f32,
+        y: f32,
+        w: f32,
+        rect_h: f32,
+        fill_rgba: u32,
+        stroke_rgba: u32,
+        stroke_width: f32,
+    ) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                g.rect(
+                    x,
+                    y,
+                    w,
+                    rect_h,
+                    unpack_rgba_opt(fill_rgba),
+                    unpack_stroke(stroke_rgba, stroke_width),
+                );
+            }
+        }
+    }
+
+    pub fn graphics_round_rect(
+        &mut self,
+        h: u64,
+        x: f32,
+        y: f32,
+        w: f32,
+        rect_h: f32,
+        radius: f32,
+        fill_rgba: u32,
+        stroke_rgba: u32,
+        stroke_width: f32,
+    ) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                g.round_rect(
+                    x,
+                    y,
+                    w,
+                    rect_h,
+                    radius,
+                    unpack_rgba_opt(fill_rgba),
+                    unpack_stroke(stroke_rgba, stroke_width),
+                );
+            }
+        }
+    }
+
+    pub fn graphics_line(
+        &mut self,
+        h: u64,
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        width: f32,
+        color: u32,
+    ) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                let c = unpack_rgba_req(color);
+                g.line([x1, y1], [x2, y2], width, c);
+            }
+        }
+    }
+
+    pub fn graphics_arc(
+        &mut self,
+        h: u64,
+        cx: f32,
+        cy: f32,
+        r: f32,
+        start: f32,
+        end: f32,
+        width: f32,
+        color: u32,
+    ) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                let c = unpack_rgba_req(color);
+                g.arc(cx, cy, r, start, end, width, c);
+            }
+        }
+    }
+
+    pub fn graphics_set_z_order(&mut self, h: u64, z: f32) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                g.z_order = z;
+            }
+        }
     }
 
     /// Render a single planet instance into a freshly-allocated texture
@@ -553,6 +808,16 @@ impl Renderer {
             pool.upload(&self.ctx);
         }
 
+        // M7: tessellate dirty Graphics BEFORE opening the render pass.
+        // Dropping `fill_vertex_buffer` while a pass is open would
+        // use-after-free in the GPU command stream (graphics.rs:139-148
+        // docstring). Each Graphics's `dirty` flag short-circuits the
+        // tessellator when commands haven't changed — typical cost is
+        // zero for static rings.
+        if let Some(pool) = &mut self.graphics_pool {
+            pool.tessellate_all(&self.ctx);
+        }
+
         let maybe_frame = self
             .surface
             .acquire_next_texture(&self.ctx)
@@ -672,6 +937,31 @@ impl Renderer {
             if let (Some(mesh), Some(pool)) = (&self.fog_mesh, &self.fog_pool) {
                 if pool.instances[0].active_count > 0 {
                     mesh.draw(&mut pass, Some(&pool.bind_group));
+                }
+            }
+
+            // Graphics (M7): draw all retained-mode Graphics after fog.
+            // Sort by z_order so multiple Graphics layer correctly within
+            // the Z.* bands (ORBITS=20, ROUTES=25, BEAMS=35,
+            // UI_GRAPHICS=51). Each Graphics emits 0-2 draws (fill +
+            // stroke); sort cost is O(N log N) with N typically < 50.
+            if let (Some(pool), Some(pipeline)) = (
+                self.graphics_pool.as_ref(),
+                self.graphics_pipeline.as_ref(),
+            ) {
+                let draw_order = pool.draw_order();
+                let mut ordered = draw_order;
+                ordered.sort_by(|a, b| {
+                    a.0.partial_cmp(&b.0)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                pass.set_bind_group(0, &self.engine.bind_group, &[]);
+                for (_z, h) in ordered {
+                    if let Some(g) = pool.get(h) {
+                        if g.fill_vertex_buffer.is_some() || g.stroke_vertex_buffer.is_some() {
+                            g.draw(&mut pass, pipeline);
+                        }
+                    }
                 }
             }
         }
@@ -1023,5 +1313,42 @@ impl Renderer {
             }
         }
         runs
+    }
+}
+
+// ─── Color unpack helpers (graphics.wgsl expects RGBA in [0,1]) ──────────
+
+/// Unpack a 0xRR_GG_BB_AA packed u32 into a [0,1] RGBA tuple. Sentinels:
+/// `0` → caller didn't request this color (used for fill=0 / stroke=0).
+fn unpack_rgba_opt(packed: u32) -> Option<[f32; 4]> {
+    if packed == 0 {
+        None
+    } else {
+        Some(unpack_rgba(packed))
+    }
+}
+
+/// Unpack `0xRR_GG_BB_AA` packed u32 into [0,1] RGBA. Required (Line/Arc
+/// always have a stroke color; Pixi's `stroke()` without a color uses
+/// `0xFFFFFF` so the caller never passes 0).
+fn unpack_rgba_req(packed: u32) -> [f32; 4] {
+    unpack_rgba(packed)
+}
+
+fn unpack_rgba(packed: u32) -> [f32; 4] {
+    let r = ((packed >> 24) & 0xff) as f32 / 255.0;
+    let g = ((packed >> 16) & 0xff) as f32 / 255.0;
+    let b = ((packed >> 8) & 0xff) as f32 / 255.0;
+    let a = (packed & 0xff) as f32 / 255.0;
+    [r, g, b, a]
+}
+
+/// Unpack stroke (color + width) into the Option the Graphics API uses.
+/// `width == 0` → caller didn't request a stroke (just fill).
+fn unpack_stroke(color: u32, width: f32) -> Option<(f32, [f32; 4])> {
+    if color == 0 || width <= 0.0 {
+        None
+    } else {
+        Some((width, unpack_rgba(color)))
     }
 }
