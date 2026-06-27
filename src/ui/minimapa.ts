@@ -61,17 +61,31 @@ export function criarMinimapa(app: Application, mundo: Mundo): MinimapContainer 
   container.x = app.screen.width - TAMANHO_MAPA - MARGEM;
   container.y = app.screen.height - TAMANHO_MAPA - 50;
 
-  container.eventMode = 'static';
-  container.cursor = 'pointer';
-  container.on('pointertap', (e) => {
+  // M7: Pixi pointer events are gone — DOM addEventListener on the
+  // canvas with manual hit-test against the minimap's CSS-pixel
+  // bounds. Cursor styling via CSS (cursor:'pointer' on the canvas
+  // when over the minimap) is handled by the weydra-loader, but
+  // here we just need the click logic.
+  const bounds = () => ({
+    left: container.x,
+    top: container.y,
+    right: container.x + TAMANHO_MAPA,
+    bottom: container.y + TAMANHO_MAPA,
+  });
+  const canvas = app.canvas;
+  canvas.addEventListener('pointerdown', (e: PointerEvent) => {
     if (!_clickCallback) return;
-    const local = container.toLocal(e.global);
+    const b = bounds();
+    if (e.clientX < b.left || e.clientX > b.right) return;
+    if (e.clientY < b.top || e.clientY > b.bottom) return;
+    const localX = e.clientX - b.left;
+    const localY = e.clientY - b.top;
     const mapX = 6;
     const mapY = 28;
     const mapSize = TAMANHO_MAPA - 12;
     const escala = mapSize / mundo.tamanho;
-    const worldX = (local.x - mapX) / escala;
-    const worldY = (local.y - mapY) / escala;
+    const worldX = (localX - mapX) / escala;
+    const worldY = (localY - mapY) / escala;
     _clickCallback(worldX, worldY);
   });
 
