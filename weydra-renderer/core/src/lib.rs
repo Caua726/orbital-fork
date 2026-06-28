@@ -23,6 +23,7 @@ pub mod shader;
 pub mod slotmap;
 pub mod sprite;
 pub mod surface;
+pub mod text;
 pub mod texture;
 pub mod uniform_pool;
 
@@ -42,5 +43,9 @@ pub use shader::{ShaderHandle, ShaderRegistry};
 pub use slotmap::{Handle, SlotMap};
 pub use sprite::{SpriteMeta, SpritePool, SpriteTransform, SpriteUv, FLAG_VISIBLE};
 pub use surface::RenderSurface;
+pub use text::{
+    bake_atlas, GlyphAtlas, GlyphInfo, TextNode, TextRegistry, TextUniforms, TextVertex,
+    DEFAULT_CHARSET,
+};
 pub use texture::{Texture, TextureRegistry};
 pub use uniform_pool::UniformPool;

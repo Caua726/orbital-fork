@@ -257,6 +257,45 @@ export class Renderer {
     this.inner.create_graphics_shader(wgslSource);
   }
 
+  // ─── Text (M8) ───────────────────────────────────────────────────────
+
+  /**
+   * Allocate a TextNode bound to a glyph atlas.
+   * `font`: FONT_SMALL (0) = silkscreen 12px, FONT_MEDIUM (1) =
+   * silkscreen 16px, FONT_LARGE (2) = vt323 24px.
+   * `capacityChars`: max glyphs without truncation.
+   * `worldSpace`: false = screen pixels (UI); true = world units (fog).
+   */
+  createText(
+    font: number = FONT_SMALL,
+    capacityChars = 64,
+    worldSpace = false,
+  ): Text {
+    const h = this.inner.create_text(font, capacityChars, worldSpace);
+    this.revalidate();
+    return new Text(BigInt(h), this);
+  }
+
+  destroyText(t: Text): void {
+    this.inner.destroy_text(t.handle);
+  }
+
+  innerSetTextContent(h: bigint, s: string): void {
+    this.inner.set_text_content(h, s);
+  }
+  innerSetTextPosition(h: bigint, x: number, y: number): void {
+    this.inner.set_text_position(h, x, y);
+  }
+  innerSetTextColor(h: bigint, c: number): void {
+    this.inner.set_text_color(h, c);
+  }
+  innerSetTextVisible(h: bigint, v: boolean): void {
+    this.inner.set_text_visible(h, v);
+  }
+  innerSetTextZOrder(h: bigint, z: number): void {
+    this.inner.set_text_z_order(h, z);
+  }
+
   /**
    * Allocate a new Graphics object. `worldSpace`:
    * - `true` → orbits/routes/beams/rings (world coords)
@@ -937,6 +976,49 @@ export class Graphics {
       );
     }
   }
+}
+
+// ─── Text (M8) ──────────────────────────────────────────────────────────
+
+/** Glyph atlas indices — match the order of `bake_atlas` calls in
+ *  `Renderer::create` (Silkscreen 12px, Silkscreen 16px, VT323 24px). */
+export const FONT_SMALL = 0;
+export const FONT_MEDIUM = 1;
+export const FONT_LARGE = 2;
+
+/**
+ * M8 text label — atlas-sampled glyph quads, dynamically updatable.
+ * Mirror of the Pixi `Text` API surface. Setter routes to the
+ * Rust side; getter reads from local state so the value round-trips.
+ */
+export class Text {
+  private _x = 0;
+  private _y = 0;
+  private _text = '';
+  private _visible = true;
+  private _zOrder = 0;
+
+  constructor(
+    public readonly handle: bigint,
+    private readonly r: Renderer,
+  ) {}
+
+  set text(v: string) { this._text = v; this.r.innerSetTextContent(this.handle, v); }
+  get text(): string { return this._text; }
+
+  set x(v: number) { this._x = v; this.r.innerSetTextPosition(this.handle, v, this._y); }
+  get x(): number { return this._x; }
+
+  set y(v: number) { this._y = v; this.r.innerSetTextPosition(this.handle, this._x, v); }
+  get y(): number { return this._y; }
+
+  set color(rgba: number) { this.r.innerSetTextColor(this.handle, rgba); }
+
+  set visible(v: boolean) { this._visible = v; this.r.innerSetTextVisible(this.handle, v); }
+  get visible(): boolean { return this._visible; }
+
+  set zOrder(v: number) { this._zOrder = v; this.r.innerSetTextZOrder(this.handle, v); }
+  get zOrder(): number { return this._zOrder; }
 }
 
 export type { };
