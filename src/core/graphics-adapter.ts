@@ -1,5 +1,5 @@
 import { Container, Graphics as PixiGraphics } from 'pixi.js';
-import type { Graphics as WeydraGraphics } from '@weydra/renderer';
+import type { Graphics as WeydraGraphics, Renderer as WeydraRenderer } from '@weydra/renderer';
 import { getWeydraRenderer } from '../weydra-loader';
 import { getConfig } from './config';
 
@@ -30,10 +30,17 @@ export class GraphicsAdapter {
   readonly pixi: PixiGraphics | null;
   /** @internal */
   readonly weydra: WeydraGraphics | null;
+  /** @internal */
+  readonly renderer: WeydraRenderer | null;
 
-  private constructor(pixi: PixiGraphics | null, weydra: WeydraGraphics | null) {
+  private constructor(
+    pixi: PixiGraphics | null,
+    weydra: WeydraGraphics | null,
+    renderer: WeydraRenderer | null,
+  ) {
     this.pixi = pixi;
     this.weydra = weydra;
+    this.renderer = renderer;
   }
 
   static create(opts: { worldSpace: boolean; zOrder?: number } = { worldSpace: true }): GraphicsAdapter {
@@ -44,9 +51,9 @@ export class GraphicsAdapter {
       if (opts.zOrder !== undefined) {
         g.zOrder = opts.zOrder;
       }
-      return new GraphicsAdapter(null, g);
+      return new GraphicsAdapter(null, g, r);
     }
-    return new GraphicsAdapter(new PixiGraphics(), null);
+    return new GraphicsAdapter(new PixiGraphics(), null, null);
   }
 
   // ─── Fluent drawing API — mirrors Pixi.Graphics subset ────────────────
@@ -152,18 +159,15 @@ export class GraphicsAdapter {
 
   /**
    * Destroy this adapter. Pixi path: forwards to `this.pixi.destroy()`.
-   * Weydra path: calls `Renderer.destroy_graphics` via the weydra
-   * bridge so the SlotMap handle is freed.
+   * Weydra path: calls `Renderer.destroyGraphics` so the SlotMap
+   * handle is freed (otherwise the weydra-side Graphics + GPU buffers
+   * leak — see M7 review: GraphicsAdapter.destroy() leak).
    */
   destroy(): void {
     if (this.pixi) {
       this.pixi.destroy();
-    } else if (this.weydra) {
-      // The weydra adapter doesn't carry a Renderer reference — the
-      // caller must call `Renderer.destroyGraphics(adapter)` if they
-      // hold the adapter reference. destroy() here is a no-op for
-      // the weydra path. (Pixi's destroy is also a no-op when the
-      // container has been removed but doesn't hurt to call.)
+    } else if (this.weydra && this.renderer) {
+      this.renderer.destroyGraphics(this.weydra);
     }
   }
 

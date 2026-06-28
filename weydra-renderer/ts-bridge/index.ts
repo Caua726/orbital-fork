@@ -720,6 +720,16 @@ export class FogLayer {
 // ─── Graphics (M7) ───────────────────────────────────────────────────────
 
 /**
+ * Sentinel passed to `graphics_circle` / `graphics_rect` / etc when
+ * the caller didn't request that fill/stroke slot. Must match the
+ * Rust side's `COLOR_NONE` constant (which has bit 31 set so real
+ * RGBA values — where alpha byte ≤ 0xFF and bit 31 is clear —
+ * never collide). Old code used 0, which silently dropped legitimate
+ * opaque-black colors.
+ */
+export const COLOR_NONE = 0x80000000;
+
+/**
  * Pack `0xRRGGBB` (Pixi-style hex) + alpha 0..1 into a single u32 laid
  * out as `0xRR_GG_BB_AA` (R in the high byte). The Rust side unpacks
  * in the same order; matches sprite_batch.wgsl (M3) and text.wgsl (M8).
@@ -832,24 +842,26 @@ export class Graphics {
   fill(opts: { color: number; alpha?: number }): this {
     const rgba = packColor(opts.color, opts.alpha ?? 1);
     const p = this._pending;
+    const arc = this._pendingArc;
     this._pending = null;
+    this._polylineStart = null;
+    this._polylineLast = null;
+    this._pendingArc = null;
     if (p) {
       if (p.kind === 'circle') {
-        this.r.graphicsCircle(this.handle, p.x, p.y, p.r, rgba, 0, 0);
+        this.r.graphicsCircle(this.handle, p.x, p.y, p.r, rgba, COLOR_NONE, 0);
       } else if (p.kind === 'rect') {
-        this.r.graphicsRect(this.handle, p.x, p.y, p.w, p.h, rgba, 0, 0);
+        this.r.graphicsRect(this.handle, p.x, p.y, p.w, p.h, rgba, COLOR_NONE, 0);
       } else if (p.kind === 'roundRect') {
         this.r.graphicsRoundRect(
           this.handle,
           p.x, p.y, p.w, p.h, p.radius,
-          rgba, 0, 0,
+          rgba, COLOR_NONE, 0,
         );
       }
-    } else if (this._pendingArc) {
+    } else if (arc) {
       // `arc().fill()` is unusual — lyon's arc path is stroked-only.
-      // No-op with a clear pending state so a subsequent `arc().stroke()`
-      // isn't shadowed.
-      this._pendingArc = null;
+      // No-op (already cleared pending state above).
     }
     return this;
   }
@@ -858,20 +870,26 @@ export class Graphics {
   stroke(opts: { color: number; width: number; alpha?: number }): this {
     const rgba = packColor(opts.color, opts.alpha ?? 1);
     const p = this._pending;
+    const polyStart = this._polylineStart;
+    const polyLast = this._polylineLast;
+    const arc = this._pendingArc;
     this._pending = null;
+    this._polylineStart = null;
+    this._polylineLast = null;
+    this._pendingArc = null;
     if (p) {
       if (p.kind === 'circle') {
-        this.r.graphicsCircle(this.handle, p.x, p.y, p.r, 0, rgba, opts.width);
+        this.r.graphicsCircle(this.handle, p.x, p.y, p.r, COLOR_NONE, rgba, opts.width);
       } else if (p.kind === 'rect') {
-        this.r.graphicsRect(this.handle, p.x, p.y, p.w, p.h, 0, rgba, opts.width);
+        this.r.graphicsRect(this.handle, p.x, p.y, p.w, p.h, COLOR_NONE, rgba, opts.width);
       } else if (p.kind === 'roundRect') {
         this.r.graphicsRoundRect(
           this.handle,
           p.x, p.y, p.w, p.h, p.radius,
-          0, rgba, opts.width,
+          COLOR_NONE, rgba, opts.width,
         );
       }
-    } else if (this._polylineStart && this._polylineLast) {
+    } else if (polyStart && polyLast) {
       // Flush polyline as a single line segment from start to last.
       // (Polylines with intermediate points would need multiple
       // line segments; Pixi's moveTo/lineTo chain calls don't actually
@@ -879,18 +897,14 @@ export class Graphics {
       // need full polylines, they can call `graphics_line` directly.)
       this.r.graphicsLine(
         this.handle,
-        this._polylineStart[0], this._polylineStart[1],
-        this._polylineLast[0], this._polylineLast[1],
+        polyStart[0], polyStart[1],
+        polyLast[0], polyLast[1],
         opts.width, rgba,
       );
-      this._polylineStart = null;
-      this._polylineLast = null;
-    } else if (this._pendingArc) {
-      const a = this._pendingArc;
-      this._pendingArc = null;
+    } else if (arc) {
       this.r.graphicsArc(
         this.handle,
-        a.cx, a.cy, a.r, a.start, a.end,
+        arc.cx, arc.cy, arc.r, arc.start, arc.end,
         opts.width, rgba,
       );
     }

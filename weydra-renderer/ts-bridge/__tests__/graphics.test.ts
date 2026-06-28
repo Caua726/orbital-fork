@@ -30,7 +30,7 @@ vi.mock('weydra-renderer-wasm', () => ({
   default: () => Promise.resolve(_wasmInstance),
 }));
 
-import { Renderer, Graphics } from '../index';
+import { Renderer, Graphics, COLOR_NONE } from '../index';
 
 beforeEach(() => {
   _calls.length = 0;
@@ -89,7 +89,7 @@ describe('Graphics: fluent circle + fill/stroke', () => {
     expect(call!.args[3]).toBe(5);
     // fill_rgba: 0xRR_GG_BB_AA — R=ff, G=00, B=00, A=ff (alpha 1 → 255)
     expect(call!.args[4]).toBe(0xff0000ff);
-    expect(call!.args[5]).toBe(0);
+    expect(call!.args[5]).toBe(COLOR_NONE);
     expect(call!.args[6]).toBe(0);
   });
 
@@ -101,7 +101,7 @@ describe('Graphics: fluent circle + fill/stroke', () => {
 
     const call = _calls.find(c => c.method === 'graphics_circle');
     expect(call).toBeDefined();
-    expect(call!.args[4]).toBe(0);  // no fill
+    expect(call!.args[4]).toBe(COLOR_NONE);  // no fill
     // stroke_rgba: 0x00_ff_00_7f (alpha 0.5 → 127)
     expect(call!.args[5]).toBe(0x00ff007f);
     expect(call!.args[6]).toBe(3);

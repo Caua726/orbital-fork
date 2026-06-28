@@ -1318,10 +1318,17 @@ impl Renderer {
 
 // ─── Color unpack helpers (graphics.wgsl expects RGBA in [0,1]) ──────────
 
+/// Sentinel for "no color requested". Use a high-bit-tagged value
+/// (bit 31 set) so legitimate RGBA literals (which always have
+/// bit 31 clear because alpha ≤ 0xFF) never collide.
+const COLOR_NONE: u32 = 0x8000_0000;
+
 /// Unpack a 0xRR_GG_BB_AA packed u32 into a [0,1] RGBA tuple. Sentinels:
-/// `0` → caller didn't request this color (used for fill=0 / stroke=0).
+/// `COLOR_NONE` → caller didn't request this color (used for
+/// fill=none / stroke=none). Real RGBA values never collide because
+/// they have bit 31 clear (alpha byte ≤ 0xFF).
 fn unpack_rgba_opt(packed: u32) -> Option<[f32; 4]> {
-    if packed == 0 {
+    if packed == COLOR_NONE {
         None
     } else {
         Some(unpack_rgba(packed))
@@ -1344,9 +1351,10 @@ fn unpack_rgba(packed: u32) -> [f32; 4] {
 }
 
 /// Unpack stroke (color + width) into the Option the Graphics API uses.
-/// `width == 0` → caller didn't request a stroke (just fill).
+/// `color == COLOR_NONE` → caller didn't request a stroke (just fill).
+/// `width <= 0` → caller passed a zero-width stroke, same effect.
 fn unpack_stroke(color: u32, width: f32) -> Option<(f32, [f32; 4])> {
-    if color == 0 || width <= 0.0 {
+    if color == COLOR_NONE || width <= 0.0 {
         None
     } else {
         Some((width, unpack_rgba(color)))

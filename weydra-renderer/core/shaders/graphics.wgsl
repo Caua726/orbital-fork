@@ -66,5 +66,13 @@ fn vs_main(in: VsIn) -> VsOut {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    return in.color;
+    // sRGB pre-decode: wgpu's web swap chain is sRGB-formatted (Bgra8UnormSrgb)
+    // — hardware applies a linear→sRGB encode on store. The Pixi reference
+    // wrote to a non-sRGB WebGL framebuffer where no encode happens.
+    // Artist-authored display-space colors that look right on Pixi land
+    // one gamma curve brighter on weydra. Pre-decode with pow(col, 2.2)
+    // to cancel the encode. Same fix as M6 258b5dc applied to
+    // planeta-weydra.wgsl and fog.wgsl.
+    let linear_rgb = pow(in.color.rgb, vec3<f32>(2.2));
+    return vec4<f32>(linear_rgb * in.color.a, in.color.a);
 }
