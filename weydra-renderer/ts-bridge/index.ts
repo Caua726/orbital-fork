@@ -766,8 +766,10 @@ type PendingShape =
  */
 export class Graphics {
   private _pending: PendingShape = null;
-  private _polylineStart: [number, number] | null = null;
-  private _polylineLast: [number, number] | null = null;
+  /** Accumulated moveTo/lineTo points — one graphics_line per segment on stroke. */
+  private _polylineSegments: [number, number][] | null = null;
+  private _pendingArc: { cx: number; cy: number; r: number; start: number; end: number } | null = null;
+  private _zOrder: number = 0;
 
   constructor(
     public readonly handle: bigint,
@@ -778,8 +780,7 @@ export class Graphics {
   /** Clear all commands on this Graphics. */
   clear(): this {
     this._pending = null;
-    this._polylineStart = null;
-    this._polylineLast = null;
+    this._polylineSegments = null;
     this._pendingArc = null;
     this.r.graphicsClear(this.handle);
     return this;
@@ -808,25 +809,28 @@ export class Graphics {
 
   /**
    * Move the polyline cursor without drawing. Subsequent `lineTo`s
-   * chain into a polyline that flushes on `stroke()`. (Match Pixi's
-   * `moveTo` / `lineTo` model.)
+   * chain into a polyline that flushes on `stroke()` as a sequence
+   * of `graphics_line` calls — one per segment — so intermediate
+   * waypoints are preserved (review: polyline silently dropped
+   * intermediate lineTo points). Match Pixi's `moveTo` / `lineTo`
+   * model exactly.
    */
   moveTo(x: number, y: number): this {
-    this._polylineStart = [x, y];
-    this._polylineLast = [x, y];
+    this._polylineSegments = [[x, y]];
     return this;
   }
 
   /**
-   * Add a line segment to the current polyline. The Rust side flushes
-   * on `stroke()`; intermediate `lineTo` calls just update the cursor
-   * without crossing the wasm-bindgen boundary.
+   * Add a line segment to the current polyline. Each call appends
+   * to the segment list; `stroke()` flushes every segment as a
+   * separate `graphics_line` to the Rust side.
    */
   lineTo(x: number, y: number): this {
-    if (this._polylineStart === null) {
-      this._polylineStart = [x, y];
+    if (this._polylineSegments === null) {
+      this._polylineSegments = [[x, y]];
+    } else {
+      this._polylineSegments.push([x, y]);
     }
-    this._polylineLast = [x, y];
     return this;
   }
 
@@ -836,16 +840,13 @@ export class Graphics {
     return this;
   }
 
-  private _pendingArc: { cx: number; cy: number; r: number; start: number; end: number } | null = null;
-
   /** Fill the pending shape (or the polyline if moveTo/lineTo was used). */
   fill(opts: { color: number; alpha?: number }): this {
     const rgba = packColor(opts.color, opts.alpha ?? 1);
     const p = this._pending;
     const arc = this._pendingArc;
     this._pending = null;
-    this._polylineStart = null;
-    this._polylineLast = null;
+    this._polylineSegments = null;
     this._pendingArc = null;
     if (p) {
       if (p.kind === 'circle') {
@@ -861,7 +862,13 @@ export class Graphics {
       }
     } else if (arc) {
       // `arc().fill()` is unusual — lyon's arc path is stroked-only.
-      // No-op (already cleared pending state above).
+      // No-op (already cleared pending state above). Dev-warn so
+      // future callsites get a hint instead of silent failure.
+      if (import.meta.env?.DEV) {
+        console.warn(
+          '[Graphics] arc().fill() is a no-op — lyon tessellates arcs as strokes only. Use .stroke() instead.',
+        );
+      }
     }
     return this;
   }
@@ -870,12 +877,10 @@ export class Graphics {
   stroke(opts: { color: number; width: number; alpha?: number }): this {
     const rgba = packColor(opts.color, opts.alpha ?? 1);
     const p = this._pending;
-    const polyStart = this._polylineStart;
-    const polyLast = this._polylineLast;
+    const segments = this._polylineSegments;
     const arc = this._pendingArc;
     this._pending = null;
-    this._polylineStart = null;
-    this._polylineLast = null;
+    this._polylineSegments = null;
     this._pendingArc = null;
     if (p) {
       if (p.kind === 'circle') {
@@ -889,18 +894,16 @@ export class Graphics {
           COLOR_NONE, rgba, opts.width,
         );
       }
-    } else if (polyStart && polyLast) {
-      // Flush polyline as a single line segment from start to last.
-      // (Polylines with intermediate points would need multiple
-      // line segments; Pixi's moveTo/lineTo chain calls don't actually
-      // preserve intermediate points in the bridge either. If callers
-      // need full polylines, they can call `graphics_line` directly.)
-      this.r.graphicsLine(
-        this.handle,
-        polyStart[0], polyStart[1],
-        polyLast[0], polyLast[1],
-        opts.width, rgba,
-      );
+    } else if (segments && segments.length >= 2) {
+      // Flush the polyline as one graphics_line per segment. Preserves
+      // every waypoint — important for rotas with multiple intermediate
+      // points (naves.ts desenharRotaNave) and for chevron V-shapes
+      // (naves.ts decision-state ring).
+      for (let i = 0; i < segments.length - 1; i++) {
+        const a = segments[i];
+        const b = segments[i + 1];
+        this.r.graphicsLine(this.handle, a[0], a[1], b[0], b[1], opts.width, rgba);
+      }
     } else if (arc) {
       this.r.graphicsArc(
         this.handle,
@@ -914,14 +917,17 @@ export class Graphics {
   /**
    * Z-order layer for draw sorting. Lower values draw first. Use the
    * `Z` constants from `@/core/render-order` for canonical layers.
+   * Setter writes through to the weydra renderer AND caches the
+   * value locally so the getter round-trips (review: Graphics.zOrder
+   * getter was permanently stale).
    */
   set zOrder(z: number) {
+    this._zOrder = z;
     this.r.setGraphicsZOrder(this.handle, z);
   }
   get zOrder(): number {
-    return (this._zOrder as number) ?? 0;
+    return this._zOrder;
   }
-  private _zOrder: number | undefined = undefined;
 
   private _warnDroppedPending(): void {
     if (this._pending !== null && import.meta.env?.DEV) {

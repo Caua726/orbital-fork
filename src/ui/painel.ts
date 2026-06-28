@@ -76,6 +76,15 @@ interface BotaoContainer extends Container {
   _texto: Text;
   _acao: string;
   _labelNave?: string;
+  /**
+   * M7: CSS-pixel bounds of the button as drawn — populated by
+   * `atualizarBoundsBotoes()` so the canvas-level pointerdown
+   * listener can hit-test. Without this, the action routing stays
+   * on the Pixi eventMode + .on('pointertap') path (which still
+   * works when weydra.graphics is on, but doesn't survive the M9
+   * migration that removes Pixi).
+   */
+  _bounds?: { left: number; top: number; right: number; bottom: number };
 }
 
 interface BoxContainer extends Container {
@@ -419,6 +428,8 @@ export function criarPainel(): PainelContainer {
   btnToggleProducao.addChild(txtToggle);
   btnToggleProducao._texto = txtToggle;
   infoContainer.addChild(btnToggleProducao);
+  // M7: cache CSS-pixel bounds for DOM hit-test.
+  btnToggleProducao._bounds = { left: btnToggleProducao.x, top: btnToggleProducao.y, right: btnToggleProducao.x + 150, bottom: btnToggleProducao.y + 24 };
 
   btnToggleProducao.on('pointertap', () => {
     container._painelProducaoExpandido = !container._painelProducaoExpandido;

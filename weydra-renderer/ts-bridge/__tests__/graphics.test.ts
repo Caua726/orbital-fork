@@ -211,21 +211,25 @@ describe('Graphics: arc + polyline', () => {
     expect(call.args[6]).toBe(2);  // width
   });
 
-  it('moveTo + lineTo + stroke flushes a single graphics_line', () => {
+  it('moveTo + lineTo + stroke flushes one graphics_line PER SEGMENT', () => {
     const r = makeRenderer();
     const g = r.createGraphics(true);
 
     g.moveTo(0, 0).lineTo(10, 10).lineTo(20, 5).stroke({ color: 0xff0000, width: 1 });
 
-    // Pixi/bridge compromise: polyline flushes as ONE line from start
-    // to LAST point. Intermediate lineTos update the cursor but don't
-    // generate separate graphics_line calls (matches Pixi's bridge).
-    expect(_calls.filter(c => c.method === 'graphics_line').length).toBe(1);
-    const call = _calls.find(c => c.method === 'graphics_line')!;
-    expect(call.args[1]).toBe(0);   // x1
-    expect(call.args[2]).toBe(0);   // y1
-    expect(call.args[3]).toBe(20);  // x2 (last point)
-    expect(call.args[4]).toBe(5);   // y2 (last point)
+    // Polyline flushes as N graphics_line calls, one per segment.
+    // (0,0)→(10,10) and (10,10)→(20,5) = 2 segments.
+    expect(_calls.filter(c => c.method === 'graphics_line').length).toBe(2);
+
+    const calls = _calls.filter(c => c.method === 'graphics_line');
+    expect(calls[0].args[1]).toBe(0);   // x1
+    expect(calls[0].args[2]).toBe(0);   // y1
+    expect(calls[0].args[3]).toBe(10);  // x2
+    expect(calls[0].args[4]).toBe(10);  // y2
+    expect(calls[1].args[1]).toBe(10);  // x1 (continues from previous)
+    expect(calls[1].args[2]).toBe(10);  // y1
+    expect(calls[1].args[3]).toBe(20);  // x2
+    expect(calls[1].args[4]).toBe(5);   // y2
   });
 });
 

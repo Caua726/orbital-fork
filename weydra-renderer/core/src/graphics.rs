@@ -428,53 +428,43 @@ impl Graphics {
                     color,
                 } => {
                     // lyon's NoAttributes<BuilderImpl> doesn't expose
-                    // `add_arc` (that's gated behind the Svg attribute
-                    // builder). Approximate the arc as a chain of cubic
-                    // Béziers — one per quadrant, control-point offset
-                    // `r * 0.5523` is the standard "magic number" for a
-                    // 90° circular-arc Bézier (4·(√2 − 1)/3). Sufficient
-                    // precision for strokes; matches SVG arc rendering.
+                    // `add_arc` (gated behind the Svg attribute builder).
+                    // Approximate the arc as a chain of cubic Béziers.
+                    // Slice into segments of at most π/2; control-point
+                    // distance per slice is `r * tan(half_angle/2) * (4/3)`,
+                    // the exact formula for a circular-arc Bézier (not the
+                    // fixed 0.5523·r which is only correct for a full
+                    // 90° segment — short segments would bulge).
                     let mut builder = Path::builder();
                     let mut a = *start;
                     let b = *end;
-                    // First endpoint.
-                    let p0 = (
-                        *cx + *r * a.cos(),
-                        *cy + *r * a.sin(),
-                    );
+                    let p0 = (*cx + *r * a.cos(), *cy + *r * a.sin());
                     builder.begin(lyon::geom::point(p0.0, p0.1));
-                    let k = *r * 0.5523;
                     let step_sign = if b >= a { 1.0_f32 } else { -1.0_f32 };
                     while (a - b).abs() > 1e-4 {
-                        let next = a + step_sign * (std::f32::consts::PI / 2.0).min((b - a).abs());
-                        let a_end = if step_sign > 0.0 {
-                            next.min(b)
-                        } else {
-                            next.max(b)
-                        };
-                        let p1 = (
-                            *cx + *r * a.cos(),
-                            *cy + *r * a.sin(),
-                        );
-                        let p2 = (
-                            *cx + *r * a_end.cos(),
-                            *cy + *r * a_end.sin(),
-                        );
-                        let p3 = (
-                            *cx + *r * a_end.cos(),
-                            *cy + *r * a_end.sin(),
-                        );
-                        // Tangent at p1 is perpendicular to the radius
-                        // at angle a; tangent at p2 is perpendicular at
-                        // angle a_end.
-                        let t1 = (-a.sin(), a.cos());
-                        let t2 = (-a_end.sin(), a_end.cos());
-                        let c1 = (p1.0 + k * step_sign * t1.0, p1.1 + k * step_sign * t1.1);
-                        let c2 = (p2.0 - k * step_sign * t2.0, p2.1 - k * step_sign * t2.1);
+                        let remaining = (b - a).abs();
+                        let slice = (std::f32::consts::PI / 2.0).min(remaining);
+                        let a_end = a + step_sign * slice;
+                        // h = tan(slice/2) * (4/3) — exact Bézier handle
+                        // length for a circular arc of `slice` radians.
+                        let h = (slice * 0.5).tan() * (4.0 / 3.0) * *r;
+                        let (ca, sa) = (a.cos(), a.sin());
+                        let (cb, sb) = (a_end.cos(), a_end.sin());
+                        // Tangent vectors perpendicular to radii.
+                        let t1x = -sa;
+                        let t1y = ca;
+                        let t2x = -sb;
+                        let t2y = cb;
+                        let c1x = *cx + *r * ca + h * step_sign * t1x;
+                        let c1y = *cy + *r * sa + h * step_sign * t1y;
+                        let c2x = *cx + *r * cb - h * step_sign * t2x;
+                        let c2y = *cy + *r * sb - h * step_sign * t2y;
+                        let p3x = *cx + *r * cb;
+                        let p3y = *cy + *r * sb;
                         builder.cubic_bezier_to(
-                            lyon::geom::point(c1.0, c1.1),
-                            lyon::geom::point(c2.0, c2.1),
-                            lyon::geom::point(p3.0, p3.1),
+                            lyon::geom::point(c1x, c1y),
+                            lyon::geom::point(c2x, c2y),
+                            lyon::geom::point(p3x, p3y),
                         );
                         a = a_end;
                     }
