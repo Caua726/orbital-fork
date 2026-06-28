@@ -3,6 +3,8 @@ import type { Application } from 'pixi.js';
 import type { Mundo, Planeta, Sol, Nave, Camera, TipoJogador } from '../types';
 import { criarFundo, atualizarFundo } from './fundo';
 import { TIPO_PLANETA } from './planeta';
+import { abortarListenersMinimapa } from '../ui/minimapa';
+import { abortarListenersTutorial } from '../ui/tutorial';
 import { atualizarTempoPlanetas, atualizarLuzPlaneta, precompilarBakesPlanetas, processBakeQueueWeydra, resetBakeQueueWeydra, destroyAllWeydraBakedSprites } from './planeta-procedural';
 import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria, aplicarLimiteFantasmas, destruirFog } from './nevoa';
 import { criarSistemaSolar } from './sistema';
@@ -376,6 +378,12 @@ export function destruirMundo(mundo: Mundo, app: Application): void {
   // internals), but ordering it first keeps the teardown symmetric with
   // the Pixi-bake cleanup inside destroy({ children: true }).
   destroyAllWeydraBakedSprites([...mundo.planetas, ...mundo.sois]);
+  // Abort DOM event listeners registered by the M7 minimapa/tutorial
+  // UI. Without this, every world reset accumulates handlers on
+  // app.canvas and every click fires N callbacks (review: DOM event
+  // listener leak).
+  abortarListenersMinimapa();
+  abortarListenersTutorial();
   app.stage.removeChild(mundo.container);
   mundo.container.destroy({ children: true });
   estadoJogo = 'jogando';

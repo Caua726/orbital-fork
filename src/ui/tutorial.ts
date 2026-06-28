@@ -146,12 +146,15 @@ export function criarTutorial(app: Application): TutorialContainer | null {
   // M7: Pixi eventMode + .on('pointertap') replaced by a DOM
   // pointerdown listener. Hit-test the button's CSS-pixel bounds,
   // which equal (tutorial.x + closeBtn.x, tutorial.y + closeBtn.y)
-  // and size (btnW × btnH).
+  // and size (btnW × btnH). AbortController-backed so world resets
+  // release the listener.
   const closeBtnBounds = () => {
     const left = tutorial.x + closeBtn.x;
     const top = tutorial.y + closeBtn.y;
     return { left, top, right: left + btnW, bottom: top + btnH };
   };
+  const ac = new AbortController();
+  tutorialAbortControllers.add(ac);
   app.canvas.addEventListener('pointerdown', (e: PointerEvent) => {
     if (!(e.target as HTMLElement)?.closest?.('canvas')) return;
     const b = closeBtnBounds();
@@ -160,7 +163,7 @@ export function criarTutorial(app: Application): TutorialContainer | null {
     markSeen();
     tutorial._persisted = true;
     tutorial._fadeOut = true;
-  });
+  }, { signal: ac.signal });
 
   tutorial.x = app.screen.width / 2;
   tutorial.y = app.screen.height / 2;
@@ -173,6 +176,16 @@ export function criarTutorial(app: Application): TutorialContainer | null {
   tutorial._slideIn = true;
 
   return tutorial;
+}
+
+/**
+ * AbortControllers for every tutorial DOM listener ever registered.
+ * Pair with `abortarListenersMinimapa()` from the world-destroy path.
+ */
+const tutorialAbortControllers = new Set<AbortController>();
+export function abortarListenersTutorial(): void {
+  for (const ac of tutorialAbortControllers) ac.abort();
+  tutorialAbortControllers.clear();
 }
 
 export function atualizarTutorial(tutorial: TutorialContainer, mundo: Mundo): void {

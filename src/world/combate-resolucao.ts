@@ -80,13 +80,20 @@ const _particles: ImpactParticle[] = [];
 const _beamPool: BeamVisual[] = [];
 const _particlePool: ImpactParticle[] = [];
 let _beamGfx: GraphicsAdapter | null = null;
+let _beamGfxAttachedTo: unknown = null;
 
 function ensureBeamGfx(mundo: Mundo): GraphicsAdapter {
-  if (_beamGfx && _beamGfx.pixi && _beamGfx.pixi.parent === mundo.rotasContainer) return _beamGfx;
+  // The Pixi path needs to verify the cached Graphics is still attached
+  // to the current mundo's container (after a world swap, the old
+  // container is gone). The weydra path doesn't have a parent to
+  // check, so it always reuses the cached one — `clear()` resets it
+  // for the next frame anyway.
+  if (_beamGfx && _beamGfxAttachedTo === mundo.rotasContainer) return _beamGfx;
   const g = GraphicsAdapter.create({ worldSpace: true, zOrder: 35 /* Z.BEAMS */ });
   g.eventMode = 'none';
   g.attachTo(mundo.rotasContainer);
   _beamGfx = g;
+  _beamGfxAttachedTo = mundo.rotasContainer;
   return g;
 }
 

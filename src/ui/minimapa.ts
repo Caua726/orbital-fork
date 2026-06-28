@@ -73,6 +73,10 @@ export function criarMinimapa(app: Application, mundo: Mundo): MinimapContainer 
     bottom: container.y + TAMANHO_MAPA,
   });
   const canvas = app.canvas;
+  // AbortController-backed listener — pair every addEventListener with
+  // an AbortSignal so world resets / tutorial close don't leak handlers.
+  const ac = new AbortController();
+  minimapAbortControllers.add(ac);
   canvas.addEventListener('pointerdown', (e: PointerEvent) => {
     if (!_clickCallback) return;
     const b = bounds();
@@ -87,9 +91,21 @@ export function criarMinimapa(app: Application, mundo: Mundo): MinimapContainer 
     const worldX = (localX - mapX) / escala;
     const worldY = (localY - mapY) / escala;
     _clickCallback(worldX, worldY);
-  });
+  }, { signal: ac.signal });
 
   return container;
+}
+
+/**
+ * AbortControllers for every minimapa DOM listener ever registered.
+ * Call `abortarListenersMinimapa()` from the world-destroy path to
+ * release them; without that, world resets accumulate handlers on
+ * `app.canvas` and every click fires N callbacks.
+ */
+const minimapAbortControllers = new Set<AbortController>();
+export function abortarListenersMinimapa(): void {
+  for (const ac of minimapAbortControllers) ac.abort();
+  minimapAbortControllers.clear();
 }
 
 export function atualizarMinimapa(minimapa: MinimapContainer, camera: Camera, app: Application): void {
