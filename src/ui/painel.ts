@@ -1,4 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
+import { criarText, type TextLike } from './_text-helper';
 import type { Application, Mundo, Planeta, TipoJogador, Pesquisa, AcaoNaveParsed, Nave, Recursos } from '../types';
 import {
   capacidadeCargaCargueira,
@@ -67,13 +68,13 @@ const BTN_H = 28;
 const SMALL_BTN = 28;
 
 interface InfoField {
-  lbl: Text;
-  val: Text;
+  lbl: TextLike;
+  val: TextLike;
 }
 
 interface BotaoContainer extends Container {
   _bg: Graphics;
-  _texto: Text;
+  _texto: TextLike;
   _acao: string;
   _labelNave?: string;
   /**
@@ -89,7 +90,7 @@ interface BotaoContainer extends Container {
 
 interface BoxContainer extends Container {
   _bg: Graphics;
-  _lbl: Text;
+  _lbl: TextLike;
 }
 
 interface PesquisaBotao {
@@ -105,25 +106,25 @@ interface AjusteCargaBotao {
 }
 
 export interface PainelContainer extends Container {
-  _txtPlanetas: Text;
-  _txtComum: Text;
-  _txtRaro: Text;
-  _txtCombustivel: Text;
-  _txtTipo: Text;
-  _txtNaves: Text;
-  _txtContador: Text;
+  _txtPlanetas: TextLike;
+  _txtComum: TextLike;
+  _txtRaro: TextLike;
+  _txtCombustivel: TextLike;
+  _txtTipo: TextLike;
+  _txtNaves: TextLike;
+  _txtContador: TextLike;
   _statGroupBgs: Graphics;
   _infoContainer: Container;
   _infoBg: Graphics;
-  _infoNome: Text;
+  _infoNome: TextLike;
   _infoFields: Record<string, InfoField>;
   _boxEdificios: BoxContainer;
   _boxNaves: BoxContainer;
   _boxPesquisa: BoxContainer;
-  _catLabels: Record<string, Text>;
+  _catLabels: Record<string, TextLike>;
   _overlayPesquisa: Container;
   _overlayPesquisaBg: Graphics;
-  _txtPesquisaResumo: Text;
+  _txtPesquisaResumo: TextLike;
   _btnToggleProducao: BotaoContainer;
   _btnAbrirPesquisa: BotaoContainer;
   _barraBg: Graphics;
@@ -137,9 +138,9 @@ export interface PainelContainer extends Container {
   _btnDestinoCarga: BotaoContainer;
   _btnLoopCarga: BotaoContainer;
   _btnAjusteCarga: AjusteCargaBotao[];
-  _txtCargaInfo: Text;
+  _txtCargaInfo: TextLike;
   _boxFila: BoxContainer;
-  _txtFilaResumo: Text;
+  _txtFilaResumo: TextLike;
   _btnFilaRepeat: BotaoContainer;
   _btnFilaLimpar: BotaoContainer;
   _planetaSelecionado: Planeta | null;
@@ -327,12 +328,9 @@ function criarBotaoAcao(
   botao.addChild(bg);
   botao._bg = bg;
 
-  const texto = new Text({
-    text: textoInicial,
-    style: { fontSize: 12, fill: SP.btnText, fontFamily: 'monospace', align: 'center' },
-  });
+  const texto = criarText(textoInicial, 12, SP.btnText)
   texto.anchor.set(0.5);
-  botao.addChild(texto);
+  botao.addChild((texto)._pixi ?? ((texto) as unknown as Container));;
   botao._texto = texto;
 
   registrarBotao(botao, painel);
@@ -352,26 +350,26 @@ export function criarPainel(app: Application): PainelContainer {
   const statGroupBgs = new Graphics();
   container.addChild(statGroupBgs);
 
-  const txtPlanetas = new Text({ text: '', style: { fontSize: 13, fill: SP.statCyan, fontFamily: 'monospace' } });
-  container.addChild(txtPlanetas);
+  const txtPlanetas = criarText('', 13, SP.statCyan)
+  container.addChild((txtPlanetas)._pixi ?? ((txtPlanetas) as unknown as Container));;
 
-  const txtComum = new Text({ text: '', style: { fontSize: 13, fill: SP.statGreen, fontFamily: 'monospace' } });
-  container.addChild(txtComum);
+  const txtComum = criarText('', 13, SP.statGreen)
+  container.addChild((txtComum)._pixi ?? ((txtComum) as unknown as Container));;
 
-  const txtRaro = new Text({ text: '', style: { fontSize: 13, fill: SP.statAmber, fontFamily: 'monospace' } });
-  container.addChild(txtRaro);
+  const txtRaro = criarText('', 13, SP.statAmber)
+  container.addChild((txtRaro)._pixi ?? ((txtRaro) as unknown as Container));;
 
-  const txtCombustivel = new Text({ text: '', style: { fontSize: 13, fill: 0xff6090, fontFamily: 'monospace' } });
-  container.addChild(txtCombustivel);
+  const txtCombustivel = criarText('', 13, 0xff6090)
+  container.addChild((txtCombustivel)._pixi ?? ((txtCombustivel) as unknown as Container));;
 
-  const txtTipo = new Text({ text: '', style: { fontSize: 13, fill: SP.statAmber, fontFamily: 'monospace' } });
-  container.addChild(txtTipo);
+  const txtTipo = criarText('', 13, SP.statAmber)
+  container.addChild((txtTipo)._pixi ?? ((txtTipo) as unknown as Container));;
 
-  const txtNaves = new Text({ text: '', style: { fontSize: 13, fill: SP.statCyan, fontFamily: 'monospace' } });
-  container.addChild(txtNaves);
+  const txtNaves = criarText('', 13, SP.statCyan)
+  container.addChild((txtNaves)._pixi ?? ((txtNaves) as unknown as Container));;
 
-  const txtContador = new Text({ text: '', style: { fontSize: 12, fill: SP.textDark, fontFamily: 'monospace' } });
-  container.addChild(txtContador);
+  const txtContador = criarText('', 12, SP.textDark)
+  container.addChild((txtContador)._pixi ?? ((txtContador) as unknown as Container));;
 
   // === PLANET INFO PANEL ===
   const infoContainer = new Container();
@@ -380,18 +378,18 @@ export function criarPainel(app: Application): PainelContainer {
   const infoBg = new Graphics();
   infoContainer.addChild(infoBg);
 
-  const infoNome = new Text({ text: '', style: { fontSize: 15, fill: SP.titleText, fontFamily: 'monospace' } });
+  const infoNome = criarText('', 15, SP.titleText)
   infoNome.x = 20; infoNome.y = 4;
-  infoContainer.addChild(infoNome);
+  infoContainer.addChild((infoNome)._pixi ?? ((infoNome) as unknown as Container));;
 
   // Individual info rows (label + value pairs)
   const infoFields: Record<string, InfoField> = {};
   const fieldNames = ['dono', 'tipo', 'ciclo', 'prod', 'fabrica', 'infra', 'navesVoo', 'pesquisa', 'obra', 'filaNave'];
   for (const name of fieldNames) {
-    const lbl = new Text({ text: '', style: { fontSize: 13, fill: SP.textLabel, fontFamily: 'monospace' } });
-    const val = new Text({ text: '', style: { fontSize: 13, fill: SP.textValue, fontFamily: 'monospace' } });
-    infoContainer.addChild(lbl);
-    infoContainer.addChild(val);
+    const lbl = criarText('', 13, SP.textLabel)
+    const val = criarText('', 13, SP.textValue)
+    infoContainer.addChild((lbl)._pixi ?? ((lbl) as unknown as Container));;
+    infoContainer.addChild((val)._pixi ?? ((val) as unknown as Container));;
     infoFields[name] = { lbl, val };
   }
 
@@ -404,8 +402,8 @@ export function criarPainel(app: Application): PainelContainer {
   const boxEdBg = new Graphics();
   boxEdificios.addChild(boxEdBg);
   boxEdificios._bg = boxEdBg;
-  const lblEd = new Text({ text: 'Edificios', style: { fontSize: 12, fill: SP.sectionText, fontFamily: 'monospace' } });
-  boxEdificios.addChild(lblEd);
+  const lblEd = criarText('Edificios', 12, SP.sectionText)
+  boxEdificios.addChild((lblEd)._pixi ?? ((lblEd) as unknown as Container));
   boxEdificios._lbl = lblEd;
 
   // `painel` is created mid-function; closures capture the binding so
@@ -428,8 +426,8 @@ export function criarPainel(app: Application): PainelContainer {
   const boxNavBg = new Graphics();
   boxNaves.addChild(boxNavBg);
   boxNaves._bg = boxNavBg;
-  const lblNav = new Text({ text: 'Naves', style: { fontSize: 12, fill: SP.sectionText, fontFamily: 'monospace' } });
-  boxNaves.addChild(lblNav);
+  const lblNav = criarText('Naves', 12, SP.sectionText)
+  boxNaves.addChild((lblNav)._pixi ?? ((lblNav) as unknown as Container));
   boxNaves._lbl = lblNav;
 
   const btnNaves: BotaoContainer[] = [];
@@ -452,12 +450,12 @@ export function criarPainel(app: Application): PainelContainer {
   const boxPesBg = new Graphics();
   boxPesquisa.addChild(boxPesBg);
   boxPesquisa._bg = boxPesBg;
-  const lblPes = new Text({ text: 'Pesquisa', style: { fontSize: 12, fill: SP.sectionText, fontFamily: 'monospace' } });
-  boxPesquisa.addChild(lblPes);
+  const lblPes = criarText('Pesquisa', 12, SP.sectionText)
+  boxPesquisa.addChild((lblPes)._pixi ?? ((lblPes) as unknown as Container));
   boxPesquisa._lbl = lblPes;
 
-  const txtPesquisaResumo = new Text({ text: '', style: { fontSize: 11, fill: SP.textLabel, fontFamily: 'monospace' } });
-  boxPesquisa.addChild(txtPesquisaResumo);
+  const txtPesquisaResumo = criarText('', 11, SP.textLabel)
+  boxPesquisa.addChild((txtPesquisaResumo)._pixi ?? ((txtPesquisaResumo) as unknown as Container));;
 
   const btnAbrirPesquisa = btn(boxPesquisa, 'Abrir arvore', 'toggle_pesquisa');
 
@@ -487,8 +485,8 @@ export function criarPainel(app: Application): PainelContainer {
   const btnOrigemCarga = btn(infoContainer, 'Origem', 'comando_nave_origem');
   const btnDestinoCarga = btn(infoContainer, 'Destino', 'comando_nave_destino');
   const btnLoopCarga = btn(infoContainer, 'Loop', 'comando_nave_loop');
-  const txtCargaInfo = new Text({ text: '', style: { fontSize: 11, fill: SP.textValue, fontFamily: 'monospace' } });
-  infoContainer.addChild(txtCargaInfo);
+  const txtCargaInfo = criarText('', 11, SP.textValue)
+  infoContainer.addChild((txtCargaInfo)._pixi ?? ((txtCargaInfo) as unknown as Container));;
   const btnAjusteCarga: AjusteCargaBotao[] = [];
   for (const recurso of ['comum', 'raro', 'combustivel'] as const) {
     btnAjusteCarga.push({ botao: btn(infoContainer, '-', `config_cargo_${recurso}_menos`), recurso, delta: -5 });
@@ -501,11 +499,11 @@ export function criarPainel(app: Application): PainelContainer {
   const boxFilaBg = new Graphics();
   boxFila.addChild(boxFilaBg);
   boxFila._bg = boxFilaBg;
-  const lblFila = new Text({ text: 'Fila', style: { fontSize: 12, fill: SP.sectionText, fontFamily: 'monospace' } });
-  boxFila.addChild(lblFila);
+  const lblFila = criarText('Fila', 12, SP.sectionText)
+  boxFila.addChild((lblFila)._pixi ?? ((lblFila) as unknown as Container));
   boxFila._lbl = lblFila;
-  const txtFilaResumo = new Text({ text: '', style: { fontSize: 11, fill: SP.textValue, fontFamily: 'monospace' } });
-  boxFila.addChild(txtFilaResumo);
+  const txtFilaResumo = criarText('', 11, SP.textValue)
+  boxFila.addChild((txtFilaResumo)._pixi ?? ((txtFilaResumo) as unknown as Container));;
   const btnFilaRepeat = btn(boxFila, 'Repetir', 'fila_toggle_repeat');
   const btnFilaLimpar = btn(boxFila, 'Limpar', 'fila_limpar');
 
@@ -516,10 +514,10 @@ export function criarPainel(app: Application): PainelContainer {
   const bgToggle = new Graphics();
   btnToggleProducao.addChild(bgToggle);
   btnToggleProducao._bg = bgToggle;
-  const txtToggle = new Text({ text: 'Producao', style: { fontSize: 14, fill: SP.btnText, fontFamily: 'monospace' } });
+  const txtToggle = criarText('Producao', 14, SP.btnText)
   txtToggle.anchor.set(0.5);
   txtToggle.x = 75; txtToggle.y = 12;
-  btnToggleProducao.addChild(txtToggle);
+  btnToggleProducao.addChild((txtToggle)._pixi ?? ((txtToggle) as unknown as Container));;
   btnToggleProducao._texto = txtToggle;
   infoContainer.addChild(btnToggleProducao);
   // M7: cache CSS-pixel bounds for DOM hit-test.
@@ -642,7 +640,7 @@ export function atualizarPainel(painel: PainelContainer, mundo: Mundo, tipoJogad
   const sgGap = 6;
 
   // Helper: draw a stat group box and return its right edge x
-  function drawStatGroup(x: number, texts: Text[]): number {
+  function drawStatGroup(x: number, texts: TextLike[]): number {
     // Measure total width
     let totalW = sgPadX;
     for (const t of texts) totalW += t.width + 8;

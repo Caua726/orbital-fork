@@ -1,4 +1,5 @@
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
+import { criarText } from './_text-helper';
 import type { Application } from 'pixi.js';
 import type { Mundo } from '../types';
 import { isTouchMode } from '../core/ui-mode';
@@ -75,14 +76,11 @@ export function criarTutorial(app: Application): TutorialContainer | null {
 
   tutorial.addChild(bg);
 
-  const titleText = new Text({
-    text: 'Tutorial',
-    style: { fontSize: 15, fill: SP.titleText, fontFamily: 'monospace' },
-  });
+  const titleText = criarText('Tutorial', 15, SP.titleText)
   titleText.anchor.set(0, 0.5);
   titleText.x = -hW + 22;
   titleText.y = -hH + 13;
-  tutorial.addChild(titleText);
+  tutorial.addChild((titleText)._pixi ?? ((titleText) as unknown as Container));;
 
   // Instructions diverge by input modality — scroll/click vs pinch/tap.
   const linhas = touch ? [
@@ -112,11 +110,11 @@ export function criarTutorial(app: Application): TutorialContainer | null {
   const bodyBottom = hH - (touch ? 56 : 42);
   const stride = Math.min(38, Math.max(22, (bodyBottom - bodyTop) / (linhas.length + 0.5)));
   for (let i = 0; i < linhas.length; i++) {
-    const t = new Text({ text: `- ${linhas[i]}`, style: estilo });
+    const t = criarText(`- ${linhas[i]}`, 14, SP.textValue);
     t.anchor.set(0.5, 0.5);
     t.x = 0;
     t.y = bodyTop + i * stride + stride * 0.5;
-    tutorial.addChild(t);
+    tutorial.addChild((t)._pixi ?? ((t) as unknown as Container));;
   }
 
   // Bigger tap target for touch (160×44 meets Fitts' 44px minimum).
@@ -131,14 +129,11 @@ export function criarTutorial(app: Application): TutorialContainer | null {
   closeBg.rect(0, 0, btnW, btnH).stroke({ color: 0x2a4878, width: 1 });
   closeBg.moveTo(4, 0).lineTo(btnW - 4, 0).stroke({ color: 0x3a6098, width: 1, alpha: 0.4 });
   closeBtn.addChild(closeBg);
-  const closeTxt = new Text({
-    text: 'Fechar',
-    style: { fontSize: touch ? 17 : 15, fill: SP.textValue, fontFamily: 'monospace' },
-  });
+  const closeTxt = criarText('Fechar', touch ? 17 : 15, SP.textValue);
   closeTxt.anchor.set(0.5);
   closeTxt.x = btnW / 2;
   closeTxt.y = btnH / 2;
-  closeBtn.addChild(closeTxt);
+  closeBtn.addChild((closeTxt)._pixi ?? ((closeTxt) as unknown as Container));;
   closeBtn.x = -btnW / 2;
   closeBtn.y = hH - btnH - 10;
   tutorial.addChild(closeBtn);

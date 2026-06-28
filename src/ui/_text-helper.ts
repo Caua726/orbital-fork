@@ -4,16 +4,20 @@ import { getConfig } from '../core/config';
 import { getWeydraRenderer } from '../weydra-loader';
 
 /**
- * M8 text helper. `criarText(content, fontSize, color)` returns an
- * object that mimics the Pixi `Text` API surface (text/x/y/visible
- * getters+setters) but routes writes to either the Pixi Graphics
- * path OR the weydra Text primitive, depending on `cfg.weydra.text`.
+ * M8 text helper. `criarText(content, fontSize, color)` returns a
+ * proxy that mimics the Pixi `Text` API surface (text/x/y/visible/
+ * alpha/style/anchor getters+setters) but routes writes to either
+ * the Pixi Graphics path OR the weydra Text primitive, depending
+ * on `cfg.weydra.text`.
  *
- * The shape returned has a `_weydra` field with the underlying
- * weydra Text when applicable (so addChild/parent integration with
- * Pixi containers still works on the fallback path; on the weydra
- * path, the Text renders in its own render pass and doesn't need a
- * Pixi parent).
+ * On the weydra path: writes to .style and .anchor are no-ops (the
+ * weydra text's color is immutable post-create; the origin is fixed
+ * at top-left). The getters still return stub objects so call sites
+ * don't need optional-chaining.
+ *
+ * `_pixi` exposes the underlying Pixi Text for `addChild` / `removeChild`
+ * integration with the Pixi container tree. On the weydra path the
+ * text renders in its own pass and doesn't need a Pixi parent.
  */
 export interface TextLike {
   text: string;
@@ -21,22 +25,11 @@ export interface TextLike {
   y: number;
   visible: boolean;
   alpha: number;
-  /**
-   * Pixi-only getters. On the weydra path these return 0 (the text
-   * atlas has no fixed per-string metrics — the layout is baked at
-   * tessellation time). Used by `nevoa.ts` to size the info-bg
-   * background and by the zoom scaler.
-   */
-  width?: number;
-  height?: number;
-  scale?: { set: (v: number) => void };
-  /**
-   * Pixi Text style — exposed as a property so call sites that
-   * mutate `style.fill` etc. work on the Pixi fallback. On the
-   * weydra path there's no runtime style (color is set at create
-   * time), so this returns undefined and writes are no-ops.
-   */
-  style?: { fill?: number; fontSize?: number; fontFamily?: string };
+  width: number;
+  height: number;
+  scale: { set: (v: number) => void } | undefined;
+  style: PixiText['style'];
+  anchor: PixiText['anchor'];
   _weydra?: WeydraText;
   _pixi?: PixiText;
 }
@@ -45,6 +38,17 @@ function fontIdxFor(fontSize: number): number {
   if (fontSize <= 13) return FONT_SMALL;
   if (fontSize <= 18) return FONT_MEDIUM;
   return FONT_LARGE;
+}
+
+function emptyStyle(): PixiText['style'] {
+  // Stubs for the weydra path so .style.fill = X typechecks. Writes to
+  // these fields are silently dropped on the weydra path (color is
+  // immutable post-create).
+  return { fill: 0xffffff, fontSize: 12, fontFamily: 'monospace' } as PixiText['style'];
+}
+
+function emptyAnchor(): PixiText['anchor'] {
+  return { x: 0, y: 0 } as PixiText['anchor'];
 }
 
 export function criarText(
@@ -64,8 +68,8 @@ export function criarText(
       const t = r.createText(fontIdx, Math.max(64, content.length + 16), false);
       t.text = content;
       t.color = packed;
-      // TextLike proxy with getters/setters that route to weydra.
-      let _x = 0, _y = 0;
+      let _x = 0;
+      let _y = 0;
       const proxy: TextLike = {
         get text() { return t.text; },
         set text(v: string) { t.text = v; },
@@ -75,8 +79,15 @@ export function criarText(
         set y(v: number) { _y = v; t.y = v; },
         get visible() { return t.visible; },
         set visible(v: boolean) { t.visible = v; },
-        get alpha() { return 1; },  // weydra text ignores alpha (per-vertex color.a baked)
-        set alpha(_v: number) { /* no-op — weydra text alpha comes from per-vertex color */ },
+        get alpha() { return 1; },
+        set alpha(_v: number) { /* weydra alpha comes from per-vertex color */ },
+        get width() { return 0; },
+        get height() { return 0; },
+        get scale() { return undefined; },
+        get style() { return emptyStyle(); },
+        set style(_v: PixiText['style']) { /* weydra color is immutable post-create */ },
+        get anchor() { return emptyAnchor(); },
+        set anchor(_v: PixiText['anchor']) { /* weydra origin is top-left */ },
         _weydra: t,
       };
       return proxy;
@@ -101,6 +112,10 @@ export function criarText(
     get width() { return pixiT.width; },
     get height() { return pixiT.height; },
     get scale() { return pixiT.scale; },
+    get style() { return pixiT.style; },
+    set style(v: PixiText['style']) { pixiT.style = v; },
+    get anchor() { return pixiT.anchor; },
+    set anchor(v: PixiText['anchor']) { pixiT.anchor = v; },
     _pixi: pixiT,
   };
   return proxy;

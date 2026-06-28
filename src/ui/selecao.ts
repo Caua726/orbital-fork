@@ -1,4 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
+import { criarText, type TextLike } from './_text-helper';
 import type { Application, TipoJogador } from '../types';
 import { TIPO_PLANETA } from '../world/planeta';
 import { criarPlanetaProceduralSprite } from '../world/planeta-procedural';
@@ -85,22 +86,16 @@ export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
     dialogBg.rect(4 + (dialogW - 8) / 3, 3, (dialogW - 8) * 2 / 3, 22).fill({ color: W95.titleRight, alpha: 0.7 });
     dialog.addChild(dialogBg);
 
-    const titulo = new Text({
-      text: 'Escolha seu Imperio',
-      style: { fontSize: 16, fill: W95.white, fontFamily: 'monospace', fontWeight: 'bold' },
-    });
+    const titulo = criarText('Escolha seu Imperio', 16, W95.white)
     titulo.x = 10;
     titulo.y = 5;
-    dialog.addChild(titulo);
+    dialog.addChild((titulo)._pixi ?? ((titulo) as unknown as Container));;
 
-    const subtitulo = new Text({
-      text: 'O tipo define os bonus do seu imperio',
-      style: { fontSize: 14, fill: W95.textLabel, fontFamily: 'monospace' },
-    });
+    const subtitulo = criarText('O tipo define os bonus do seu imperio', 14, W95.textLabel)
     subtitulo.anchor.set(0.5);
     subtitulo.x = dialogW / 2;
     subtitulo.y = 42;
-    dialog.addChild(subtitulo);
+    dialog.addChild((subtitulo)._pixi ?? ((subtitulo) as unknown as Container));;
 
     // Slide-in animation state
     dialog.alpha = 0;
@@ -142,14 +137,14 @@ export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
         fundo.rect(4, 4, largCard - 8, 3).fill({ color: tipo.cor });
       };
       drawCard(false);
-      card.addChild(fundo);
+      card.addChild(fundo);;
 
       // Planet in a sunken field
       const planetField = new Graphics();
       planetField.rect(largCard / 2 - 45, 20, 90, 90).fill({ color: 0xf8f8f8 });
       planetField.moveTo(largCard / 2 - 45, 110).lineTo(largCard / 2 - 45, 20).lineTo(largCard / 2 + 45, 20).stroke({ color: W95.bgDark, width: 1 });
       planetField.moveTo(largCard / 2 + 45, 20).lineTo(largCard / 2 + 45, 110).lineTo(largCard / 2 - 45, 110).stroke({ color: W95.bgLight, width: 1 });
-      card.addChild(planetField);
+      card.addChild(planetField);;
 
       const planeta = criarPlanetaProceduralSprite(largCard / 2, 65, 70, TIPO_PLANETA.COMUM, 1.0 + i * 2.5);
       planeta.tint = tipo.cor;
@@ -159,33 +154,19 @@ export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
       const sep = new Graphics();
       sep.moveTo(12, 120).lineTo(largCard - 12, 120).stroke({ color: W95.border, width: 1 });
       sep.moveTo(12, 121).lineTo(largCard - 12, 121).stroke({ color: W95.white, width: 1 });
-      card.addChild(sep);
+      card.addChild(sep);;
 
-      const nome = new Text({
-        text: tipo.nome,
-        style: { fontSize: 18, fill: tipo.cor, fontFamily: 'monospace', fontWeight: 'bold' },
-      });
+      const nome = criarText(tipo.nome, 18, tipo.cor)
       nome.anchor.set(0.5);
       nome.x = largCard / 2;
       nome.y = 145;
-      card.addChild(nome);
+      card.addChild((nome)._pixi ?? ((nome) as unknown as Container));;
 
-      const desc = new Text({
-        text: tipo.desc,
-        style: {
-          fontSize: 14,
-          fill: W95.textDark,
-          fontFamily: 'monospace',
-          wordWrap: true,
-          wordWrapWidth: largCard - 30,
-          align: 'center',
-          lineHeight: 20,
-        },
-      });
+      const desc = criarText(tipo.desc, 14, W95.textDark)
       desc.anchor.set(0.5);
       desc.x = largCard / 2;
       desc.y = 195;
-      card.addChild(desc);
+      card.addChild((desc)._pixi ?? ((desc) as unknown as Container));;
 
       // Win95-style button at bottom
       const btnW = largCard - 40;
@@ -205,16 +186,13 @@ export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
         }
       };
       drawBtn(false);
-      card.addChild(btnBg);
+      card.addChild(btnBg);;
 
-      const hint = new Text({
-        text: 'Selecionar',
-        style: { fontSize: 14, fill: W95.textDark, fontFamily: 'monospace' },
-      });
+      const hint = criarText('Selecionar', 14, W95.textDark)
       hint.anchor.set(0.5);
       hint.x = largCard / 2;
       hint.y = btnY + btnH / 2;
-      card.addChild(hint);
+      card.addChild((hint)._pixi ?? ((hint) as unknown as Container));;
 
       card.on('pointerover', () => {
         drawCard(true);
@@ -268,7 +246,7 @@ export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
         },
         onTap,
       });
-      dialog.addChild(card);
+      dialog.addChild(card);;
     });
 
     overlay.addChild(dialog);
