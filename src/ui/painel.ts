@@ -207,10 +207,120 @@ function drawBtn(g: Graphics, x: number, y: number, w: number, h: number, disabl
   }
 }
 
-function criarBotaoAcao(parent: Container, textoInicial: string, acao: string): BotaoContainer {
-  const botao = new Container() as BotaoContainer;
+/**
+ * M7: Module-level registry of action buttons + their action
+ * callbacks. The factory `criarBotaoAcao` calls `registrarBotao()`
+ * with a closure that captures the root PainelContainer (the
+ * original Pixi `pointertap` handler walked the parent chain at
+ * fire time; closures capture the root once at creation). A single
+ * canvas pointerdown listener iterates the registry for hit-tests.
+ */
+interface BotaoRegistrado {
+  botao: BotaoContainer;
+  /** Fires the action — captured closure over the painel + acao. */
+  handler: () => void;
+  /** CSS-pixel bounds refreshed via atualizarBoundsBotoes(). */
+  bounds: () => { left: number; top: number; right: number; bottom: number };
+}
+const _botoesRegistrados: BotaoRegistrado[] = [];
+
+function registrarBotao(
+  botao: BotaoContainer,
+  painel: PainelContainer,
+): void {
   botao.eventMode = 'static';
   botao.cursor = 'pointer';
+
+  const handler = (): void => {
+    const acao = botao._acao;
+    if (acao === 'toggle_pesquisa') {
+      painel._arvorePesquisaAberta = !painel._arvorePesquisaAberta;
+      return;
+    }
+    if (acao?.startsWith?.('pesquisa_')) {
+      if (!painel._planetaSelecionado) return;
+      const m = acao.match(/^pesquisa_(torreta|cargueira|batedora)_(\d)$/);
+      if (m) iniciarPesquisa(painel._planetaSelecionado, m[1], Number(m[2]));
+      return;
+    }
+    if (acao.startsWith('comando_nave_') || acao.startsWith('config_cargo_')) {
+      if (!painel._naveSelecionada) return;
+      painel._onAcaoNave?.(acao, painel._naveSelecionada);
+      return;
+    }
+    if (!painel._planetaSelecionado) return;
+    painel._onAcaoPlaneta?.(acao, painel._planetaSelecionado);
+  };
+
+  // Pixi eventMode path — still works when weydra.graphics is on
+  // because Pixi stays transparent over the weydra canvas. The DOM
+  // path (below) is the M7 replacement that survives M9 (Pixi removal).
+  botao.on('pointertap', () => {
+    handler();
+  });
+  botao.on('pointerdown', () => {
+    marcarInteracaoUi();
+  });
+
+  _botoesRegistrados.push({
+    botao,
+    handler,
+    bounds: () => botao._bounds ?? { left: 0, top: 0, right: 0, bottom: 0 },
+  });
+}
+
+/**
+ * Compute the CSS-pixel bounds of every registered button. Called
+ * each frame after the panel's `atualizarPaineis` positions them.
+ * The DOM hit-test uses these bounds directly.
+ */
+export function atualizarBoundsBotoes(): void {
+  for (const reg of _botoesRegistrados) {
+    const b = reg.botao;
+    reg.botao._bounds = {
+      left: b.x,
+      top: b.y,
+      right: b.x + b.width,
+      bottom: b.y + b.height,
+    };
+  }
+}
+
+/**
+ * M7: DOM canvas pointerdown listener. Hit-tests every registered
+ * button and fires the matching handler. Mounted once at panel
+ * creation; unmounted via `abortarListenersPainel()` on world destroy.
+ */
+let _painelAbort: AbortController | null = null;
+export function ativarListenersPainel(app: Application): void {
+  if (_painelAbort) _painelAbort.abort();
+  _painelAbort = new AbortController();
+  app.canvas.addEventListener('pointerdown', (e: PointerEvent) => {
+    for (const reg of _botoesRegistrados) {
+      if (reg.botao.destroyed) continue;
+      const b = reg.bounds();
+      if (e.clientX < b.left || e.clientX > b.right) continue;
+      if (e.clientY < b.top || e.clientY > b.bottom) continue;
+      marcarInteracaoUi();
+      reg.handler();
+      return;
+    }
+  }, { signal: _painelAbort.signal });
+}
+
+export function abortarListenersPainel(): void {
+  _painelAbort?.abort();
+  _painelAbort = null;
+  _botoesRegistrados.length = 0;
+}
+
+function criarBotaoAcao(
+  parent: Container,
+  textoInicial: string,
+  acao: string,
+  painel: PainelContainer,
+): BotaoContainer {
+  const botao = new Container() as BotaoContainer;
   botao._acao = acao;
 
   const bg = new Graphics();
@@ -225,39 +335,13 @@ function criarBotaoAcao(parent: Container, textoInicial: string, acao: string): 
   botao.addChild(texto);
   botao._texto = texto;
 
-  botao.on('pointertap', () => {
-    // Walk up to find the root panel container
-    let p = botao.parent as Partial<PainelContainer> & Container | null;
-    while (p && !(p as Partial<PainelContainer>)._onAcaoPlaneta) p = p.parent as Partial<PainelContainer> & Container | null;
-    if (!p) return;
-    const painel = p as PainelContainer;
-    if (botao._acao === 'toggle_pesquisa') {
-      painel._arvorePesquisaAberta = !painel._arvorePesquisaAberta;
-      return;
-    }
-    if (botao._acao?.startsWith?.('pesquisa_')) {
-      if (!painel._planetaSelecionado) return;
-      const m = botao._acao.match(/^pesquisa_(torreta|cargueira|batedora)_(\d)$/);
-      if (m) iniciarPesquisa(painel._planetaSelecionado, m[1], Number(m[2]));
-      return;
-    }
-    if (botao._acao.startsWith('comando_nave_') || botao._acao.startsWith('config_cargo_')) {
-      if (!painel._naveSelecionada) return;
-      painel._onAcaoNave?.(botao._acao, painel._naveSelecionada);
-      return;
-    }
-    if (!painel._planetaSelecionado) return;
-    painel._onAcaoPlaneta?.(botao._acao, painel._planetaSelecionado);
-  });
-  botao.on('pointerdown', () => {
-    marcarInteracaoUi();
-  });
+  registrarBotao(botao, painel);
 
   parent.addChild(botao);
   return botao;
 }
 
-export function criarPainel(): PainelContainer {
+export function criarPainel(app: Application): PainelContainer {
   const container = new Container() as PainelContainer;
 
   // === TOP BAR ===
@@ -324,8 +408,18 @@ export function criarPainel(): PainelContainer {
   boxEdificios.addChild(lblEd);
   boxEdificios._lbl = lblEd;
 
-  const btnFabrica = criarBotaoAcao(boxEdificios, '', 'fabrica');
-  const btnInfra = criarBotaoAcao(boxEdificios, '', 'infraestrutura');
+  // `painel` is created mid-function; closures capture the binding so
+  // the buttons can resolve `_onAcaoPlaneta` lazily once the variable
+  // is assigned below.
+  let painel: PainelContainer | null = null;
+
+  // Local helper: binds criarBotaoAcao to this painel so call sites
+  // stay 3-arg as before. The closure captures `painel` by reference.
+  const btn = (parent: Container, textoInicial: string, acao: string): BotaoContainer =>
+    criarBotaoAcao(parent, textoInicial, acao, painel!);
+
+  const btnFabrica = btn(boxEdificios, '', 'fabrica');
+  const btnInfra = btn(boxEdificios, '', 'infraestrutura');
 
   // Box 2: Naves
   const boxNaves = new Container() as BoxContainer;
@@ -346,7 +440,7 @@ export function criarPainel(): PainelContainer {
     }
   }
   for (const a of acoesNave) {
-    const b = criarBotaoAcao(boxNaves, a.label, a.acao);
+    const b = btn(boxNaves, a.label, a.acao);
     b._labelNave = a.label;
     btnNaves.push(b);
   }
@@ -365,7 +459,7 @@ export function criarPainel(): PainelContainer {
   const txtPesquisaResumo = new Text({ text: '', style: { fontSize: 11, fill: SP.textLabel, fontFamily: 'monospace' } });
   boxPesquisa.addChild(txtPesquisaResumo);
 
-  const btnAbrirPesquisa = criarBotaoAcao(boxPesquisa, 'Abrir arvore', 'toggle_pesquisa');
+  const btnAbrirPesquisa = btn(boxPesquisa, 'Abrir arvore', 'toggle_pesquisa');
 
   const btnPesquisa: PesquisaBotao[] = [];
   const catLabels: Record<string, Text> = {};
@@ -374,7 +468,7 @@ export function criarPainel(): PainelContainer {
     rowLabel.visible = false;
     catLabels[cat] = rowLabel;
     for (let t = 1; t <= 5; t++) {
-      const b = criarBotaoAcao(infoContainer, String(t), `pesquisa_${cat}_${t}`);
+      const b = btn(infoContainer, String(t), `pesquisa_${cat}_${t}`);
       b.visible = false;
       btnPesquisa.push({ botao: b, categoria: cat, tier: t });
     }
@@ -388,17 +482,17 @@ export function criarPainel(): PainelContainer {
   for (const { botao } of btnPesquisa) overlayPesquisa.addChild(botao);
   infoContainer.addChild(overlayPesquisa);
 
-  const btnMoverNave = criarBotaoAcao(infoContainer, 'Mover', 'comando_nave_mover');
-  const btnCancelarMoverNave = criarBotaoAcao(infoContainer, 'Cancelar', 'comando_nave_cancelar');
-  const btnOrigemCarga = criarBotaoAcao(infoContainer, 'Origem', 'comando_nave_origem');
-  const btnDestinoCarga = criarBotaoAcao(infoContainer, 'Destino', 'comando_nave_destino');
-  const btnLoopCarga = criarBotaoAcao(infoContainer, 'Loop', 'comando_nave_loop');
+  const btnMoverNave = btn(infoContainer, 'Mover', 'comando_nave_mover');
+  const btnCancelarMoverNave = btn(infoContainer, 'Cancelar', 'comando_nave_cancelar');
+  const btnOrigemCarga = btn(infoContainer, 'Origem', 'comando_nave_origem');
+  const btnDestinoCarga = btn(infoContainer, 'Destino', 'comando_nave_destino');
+  const btnLoopCarga = btn(infoContainer, 'Loop', 'comando_nave_loop');
   const txtCargaInfo = new Text({ text: '', style: { fontSize: 11, fill: SP.textValue, fontFamily: 'monospace' } });
   infoContainer.addChild(txtCargaInfo);
   const btnAjusteCarga: AjusteCargaBotao[] = [];
   for (const recurso of ['comum', 'raro', 'combustivel'] as const) {
-    btnAjusteCarga.push({ botao: criarBotaoAcao(infoContainer, '-', `config_cargo_${recurso}_menos`), recurso, delta: -5 });
-    btnAjusteCarga.push({ botao: criarBotaoAcao(infoContainer, '+', `config_cargo_${recurso}_mais`), recurso, delta: 5 });
+    btnAjusteCarga.push({ botao: btn(infoContainer, '-', `config_cargo_${recurso}_menos`), recurso, delta: -5 });
+    btnAjusteCarga.push({ botao: btn(infoContainer, '+', `config_cargo_${recurso}_mais`), recurso, delta: 5 });
   }
 
   const boxFila = new Container() as BoxContainer;
@@ -412,8 +506,8 @@ export function criarPainel(): PainelContainer {
   boxFila._lbl = lblFila;
   const txtFilaResumo = new Text({ text: '', style: { fontSize: 11, fill: SP.textValue, fontFamily: 'monospace' } });
   boxFila.addChild(txtFilaResumo);
-  const btnFilaRepeat = criarBotaoAcao(boxFila, 'Repetir', 'fila_toggle_repeat');
-  const btnFilaLimpar = criarBotaoAcao(boxFila, 'Limpar', 'fila_limpar');
+  const btnFilaRepeat = btn(boxFila, 'Repetir', 'fila_toggle_repeat');
+  const btnFilaLimpar = btn(boxFila, 'Limpar', 'fila_limpar');
 
   // Toggle button
   const btnToggleProducao = new Container() as BotaoContainer;
@@ -485,11 +579,27 @@ export function criarPainel(): PainelContainer {
   container._arvorePesquisaAberta = false;
   container._mundoRef = null;
 
+  // M7: late-bind the painel variable so the closures captured by
+  // btn() above can resolve _onAcaoPlaneta / _arvorePesquisaAberta
+  // at action time. Updating the bound `let` is the simplest way to
+  // share the container with the registered action handlers.
+  painel = container;
+
+  // M7: install the canvas-level pointerdown listener that hit-tests
+  // every registered button. AbortController-backed so destruirMundo
+  // can release it via abortarListenersPainel().
+  ativarListenersPainel(app);
+
   return container;
 }
 
 export function atualizarPainel(painel: PainelContainer, mundo: Mundo, tipoJogador: TipoJogador, app: Application): void {
   painel._mundoRef = mundo;
+
+  // M7: refresh CSS-pixel bounds for every registered button. Buttons
+  // move every frame (panel scroll, state changes) — the DOM hit-test
+  // uses these bounds, so they must be in sync with the rendered x/y.
+  atualizarBoundsBotoes();
 
   // === TOP BAR ===
   const barH = 28;
