@@ -125,6 +125,13 @@ export async function startWeydra(): Promise<void> {
     if (getConfig().weydra.graphics) {
       _renderer.createGraphicsShader(graphicsWgsl);
     }
+    if (getConfig().weydra.text) {
+      // M8: text atlases are baked inside Renderer::create (fontdue is
+      // synchronous at boot). The text pipeline is lazy-built on the
+      // first render() call (we need surface_format). Nothing to do
+      // here — the flag just opts in to Text node creation at the
+      // game-side call sites.
+    }
     console.info('[weydra] renderer initialized; flags:', getConfig().weydra);
     // Expose for live console debugging — typing __weydraRenderer in
     // DevTools gives access to setCamera/setStarfieldDensity etc.

@@ -1,4 +1,5 @@
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
+import { criarText } from '../ui/_text-helper';
 import type { Planeta, Mundo, FonteVisao, Camera } from '../types';
 import { nomeTipoPlaneta } from './planeta';
 import { criarPlanetaProceduralSprite } from './planeta-procedural';
@@ -36,8 +37,8 @@ interface MemoriaPlaneta {
   fantasma: Container;
   anel: Graphics;
   infoBg: Graphics;
-  info: Text;
-  tempoLabel: Text;
+  info: import('../ui/_text-helper').TextLike;
+  tempoLabel: import('../ui/_text-helper').TextLike;
   dados: MemoriaPlanetaSnapshot | null;
   _textoAnterior: string;
 }
@@ -135,29 +136,18 @@ export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void 
   const infoBg = new Graphics();
   container.addChild(infoBg);
 
-  const info = new Text({
-    text: '',
-    style: {
-      fontSize: 11,
-      fill: 0xcfe3ff,
-      fontFamily: 'monospace',
-      align: 'center',
-    },
-  });
-  info.anchor.set(0.5, 0);
-  container.addChild(info);
+  const info = criarText('', 11, 0xcfe3ff);
+  // Pixi anchor(0.5, 0) centers the text horizontally on its x. On
+  // the weydra path the text is positioned by top-left corner, so we
+  // pre-shift x by -width/2 when the text content arrives (in
+  // atualizarVisibilidadeMemoria). The fallback Pixi path keeps
+  // its original anchor behavior via `_pixi.anchor.set(0.5, 0)` below.
+  if (info._pixi) info._pixi.anchor.set(0.5, 0);
+  container.addChild(info._pixi ?? (info as unknown as Container));
 
-  const tempoLabel = new Text({
-    text: '',
-    style: {
-      fontSize: 9,
-      fill: 0x8899aa,
-      fontFamily: 'monospace',
-      align: 'center',
-    },
-  });
-  tempoLabel.anchor.set(0.5, 0);
-  container.addChild(tempoLabel);
+  const tempoLabel = criarText('', 9, 0x8899aa);
+  if (tempoLabel._pixi) tempoLabel._pixi.anchor.set(0.5, 0);
+  container.addChild(tempoLabel._pixi ?? (tempoLabel as unknown as Container));
 
   mundo.memoriaPlanetasContainer.addChild(container);
 
@@ -206,8 +196,8 @@ function redesenharVisualMemoria(memoria: MemoriaPlaneta): void {
 
   memoria.info.y = tamanho / 2 + DISTANCIA_LABEL_MEMORIA;
 
-  const largura = memoria.info.width + 12;
-  const altura = memoria.info.height + 8;
+  const largura = (memoria.info.width ?? 0) + 12;
+  const altura = (memoria.info.height ?? 0) + 8;
   memoria.infoBg.clear();
   memoria.infoBg.roundRect(-largura / 2, memoria.info.y - 4, largura, altura, 4).fill({
     color: 0x08111f,
@@ -369,9 +359,9 @@ export function atualizarEscalaLabelMemoria(planeta: Planeta, zoom: number): voi
 
   const escalaInversa = 1 / Math.max(zoom, 0.1);
   const escala = Math.min(Math.max(escalaInversa, 0.5), 2.5);
-  memoria.info.scale.set(escala);
+  memoria.info.scale?.set(escala);
   memoria.infoBg.scale.set(escala);
-  memoria.tempoLabel.scale.set(escala);
+  memoria.tempoLabel.scale?.set(escala);
 }
 
 export function removerMemoriaPlaneta(mundo: Mundo, planeta: Planeta): void {
