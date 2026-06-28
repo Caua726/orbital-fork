@@ -57,6 +57,9 @@ vi.mock('../../naves', () => ({
 
 vi.mock('../../sistema', () => ({
   criarSistemaSolar: () => {},
+  trackOrbitaLinha: () => {},
+  trackAnel: () => {},
+  destruirWeidraGraphicsGlobais: () => {},
 }));
 
 vi.mock('../../pesquisa', () => ({

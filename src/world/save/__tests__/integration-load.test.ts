@@ -50,7 +50,7 @@ vi.mock('../../naves', () => ({
   SHIP_TINT: {},
 }));
 
-vi.mock('../../sistema', () => ({ criarSistemaSolar: () => {} }));
+vi.mock('../../sistema', () => ({ criarSistemaSolar: () => {}, trackOrbitaLinha: () => {}, trackAnel: () => {}, destruirWeidraGraphicsGlobais: () => {} }));
 vi.mock('../../pesquisa', () => ({ atualizarPesquisaPlaneta: () => {} }));
 vi.mock('../../visao', () => ({ atualizarCampoDeVisao: () => {} }));
 vi.mock('../../construcao', () => ({

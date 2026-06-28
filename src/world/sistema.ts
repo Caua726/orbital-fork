@@ -75,27 +75,29 @@ export function criarSistemaSolar(container: Container, orbitasContainer: Contai
 const weydraRenderer = getWeydraRenderer();
 const useWeydraGraphics =
   getConfig().weydra.graphics && weydraRenderer !== null;
-const linhaOrbita: GraphicsAdapter = (() => {
-  if (useWeydraGraphics) {
-    // weydra Graphics doesn't have a `visible` flag — visibility is
-    // expressed via tessellation (don't render if no commands). For an
-    // orbit line we want it always visible. The Pixi path's `visible=false`
-    // toggling is irrelevant on the weydra path.
-    const gx = weydraRenderer!.createGraphics(true);
-    gx.zOrder = Z.ORBITS;
-    gx.circle(centroX, centroY, raioOrbita).stroke({ color: corSol, width: 2, alpha: 0.3 });
-    return gx as unknown as GraphicsAdapter;
-  }
-  const pixiG = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.ORBITS });
-  pixiG.visible = false;
-  pixiG.circle(centroX, centroY, raioOrbita).stroke({
-    color: corSol,
-    width: 2,
-    alpha: 0.3,
-  });
-  pixiG.attachTo(orbitasContainer);
-  return pixiG;
-})();
+  const linhaOrbita: GraphicsAdapter = (() => {
+    if (useWeydraGraphics) {
+      // weydra Graphics doesn't have a `visible` flag — visibility is
+      // expressed via tessellation (don't render if no commands). For an
+      // orbit line we want it always visible. The Pixi path's `visible=false`
+      // toggling is irrelevant on the weydra path.
+      // Build via GraphicsAdapter so the renderer ref is captured
+      // (needed by destroy() to free the SlotMap handle).
+      const g = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.ORBITS });
+      g.circle(centroX, centroY, raioOrbita).stroke({ color: corSol, width: 2, alpha: 0.3 });
+      trackOrbitaLinha(g);
+      return g;
+    }
+    const pixiG = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.ORBITS });
+    pixiG.visible = false;
+    pixiG.circle(centroX, centroY, raioOrbita).stroke({
+      color: corSol,
+      width: 2,
+      alpha: 0.3,
+    });
+    pixiG.attachTo(orbitasContainer);
+    return pixiG;
+  })();
 
     const planetVisualSeed = (Math.random() * 0xFFFFFFFF) >>> 0;
     const sprite = criarPlanetaProceduralSprite(
@@ -155,6 +157,36 @@ const linhaOrbita: GraphicsAdapter = (() => {
   }
 
   return { id: `sys-${indiceSistema}`, x: centroX, y: centroY, sol, planetas };
+}
+
+/**
+ * Module-level registry of weydra Graphics (orbit lines + planet
+ * anel) so destruirMundo can call destroy() on every entry and free
+ * the SlotMap handles. Without this, every world the player
+ * generates leaks Graphics + GPU buffers (review: Graphics handle
+ * leak). The planet anel registry uses the Planeta object as key;
+ * entries are removed when the Planeta is GC'd, or explicitly here.
+ */
+const _weydraOrbitas: GraphicsAdapter[] = [];
+const _weydraAneis: Map<object, GraphicsAdapter> = new Map();
+
+export function trackOrbitaLinha(g: GraphicsAdapter): void {
+  _weydraOrbitas.push(g);
+}
+
+export function trackAnel(planeta: object, g: GraphicsAdapter): void {
+  _weydraAneis.set(planeta, g);
+}
+
+/**
+ * Destroy every weydra Graphics registered via trackOrbitaLinha /
+ * trackAnel. Called from destruirMundo.
+ */
+export function destruirWeidraGraphicsGlobais(): void {
+  for (const g of _weydraOrbitas) g.destroy();
+  _weydraOrbitas.length = 0;
+  for (const g of _weydraAneis.values()) g.destroy();
+  _weydraAneis.clear();
 }
 
 export { DIST_MIN_SISTEMA };

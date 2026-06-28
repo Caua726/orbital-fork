@@ -3,6 +3,7 @@ import type { Mundo, Sol, Planeta, Sistema, Nave, FonteVisao } from '../../types
 import type { MundoDTO, SolDTO, PlanetaDTO, NaveDTO, AlvoDTO } from './dto';
 import { criarMundoVazio, aplicarZOrderMundo, type MundoVazio } from '../mundo';
 import { GraphicsAdapter } from '../../core/graphics-adapter';
+import { trackOrbitaLinha } from '../sistema';
 import { criarEstrelaProcedural, criarPlanetaProceduralSprite, precompilarBakesPlanetas } from '../planeta-procedural';
 import { rngFromSeed } from '../lore/seeded-rng';
 import { criarMemoriaVisualPlaneta, restaurarMemoriaPlaneta } from '../nevoa';
@@ -295,6 +296,9 @@ function reconstruirPlaneta(
     .stroke({ color: 0xffd166, width: 2, alpha: 0.3 });
   linhaOrbita.attachTo(mv.orbitasContainer);
   planeta._linhaOrbita = linhaOrbita as unknown as typeof planeta._linhaOrbita;
+  // Track for destruirWeidraGraphicsGlobais cleanup. Without this,
+  // every save-load leaks a weydra Graphics + GPU buffer.
+  trackOrbitaLinha(linhaOrbita);
 
   const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: 55 /* Z.UI_HOVER */ });
   anel.attachTo(planeta);
