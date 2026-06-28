@@ -115,14 +115,14 @@ export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
       const card = new Container() as AnimatedCard;
       card.x = cardStartX + i * (largCard + gap);
       card.y = cardY;
-      // M7: card interactions move to DOM events. The Pixi eventMode +
-// .on('pointertap') pattern is replaced by a canvas-level
-// pointermove/pointerdown/pointerup listener that hit-tests each
-// card in turn. card.eventMode='static' is left in place for the
-// Pixi fallback path (cfg.weydra.graphics off).
+      card.eventMode = 'static';
+      card.cursor = 'pointer';
 
-card.eventMode = 'static';
-card.cursor = 'pointer';
+      // M7: card interactions move to DOM events. The Pixi eventMode
+      // path stays in place for the Pixi fallback (cfg.weydra.graphics
+      // off); the DOM hit-test registry at the bottom of the file
+      // covers the weydra path. Both paths call the same per-card
+      // hover/press handlers.
 
       // Card initial offset for staggered animation
       card._baseY = cardY;
@@ -236,8 +236,9 @@ card.cursor = 'pointer';
         drawBtn(false);
       });
 
-      card.on('pointertap', () => {
-        // Close animation
+      // M7: extract the tap handler to a closure so the DOM event
+      // path (see `registrarCard`) can fire the same logic.
+      const onTap = (): void => {
         let closeAlpha = 1;
         const closeTicker = (): void => {
           closeAlpha -= 0.05;
@@ -250,9 +251,23 @@ card.cursor = 'pointer';
           }
         };
         app.ticker.add(closeTicker);
-      });
+      };
+      card.on('pointertap', onTap);
 
       card._planeta = planeta;
+      // M7: register the card for DOM hit-test (the weydra.graphics path).
+      // Pixi eventMode path stays for the fallback.
+      registrarCard(card, dialogX + card.x, dialogY + card.y, largCard, altCard, {
+        onHoverChange: (h: boolean) => {
+          drawCard(h);
+          drawBtn(false);
+          hint.style.fill = h ? tipo.cor : W95.textDark;
+        },
+        onPressChange: (p: boolean) => {
+          drawBtn(p);
+        },
+        onTap,
+      });
       dialog.addChild(card);
     });
 
@@ -292,4 +307,113 @@ card.cursor = 'pointer';
 
     app.stage.addChild(overlay);
   });
+}
+
+// ─── M7: DOM event registry for the type-selection cards ─────────────
+
+interface CardCallbacks {
+  onHoverChange: (hovered: boolean) => void;
+  onPressChange: (pressed: boolean) => void;
+  onTap: () => void;
+}
+
+interface CardEntry {
+  card: AnimatedCard;
+  bounds: { left: number; top: number; right: number; bottom: number };
+  callbacks: CardCallbacks;
+  hovered: boolean;
+  pressed: boolean;
+}
+
+const _cardsRegistradas: CardEntry[] = [];
+let _hoveredCard: CardEntry | null = null;
+let _pressedCard: CardEntry | null = null;
+let _selecaoAbort: AbortController | null = null;
+
+function registrarCard(
+  card: AnimatedCard,
+  left: number,
+  top: number,
+  w: number,
+  h: number,
+  callbacks: CardCallbacks,
+): void {
+  const entry: CardEntry = {
+    card,
+    bounds: { left, top, right: left + w, bottom: top + h },
+    callbacks,
+    hovered: false,
+    pressed: false,
+  };
+  _cardsRegistradas.push(entry);
+
+  // Lazy-install the canvas listeners on first registration. Abort-
+  // backed so world resets / re-opened dialogs don't accumulate
+  // handlers.
+  if (!_selecaoAbort) {
+    _selecaoAbort = new AbortController();
+    // The first card's `dialog` container has app via the closure
+    // passed to criarDialogoSelecaoTipo. We grab the canvas via DOM
+    // query. Pixi events still fire on the fallback path if no
+    // canvas is found.
+    const cv = document.querySelector('canvas') as HTMLCanvasElement | null;
+    if (cv) {
+      cv.addEventListener('pointermove', (e: PointerEvent) => {
+        const next = hitTest(e.clientX, e.clientY);
+        if (next !== _hoveredCard) {
+          if (_hoveredCard) {
+            _hoveredCard.callbacks.onHoverChange(false);
+            _hoveredCard.hovered = false;
+          }
+          _hoveredCard = next;
+          if (next) {
+            next.callbacks.onHoverChange(true);
+            next.hovered = true;
+          }
+        }
+      }, { signal: _selecaoAbort.signal });
+      cv.addEventListener('pointerdown', (e: PointerEvent) => {
+        const next = hitTest(e.clientX, e.clientY);
+        if (next) {
+          _pressedCard = next;
+          next.callbacks.onPressChange(true);
+          next.pressed = true;
+        }
+      }, { signal: _selecaoAbort.signal });
+      cv.addEventListener('pointerup', (e: PointerEvent) => {
+        const next = hitTest(e.clientX, e.clientY);
+        if (_pressedCard) {
+          _pressedCard.callbacks.onPressChange(false);
+          _pressedCard.pressed = false;
+          if (_pressedCard === next) {
+            _pressedCard.callbacks.onTap();
+          }
+          _pressedCard = null;
+        }
+      }, { signal: _selecaoAbort.signal });
+    }
+  }
+}
+
+function hitTest(x: number, y: number): CardEntry | null {
+  for (const e of _cardsRegistradas) {
+    if ((e.card as unknown as { destroyed?: boolean }).destroyed) continue;
+    const b = e.bounds;
+    if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) {
+      return e;
+    }
+  }
+  return null;
+}
+
+/**
+ * Release every DOM listener + registry entry. Called from the
+ * world-destroy path or whenever the selection dialog closes.
+ */
+export function abortarListenersSelecao(): void {
+  _selecaoAbort?.abort();
+  _selecaoAbort = null;
+  _cardsRegistradas.length = 0;
+  _hoveredCard = null;
+  _pressedCard = null;
 }

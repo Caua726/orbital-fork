@@ -5,6 +5,9 @@ import { criarFundo, atualizarFundo } from './fundo';
 import { TIPO_PLANETA } from './planeta';
 import { abortarListenersMinimapa } from '../ui/minimapa';
 import { abortarListenersTutorial } from '../ui/tutorial';
+import { abortarListenersPainel } from '../ui/painel';
+import { abortarListenersSelecao } from '../ui/selecao';
+import { destruirWeidraGraphicsGlobais } from './sistema';
 import { atualizarTempoPlanetas, atualizarLuzPlaneta, precompilarBakesPlanetas, processBakeQueueWeydra, resetBakeQueueWeydra, destroyAllWeydraBakedSprites } from './planeta-procedural';
 import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria, aplicarLimiteFantasmas, destruirFog } from './nevoa';
 import { criarSistemaSolar } from './sistema';
@@ -378,12 +381,18 @@ export function destruirMundo(mundo: Mundo, app: Application): void {
   // internals), but ordering it first keeps the teardown symmetric with
   // the Pixi-bake cleanup inside destroy({ children: true }).
   destroyAllWeydraBakedSprites([...mundo.planetas, ...mundo.sois]);
+  // Free every weydra Graphics created in sistema.ts (orbit lines +
+  // planet anel cache) before the Pixi container destroy — the Pixi
+  // path cascades but weydra handles are independent.
+  destruirWeidraGraphicsGlobais();
   // Abort DOM event listeners registered by the M7 minimapa/tutorial
-  // UI. Without this, every world reset accumulates handlers on
-  // app.canvas and every click fires N callbacks (review: DOM event
-  // listener leak).
+  // /painel/selecao UI. Without this, every world reset accumulates
+  // handlers on app.canvas and every click fires N callbacks
+  // (review: DOM event listener leak).
   abortarListenersMinimapa();
   abortarListenersTutorial();
+  abortarListenersPainel();
+  abortarListenersSelecao();
   app.stage.removeChild(mundo.container);
   mundo.container.destroy({ children: true });
   estadoJogo = 'jogando';
