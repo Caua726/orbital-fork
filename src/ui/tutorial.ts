@@ -3,6 +3,11 @@ import { criarText } from './_text-helper';
 import type { Application } from 'pixi.js';
 import type { Mundo } from '../types';
 import { isTouchMode } from '../core/ui-mode';
+import { Z } from '../core/render-order';
+import { getConfig } from '../core/config';
+import { getWeydraRenderer } from '../weydra-loader';
+import { rgbaWithAlpha, toCanvasXY } from './_dom-helpers';
+import { registerOverlay } from './overlay-registry';
 
 interface TutorialContainer extends Container {
   _fadeOut: boolean;
@@ -169,6 +174,110 @@ export function criarTutorial(app: Application): TutorialContainer | null {
   tutorial._targetY = tutorial.y;
   tutorial.y = tutorial._targetY - 30;
   tutorial._slideIn = true;
+
+  // M9: weydra path. Reuse the M7 Graphics pipeline (worldSpace=false)
+  // for the frame + close-bg; weydra Text for title/lines/close.
+  // Frame anchor matches the Pixi path (-largura/2, -altura/2).
+  if (getConfig().weydra.ui) {
+    const r = getWeydraRenderer();
+    if (r) {
+      const frame = r.createGraphics(false);
+      frame.zOrder = Z.UI_BACKGROUND;
+      const titleT = criarText('Tutorial', 15, SP.titleText);
+      if (titleT._weydra) titleT._weydra.zOrder = Z.UI_TEXT;
+      const lineTs = linhas.map((s) => criarText(`- ${s}`, 14, SP.textValue));
+      for (const lt of lineTs) if (lt._weydra) lt._weydra.zOrder = Z.UI_TEXT;
+      const closeBg = r.createGraphics(false);
+      closeBg.zOrder = Z.UI_GRAPHICS;
+      const closeT = criarText('Fechar', touch ? 17 : 15, SP.textValue);
+      if (closeT._weydra) closeT._weydra.zOrder = Z.UI_TEXT;
+
+      const dpr = window.devicePixelRatio || 1;
+      const dpr2 = (n: number) => n * dpr;
+      let currentAlpha = 0;
+      const closeRect = { x: 0, y: 0, w: 0, h: 0 };
+
+      const redraw = (): void => {
+        const cx = app.screen.width / 2 * dpr;
+        const cy = (tutorial._targetY + (tutorial.y - tutorial._targetY)) * dpr;
+        const fx0 = cx - dpr2(largura) / 2;
+        const fy0 = cy - dpr2(altura) / 2;
+        frame.clear();
+        frame.rect(fx0, fy0, dpr2(largura), dpr2(altura) / 2).fill({ color: SP.panelBg });
+        frame.rect(fx0, fy0 + dpr2(altura) / 2, dpr2(largura), dpr2(altura) / 2).fill({ color: SP.panelBgDark });
+        frame.roundRect(fx0, fy0, dpr2(largura), dpr2(altura), 4 * dpr).stroke({ color: SP.panelBorder, width: 2 });
+        const s = 10 * dpr;
+        frame.moveTo(fx0, fy0 + s).lineTo(fx0, fy0).lineTo(fx0 + s, fy0).stroke({ color: SP.cornerAccent, width: 2 });
+        frame.moveTo(fx0 + dpr2(largura) - s, fy0).lineTo(fx0 + dpr2(largura), fy0).lineTo(fx0 + dpr2(largura), fy0 + s).stroke({ color: SP.cornerAccent, width: 2 });
+        frame.moveTo(fx0, fy0 + dpr2(altura) - s).lineTo(fx0, fy0 + dpr2(altura)).lineTo(fx0 + s, fy0 + dpr2(altura)).stroke({ color: SP.cornerAccent, width: 2 });
+        frame.moveTo(fx0 + dpr2(largura) - s, fy0 + dpr2(altura)).lineTo(fx0 + dpr2(largura), fy0 + dpr2(altura)).lineTo(fx0 + dpr2(largura), fy0 + dpr2(altura) - s).stroke({ color: SP.cornerAccent, width: 2 });
+        frame.rect(fx0 + 2 * dpr, fy0 + 2 * dpr, dpr2(largura) - 4 * dpr, 22 * dpr).fill({ color: SP.titleBg });
+        frame.rect(fx0 + 2 * dpr + (dpr2(largura) - 4 * dpr) / 3, fy0 + 2 * dpr, (dpr2(largura) - 4 * dpr) * 2 / 3, 22 * dpr).fill({ color: SP.titleBgLight, alpha: 0.5 });
+        frame.moveTo(fx0 + 2 * dpr, fy0 + 24 * dpr).lineTo(fx0 + dpr2(largura) - 2 * dpr, fy0 + 24 * dpr).stroke({ color: SP.panelBorder, width: 1 });
+        const dx = fx0 + 12 * dpr;
+        const dy = fy0 + 13 * dpr;
+        frame.moveTo(dx, dy - 3 * dpr).lineTo(dx + 3 * dpr, dy).lineTo(dx, dy + 3 * dpr).lineTo(dx - 3 * dpr, dy).lineTo(dx, dy - 3 * dpr).fill({ color: SP.diamond });
+        frame.rect(fx0 + 8 * dpr, fy0 + 28 * dpr, dpr2(largura) - 16 * dpr, dpr2(altura) - 38 * dpr).fill({ color: SP.fieldBg });
+        frame.rect(fx0 + 8 * dpr, fy0 + 28 * dpr, dpr2(largura) - 16 * dpr, dpr2(altura) - 38 * dpr).stroke({ color: SP.fieldBorder, width: 1 });
+
+        if (titleT._weydra) {
+          titleT._weydra.x = fx0 + 22 * dpr;
+          titleT._weydra.y = fy0 + 13 * dpr;
+          titleT._weydra.color = rgbaWithAlpha(SP.titleText, currentAlpha);
+        }
+        for (let i = 0; i < lineTs.length; i++) {
+          const w = lineTs[i]._weydra;
+          if (w) {
+            w.x = cx;
+            w.y = fy0 + 44 * dpr + i * 22 * dpr;
+            w.color = rgbaWithAlpha(SP.textValue, currentAlpha);
+          }
+        }
+
+        const btnW = dpr2(touch ? 160 : 120);
+        const btnH = dpr2(touch ? 44 : 26);
+        const btnX = cx - btnW / 2;
+        const btnY = fy0 + dpr2(altura) - btnH - 10 * dpr;
+        closeBg.clear();
+        closeBg.rect(btnX, btnY, btnW, btnH).fill({ color: 0x1a2848 });
+        closeBg.rect(btnX, btnY, btnW, btnH).stroke({ color: 0x2a4878, width: 1 });
+        closeBg.moveTo(btnX + 4 * dpr, btnY).lineTo(btnX + btnW - 4 * dpr, btnY).stroke({ color: 0x3a6098, width: 1, alpha: 0.4 });
+        if (closeT._weydra) {
+          closeT._weydra.x = btnX + btnW / 2;
+          closeT._weydra.y = btnY + btnH / 2;
+          closeT._weydra.color = rgbaWithAlpha(SP.textValue, currentAlpha);
+        }
+        closeRect.x = btnX;
+        closeRect.y = btnY;
+        closeRect.w = btnW;
+        closeRect.h = btnH;
+      };
+
+      const tick = (dtSec: number): void => {
+        const k = Math.min(1, dtSec * 10);
+        if (tutorial._alpha < 1) tutorial._alpha += (1 - tutorial._alpha) * k;
+        currentAlpha = tutorial._alpha;
+        const yDiff = tutorial._targetY - tutorial.y;
+        if (Math.abs(yDiff) > 0.5) tutorial.y += yDiff * k;
+        if (Math.abs(yDiff) <= 0.5 && tutorial._slideIn) {
+          tutorial.y = tutorial._targetY;
+          tutorial._slideIn = false;
+        }
+        redraw();
+      };
+
+      const destruir = (): void => {
+        r.destroyGraphics(frame);
+        r.destroyGraphics(closeBg);
+        for (const lt of lineTs) if (lt._weydra) r.destroyText(lt._weydra);
+        if (titleT._weydra) r.destroyText(titleT._weydra);
+        if (closeT._weydra) r.destroyText(closeT._weydra);
+        unregister();
+      };
+      const unregister = registerOverlay({ tick, destruir });
+      (tutorial as unknown as { _weydra: { destruir: () => void } })._weydra = { destruir };
+    }
+  }
 
   return tutorial;
 }
