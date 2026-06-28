@@ -1,6 +1,12 @@
-import { Graphics, Container } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import type { Application } from 'pixi.js';
 import type { Mundo, Camera } from '../types';
+import { Graphics as WeydraGraphics, Text as WeydraText, FONT_SMALL } from '@weydra/renderer';
+import { Z } from '../core/render-order';
+import { getConfig } from '../core/config';
+import { getWeydraRenderer } from '../weydra-loader';
+import { toCanvasXY } from './_dom-helpers';
+import { registerOverlay } from './overlay-registry';
 
 const TAMANHO_MAPA = 210;
 const MARGEM = 16;
@@ -29,6 +35,16 @@ interface MinimapContainer extends Container {
   _fleetLines: Graphics;
   _viewport: Graphics;
   _mundo: Mundo;
+  // M9 weydra handles. Null on the Pixi path. Released in
+  // destruirMinimapa() so the weydra SlotMap doesn't leak.
+  _weydra?: {
+    frame: WeydraGraphics;
+    dots: WeydraGraphics;
+    fleetLines: WeydraGraphics;
+    viewport: WeydraGraphics;
+    title: WeydraText;
+    unregister: () => void;
+  };
 }
 
 let _clickCallback: ((worldX: number, worldY: number) => void) | null = null;
@@ -37,71 +53,125 @@ export function onMinimapClick(cb: (worldX: number, worldY: number) => void): vo
   _clickCallback = cb;
 }
 
+/** Destroy a minimap. Public so callers that wire their own
+ *  destruir can release the weydra handles + DOM listener. */
+export function destruirMinimapa(minimapa: MinimapContainer): void {
+  const w = minimapa._weydra;
+  if (w) {
+    w.unregister();
+    const r = getWeydraRenderer();
+    if (r) {
+      r.destroyGraphics(w.frame);
+      r.destroyGraphics(w.dots);
+      r.destroyGraphics(w.fleetLines);
+      r.destroyGraphics(w.viewport);
+      r.destroyText(w.title);
+    }
+    minimapa._weydra = undefined;
+  }
+}
+
 export function criarMinimapa(app: Application, mundo: Mundo): MinimapContainer {
   const container = new Container() as MinimapContainer;
-
-  const frame = new Graphics();
-  container.addChild(frame);
-  container._frame = frame;
-
-  const dots = new Graphics();
-  container.addChild(dots);
-
-  const fleetLines = new Graphics();
-  container.addChild(fleetLines);
-
-  const viewport = new Graphics();
-  container.addChild(viewport);
-
-  container._dots = dots;
-  container._fleetLines = fleetLines;
-  container._viewport = viewport;
-  container._mundo = mundo;
 
   container.x = app.screen.width - TAMANHO_MAPA - MARGEM;
   container.y = app.screen.height - TAMANHO_MAPA - 50;
 
-  // M7: Pixi pointer events are gone — DOM addEventListener on the
-  // canvas with manual hit-test against the minimap's CSS-pixel
-  // bounds. Cursor styling via CSS (cursor:'pointer' on the canvas
-  // when over the minimap) is handled by the weydra-loader, but
-  // here we just need the click logic.
-  const bounds = () => ({
-    left: container.x,
-    top: container.y,
-    right: container.x + TAMANHO_MAPA,
-    bottom: container.y + TAMANHO_MAPA,
-  });
-  const canvas = app.canvas;
-  // AbortController-backed listener — pair every addEventListener with
-  // an AbortSignal so world resets / tutorial close don't leak handlers.
-  const ac = new AbortController();
-  minimapAbortControllers.add(ac);
-  canvas.addEventListener('pointerdown', (e: PointerEvent) => {
-    if (!_clickCallback) return;
-    const b = bounds();
-    if (e.clientX < b.left || e.clientX > b.right) return;
-    if (e.clientY < b.top || e.clientY > b.bottom) return;
-    const localX = e.clientX - b.left;
-    const localY = e.clientY - b.top;
-    const mapX = 6;
-    const mapY = 28;
-    const mapSize = TAMANHO_MAPA - 12;
-    const escala = mapSize / mundo.tamanho;
-    const worldX = (localX - mapX) / escala;
-    const worldY = (localY - mapY) / escala;
-    _clickCallback(worldX, worldY);
-  }, { signal: ac.signal });
+  // M9: branch on weydra.graphics flag. Both paths share the same
+  // MinimapContainer shape (back-compat) but the weydra path keeps
+  // Graphics + Text in the weydra render pipeline.
+  if (getConfig().weydra.ui) {
+    const r = getWeydraRenderer();
+    if (r) {
+      const frame = r.createGraphics(false);
+      const dots = r.createGraphics(false);
+      const fleetLines = r.createGraphics(false);
+      const viewport = r.createGraphics(false);
+      const title = r.createText(FONT_SMALL, 32, false);
+      frame.zOrder = Z.UI_BACKGROUND;
+      dots.zOrder = Z.UI_GRAPHICS;
+      fleetLines.zOrder = Z.UI_GRAPHICS;
+      viewport.zOrder = Z.UI_HOVER;
+      title.zOrder = Z.UI_TEXT;
+      title.text = 'MINIMAP';
 
+      // DOM click — bounds in CSS pixels match Pixi's container.x/y.
+      // Hit-test uses CSS coords (PointerEvent.clientX/Y is CSS px);
+      // weydra Graphics coords are physical px (canvas.width = cssW * dpr).
+      // For an in-panel map (no world transform) the visual position
+      // equals the CSS coord offset by canvas rect.
+      const canvas = app.canvas;
+      const ac = new AbortController();
+      minimapAbortControllers.add(ac);
+      const cx0 = container.x;
+      const cy0 = container.y;
+      canvas.addEventListener('pointerdown', (e: PointerEvent) => {
+        if (!_clickCallback) return;
+        if (e.clientX < cx0 || e.clientX > cx0 + TAMANHO_MAPA) return;
+        if (e.clientY < cy0 || e.clientY > cy0 + TAMANHO_MAPA) return;
+        const [x, y] = toCanvasXY(e, canvas);
+        const mapX = 6;
+        const mapY = 28;
+        const mapSize = TAMANHO_MAPA - 12;
+        const escala = mapSize / mundo.tamanho;
+        const worldX = (x - cx0 - mapX) / escala;
+        const worldY = (y - cy0 - mapY) / escala;
+        _clickCallback(worldX, worldY);
+      }, { signal: ac.signal });
+
+      const overlay = {
+        destruir: () => destruirMinimapa(container),
+      };
+      const unregister = registerOverlay(overlay);
+      container._weydra = { frame, dots, fleetLines, viewport, title, unregister };
+    }
+  } else {
+    // Pixi fallback path. Identical to the pre-M9 implementation.
+    const frame = new Graphics();
+    container.addChild(frame);
+    container._frame = frame;
+
+    const dots = new Graphics();
+    container.addChild(dots);
+
+    const fleetLines = new Graphics();
+    container.addChild(fleetLines);
+
+    const viewport = new Graphics();
+    container.addChild(viewport);
+
+    container._dots = dots;
+    container._fleetLines = fleetLines;
+    container._viewport = viewport;
+    container._mundo = mundo;
+
+    const canvas = app.canvas;
+    const ac = new AbortController();
+    minimapAbortControllers.add(ac);
+    canvas.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (!_clickCallback) return;
+      const b = {
+        left: container.x,
+        top: container.y,
+        right: container.x + TAMANHO_MAPA,
+        bottom: container.y + TAMANHO_MAPA,
+      };
+      if (e.clientX < b.left || e.clientX > b.right) return;
+      if (e.clientY < b.top || e.clientY > b.bottom) return;
+      const localX = e.clientX - b.left;
+      const localY = e.clientY - b.top;
+      const mapX = 6;
+      const mapY = 28;
+      const mapSize = TAMANHO_MAPA - 12;
+      const escala = mapSize / mundo.tamanho;
+      _clickCallback((localX - mapX) / escala, (localY - mapY) / escala);
+    }, { signal: ac.signal });
+  }
+
+  container._mundo = mundo;
   return container;
 }
 
-/**
- * AbortControllers for every minimapa DOM listener ever registered.
- * Call `abortarListenersMinimapa()` from the world-destroy path to
- * release them; without that, world resets accumulate handlers on
- * `app.canvas` and every click fires N callbacks.
- */
 const minimapAbortControllers = new Set<AbortController>();
 export function abortarListenersMinimapa(): void {
   for (const ac of minimapAbortControllers) ac.abort();
@@ -117,37 +187,105 @@ export function atualizarMinimapa(minimapa: MinimapContainer, camera: Camera, ap
   const mapSize = TAMANHO_MAPA - 12;
   const escala = mapSize / mundo.tamanho;
 
+  // Reposition (container.x/y may have changed via camera resize).
+  minimapa.x = app.screen.width - TAMANHO_MAPA - MARGEM;
+  minimapa.y = app.screen.height - totalH - MARGEM;
+
+  // M9: weydra path. We need to draw in physical-pixel coords because
+  // the canvas backing store is `cssW * dpr` wide; container.x/y is in
+  // CSS pixels. Multiply by dpr for the draw calls. Graphics is
+  // positioned via the per-frame `redraw` closure below; the container
+  // positioning is just for DOM hit-test.
+  const w = minimapa._weydra;
+  if (w) {
+    const r = getWeydraRenderer();
+    if (r) {
+      const dpr = window.devicePixelRatio || 1;
+      const ox = minimapa.x * dpr;
+      const oy = minimapa.y * dpr;
+      const tw = totalW * dpr;
+      const th = totalH * dpr;
+      const mxp = mapX * dpr + ox;
+      const myp = mapY * dpr + oy;
+      const msz = mapSize * dpr;
+      w.frame.clear();
+      w.frame.rect(ox, oy, tw, th / 2).fill({ color: SP.panelBg });
+      w.frame.rect(ox, oy + th / 2, tw, th / 2).fill({ color: SP.panelBgDark });
+      w.frame.roundRect(ox, oy, tw, th, 4).stroke({ color: SP.panelBorder, width: 2 });
+      const s = 8 * dpr;
+      w.frame.moveTo(ox, oy + s).lineTo(ox, oy).lineTo(ox + s, oy).stroke({ color: SP.cornerAccent, width: 2 });
+      w.frame.moveTo(ox + tw - s, oy).lineTo(ox + tw, oy).lineTo(ox + tw, oy + s).stroke({ color: SP.cornerAccent, width: 2 });
+      w.frame.moveTo(ox, oy + th - s).lineTo(ox, oy + th).lineTo(ox + s, oy + th).stroke({ color: SP.cornerAccent, width: 2 });
+      w.frame.moveTo(ox + tw - s, oy + th).lineTo(ox + tw, oy + th).lineTo(ox + tw, oy + th - s).stroke({ color: SP.cornerAccent, width: 2 });
+      w.frame.rect(ox + 2 * dpr, oy + 2 * dpr, tw - 4 * dpr, 22 * dpr).fill({ color: SP.titleBg });
+      w.frame.rect(
+        ox + 2 * dpr + (tw - 4 * dpr) / 3,
+        oy + 2 * dpr,
+        (tw - 4 * dpr) * 2 / 3,
+        22 * dpr,
+      ).fill({ color: SP.titleBgLight, alpha: 0.5 });
+      w.frame.moveTo(ox + 2 * dpr, oy + 24 * dpr).lineTo(ox + tw - 2 * dpr, oy + 24 * dpr).stroke({ color: SP.panelBorder, width: 1 });
+      const dx = ox + 12 * dpr;
+      const dy = oy + 13 * dpr;
+      w.frame.moveTo(dx, dy - 3 * dpr).lineTo(dx + 3 * dpr, dy).lineTo(dx, dy + 3 * dpr).lineTo(dx - 3 * dpr, dy).lineTo(dx, dy - 3 * dpr).fill({ color: SP.diamond });
+      w.frame.rect(mxp, myp, msz, msz).fill({ color: SP.fieldBg });
+      w.frame.rect(mxp, myp, msz, msz).stroke({ color: SP.fieldBorder, width: 1 });
+      w.frame.rect(mxp, myp + msz, msz, 4 * dpr).fill({ color: SP.panelBgDark });
+
+      w.dots.clear();
+      for (const sol of mundo.sois) {
+        if (!sol._visivelAoJogador) continue;
+        w.dots.circle(mxp + sol.x * escala, myp + sol.y * escala, 2.5 * dpr)
+          .fill({ color: sol._cor || 0xffdd88, alpha: 0.9 });
+      }
+      for (const p of mundo.planetas) {
+        if (!p._visivelAoJogador) continue;
+        const mx = mxp + p.x * escala;
+        const my = myp + p.y * escala;
+        const r2 = Math.max(2 * dpr, (p.dados.tamanho * escala) / 2);
+        const cor = CORES_DONO[p.dados.dono] || 0x666666;
+        w.dots.circle(mx, my, Math.min(r2, 5 * dpr)).fill({ color: cor });
+      }
+      for (const nave of mundo.naves) {
+        w.dots.circle(mxp + nave.x * escala, myp + nave.y * escala, 1.4 * dpr)
+          .fill({ color: 0xffffff, alpha: 0.95 });
+      }
+
+      w.fleetLines.clear();
+
+      w.viewport.clear();
+      const zoom = camera.zoom || 1;
+      const vx = mxp + camera.x * escala;
+      const vy = myp + camera.y * escala;
+      const vw = (app.screen.width / zoom) * escala;
+      const vh = (app.screen.height / zoom) * escala;
+      w.viewport.rect(vx, vy, vw, vh).stroke({ color: 0x60ccff, width: 0.8, alpha: 0.4 });
+
+      w.title.x = ox + 22 * dpr;
+      w.title.y = oy + 5 * dpr;
+    }
+    return;
+  }
+
+  // Pixi fallback path.
   const frame = minimapa._frame;
   frame.clear();
-
-  // Panel background
   frame.rect(0, 0, totalW, totalH / 2).fill({ color: SP.panelBg });
   frame.rect(0, totalH / 2, totalW, totalH / 2).fill({ color: SP.panelBgDark });
-  // Border
   frame.roundRect(0, 0, totalW, totalH, 4).stroke({ color: SP.panelBorder, width: 2 });
-  // Corner brackets
   const s = 8;
   frame.moveTo(0, s).lineTo(0, 0).lineTo(s, 0).stroke({ color: SP.cornerAccent, width: 2 });
   frame.moveTo(totalW - s, 0).lineTo(totalW, 0).lineTo(totalW, s).stroke({ color: SP.cornerAccent, width: 2 });
   frame.moveTo(0, totalH - s).lineTo(0, totalH).lineTo(s, totalH).stroke({ color: SP.cornerAccent, width: 2 });
   frame.moveTo(totalW - s, totalH).lineTo(totalW, totalH).lineTo(totalW, totalH - s).stroke({ color: SP.cornerAccent, width: 2 });
-
-  // Title bar
   frame.rect(2, 2, totalW - 4, 22).fill({ color: SP.titleBg });
   frame.rect(2 + (totalW - 4) / 3, 2, (totalW - 4) * 2 / 3, 22).fill({ color: SP.titleBgLight, alpha: 0.5 });
   frame.moveTo(2, 24).lineTo(totalW - 2, 24).stroke({ color: SP.panelBorder, width: 1 });
-  // Diamond
   const dx = 12;
   const dy = 13;
   frame.moveTo(dx, dy - 3).lineTo(dx + 3, dy).lineTo(dx, dy + 3).lineTo(dx - 3, dy).lineTo(dx, dy - 3).fill({ color: SP.diamond });
-  // Title text (drawn as graphic text)
-  // We'll use a separate text object below
-
-  // Sunken map area
   frame.rect(mapX, mapY, mapSize, mapSize).fill({ color: SP.fieldBg });
   frame.rect(mapX, mapY, mapSize, mapSize).stroke({ color: SP.fieldBorder, width: 1 });
-
-  // Bottom padding
   frame.rect(mapX, mapY + mapSize, mapSize, 4).fill({ color: SP.panelBgDark });
 
   const dots = minimapa._dots;
@@ -156,20 +294,16 @@ export function atualizarMinimapa(minimapa: MinimapContainer, camera: Camera, ap
     if (!sol._visivelAoJogador) continue;
     dots.circle(mapX + sol.x * escala, mapY + sol.y * escala, 2.5).fill({ color: sol._cor || 0xffdd88, alpha: 0.9 });
   }
-
   for (const p of mundo.planetas) {
     if (!p._visivelAoJogador) continue;
     const mx = mapX + p.x * escala;
     const my = mapY + p.y * escala;
-    const r = Math.max(2, (p.dados.tamanho * escala) / 2);
+    const r2 = Math.max(2, (p.dados.tamanho * escala) / 2);
     const cor = CORES_DONO[p.dados.dono] || 0x666666;
-    dots.circle(mx, my, Math.min(r, 5)).fill({ color: cor });
+    dots.circle(mx, my, Math.min(r2, 5)).fill({ color: cor });
   }
-
   for (const nave of mundo.naves) {
-    const mx = mapX + nave.x * escala;
-    const my = mapY + nave.y * escala;
-    dots.circle(mx, my, 1.4).fill({ color: 0xffffff, alpha: 0.95 });
+    dots.circle(mapX + nave.x * escala, mapY + nave.y * escala, 1.4).fill({ color: 0xffffff, alpha: 0.95 });
   }
 
   const fl = minimapa._fleetLines;
@@ -183,7 +317,4 @@ export function atualizarMinimapa(minimapa: MinimapContainer, camera: Camera, ap
   const vw = (app.screen.width / zoom) * escala;
   const vh = (app.screen.height / zoom) * escala;
   vp.rect(vx, vy, vw, vh).stroke({ color: 0x60ccff, width: 0.8, alpha: 0.4 });
-
-  minimapa.x = app.screen.width - TAMANHO_MAPA - MARGEM;
-  minimapa.y = app.screen.height - totalH - MARGEM;
 }

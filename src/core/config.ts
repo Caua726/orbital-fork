@@ -69,6 +69,7 @@ export interface OrbitalConfig {
     fog: boolean;          // M6 — fog-of-war via per-pixel uniform-array shader
     graphics: boolean;     // M7 — vector graphics (orbitas, rotas, beams, rings) via lyon tessellation
     text: boolean;          // M8 — text labels via fontdue bitmap font atlas
+    ui: boolean;            // M9 — UI overlays (minimap, tutorial, painel, selecao) via weydra Graphics+Text
     /** Backend selection inside the weydra renderer. */
     backend: 'auto' | 'webgpu' | 'webgl2';
   };
@@ -135,6 +136,7 @@ export const DEFAULTS: OrbitalConfig = {
     fog: false,
     graphics: false,
     text: false,
+    ui: false,
     backend: 'auto',
   },
 

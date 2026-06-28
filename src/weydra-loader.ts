@@ -16,9 +16,11 @@ import planetWgsl from './shaders/planeta-weydra.wgsl';
 import fogWgsl from './shaders/fog.wgsl';
 import graphicsWgsl from './shaders/graphics.wgsl';
 import { getConfig, isAnyWeydraSubsystemOn } from './core/config';
+import { tickOverlays } from './ui/overlay-registry';
 
 let _renderer: Renderer | null = null;
 let _rafHandle: number | null = null;
+let _lastT: number = 0;
 let _resizeAbort: AbortController | null = null;
 
 export function getWeydraRenderer(): Renderer | null {
@@ -122,7 +124,10 @@ export async function startWeydra(): Promise<void> {
     if (getConfig().weydra.fog) {
       _renderer.createFogShader(fogWgsl);
     }
-    if (getConfig().weydra.graphics) {
+    if (getConfig().weydra.graphics || getConfig().weydra.ui) {
+      // UI overlays (M9) reuse the M7 graphics pipeline since both
+      // are worldSpace=false 2D primitive paths with the same
+      // ALPHA_BLENDING contract. Single shader compile covers both.
       _renderer.createGraphicsShader(graphicsWgsl);
     }
     if (getConfig().weydra.text) {
@@ -152,9 +157,13 @@ export async function startWeydra(): Promise<void> {
     _renderer.resize(width, height);
   }, { signal: _resizeAbort.signal });
 
-  const loop = () => {
+  const loop = (t: number) => {
     if (_renderer) {
       try {
+        // Tick UI overlays (slide-in, fade-out) before the render pass
+        // so per-frame state (alpha, offsetY) is in sync with the draw.
+        tickOverlays((t - _lastT) / 1000);
+        _lastT = t;
         _renderer.render();
       } catch (err) {
         console.error('[weydra] render error:', err);
