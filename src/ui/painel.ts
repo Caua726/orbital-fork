@@ -460,9 +460,9 @@ export function criarPainel(app: Application): PainelContainer {
   const btnAbrirPesquisa = btn(boxPesquisa, 'Abrir arvore', 'toggle_pesquisa');
 
   const btnPesquisa: PesquisaBotao[] = [];
-  const catLabels: Record<string, Text> = {};
+  const catLabels: Record<string, TextLike> = {};
   for (const cat of ['torreta', 'cargueira', 'batedora']) {
-    const rowLabel = new Text({ text: LABEL_PESQUISA[cat], style: { fontSize: 12, fill: SP.textLabel, fontFamily: 'monospace' } });
+    const rowLabel = criarText(LABEL_PESQUISA[cat], 12, SP.textLabel);
     rowLabel.visible = false;
     catLabels[cat] = rowLabel;
     for (let t = 1; t <= 5; t++) {
@@ -476,7 +476,7 @@ export function criarPainel(app: Application): PainelContainer {
   overlayPesquisa.visible = false;
   const overlayPesquisaBg = new Graphics();
   overlayPesquisa.addChild(overlayPesquisaBg);
-  for (const cat of ['torreta', 'cargueira', 'batedora']) overlayPesquisa.addChild(catLabels[cat]);
+  for (const cat of ['torreta', 'cargueira', 'batedora']) overlayPesquisa.addChild(catLabels[cat]._pixi ?? (catLabels[cat] as unknown as Container));
   for (const { botao } of btnPesquisa) overlayPesquisa.addChild(botao);
   infoContainer.addChild(overlayPesquisa);
 

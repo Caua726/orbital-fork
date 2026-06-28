@@ -17,10 +17,15 @@ use bytemuck::{Pod, Zeroable};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use weydra_renderer::{
-    CameraUniforms, EngineBindings, FogPool, GpuContext, Graphics, GraphicsPool, GraphicsVertex,
-    Handle, Mesh, PlanetPool, RenderSurface, RenderTarget, ShaderRegistry, SpritePool, Texture,
-    TextureRegistry, UniformPool, FLAG_VISIBLE, FOG_MAX_SOURCES, FOG_UNIFORMS_SIZE,
+    bake_atlas, CameraUniforms, EngineBindings, FogPool, GpuContext, Graphics, GraphicsPool,
+    GraphicsVertex, Handle, Mesh, PlanetPool, RenderSurface, RenderTarget, ShaderRegistry,
+    SpritePool, TextNode, TextRegistry, Texture, TextureRegistry, UniformPool, DEFAULT_CHARSET,
+    FLAG_VISIBLE, FOG_MAX_SOURCES, FOG_UNIFORMS_SIZE,
 };
+
+const SILKSCREEN_TTF: &[u8] = include_bytes!("../../../core/src/fonts/silkscreen.ttf");
+const VT323_TTF: &[u8] = include_bytes!("../../../core/src/fonts/vt323.ttf");
+const TEXT_WGSL: &str = include_str!("../../../core/shaders/text.wgsl");
 
 /// Max sprites across all textures. Backing SoA Vecs are sized once at boot
 /// and never reallocated — growth would detach the TS-side typed-array views
@@ -114,6 +119,9 @@ pub struct Renderer {
     graphics_pool: Option<GraphicsPool>,
     graphics_pipeline: Option<wgpu::RenderPipeline>,
 
+    // M8 text labels (fontdue bitmap font)
+    text_registry: TextRegistry,
+
     /// Bumps after every op that may have grown the WASM linear memory
     /// (texture upload, lazy bind-group construction, etc.). TS pairs this
     /// with `_wasm.memory.buffer` identity to decide when to rebuild views.
@@ -204,11 +212,38 @@ impl Renderer {
 
         let engine = EngineBindings::new(&ctx);
 
+        // M8: bake text atlases at boot. 3 atlases for the common sizes:
+        // silkscreen 12px (small labels), silkscreen 16px (medium), vt323
+        // 24px (titles). All three share the same shader/pipeline.
+        let mut text_registry = TextRegistry::new(&ctx);
+        let mut shader_registry = ShaderRegistry::new();
+        // Compile text.wgsl at boot so the pipeline module is cached
+        // for the lazy build_pipeline() in render(). We don't use the
+        // handle here; render() re-derives it.
+        let _text_shader = shader_registry.compile(&ctx, TEXT_WGSL, "text");
+        // We need textures from the Renderer's TextureRegistry, but the
+        // Renderer is being constructed here. Build a temp one.
+        let mut temp_textures = TextureRegistry::new();
+        for (ttf, px) in [
+            (SILKSCREEN_TTF, 12.0_f32),
+            (SILKSCREEN_TTF, 16.0_f32),
+            (VT323_TTF, 24.0_f32),
+        ] {
+            let atlas = bake_atlas(&ctx, &mut temp_textures, ttf, px, DEFAULT_CHARSET);
+            let tex = temp_textures.get(atlas.texture).expect("atlas texture");
+            text_registry.register_atlas_bind_group(&ctx, tex);
+            text_registry.atlases.push(atlas);
+        }
+        // Surface format isn't known yet — defer build_pipeline to the
+        // first call to render() (or, if Renderer::new had a surface
+        // available, we could do it here; since we don't, the render()
+        // path lazy-builds it).
+
         Ok(Renderer {
             surface: render_surface,
             ctx,
             engine,
-            shader_registry: ShaderRegistry::new(),
+            shader_registry,
             camera_uniforms: CameraUniforms::default(),
             starfield_pool: None,
             starfield_mesh: None,
@@ -224,6 +259,7 @@ impl Renderer {
             sprite_scratch: Vec::with_capacity(SPRITE_CAPACITY),
             graphics_pool: None,
             graphics_pipeline: None,
+            text_registry,
             mem_version: 0,
         })
     }
@@ -640,6 +676,136 @@ impl Renderer {
         }
     }
 
+    // ─── Text (M8) ───────────────────────────────────────────────────────
+
+    /// Allocate a TextNode bound to a glyph atlas.
+    /// `atlas_idx`: 0 = silkscreen 12px, 1 = silkscreen 16px, 2 = vt323 24px.
+    /// `capacity_chars`: max glyphs the node can render without truncation.
+    /// `world_space`: true → pos is in world units (fog memory labels);
+    ///                false → pos is screen pixels (UI overlays).
+    pub fn create_text(&mut self, atlas_idx: u32, capacity_chars: u32, world_space: bool) -> u64 {
+        let node = TextNode::new(
+            &self.ctx,
+            atlas_idx as usize,
+            capacity_chars as usize,
+            &self.text_registry.uniforms_layout,
+        );
+        let h = self.text_registry.nodes.insert(node);
+        if let Some(n) = self.text_registry.nodes.get_mut(h) {
+            n.world_space = world_space;
+            n.write_uniforms(&self.ctx);
+        }
+        self.mem_version = self.mem_version.wrapping_add(1);
+        h.to_u64()
+    }
+
+    pub fn destroy_text(&mut self, h: u64) {
+        self.text_registry.nodes.remove(Handle::from_u64(h));
+    }
+
+    pub fn set_text_visible(&mut self, h: u64, visible: bool) {
+        if let Some(n) = self.text_registry.nodes.get_mut(Handle::from_u64(h)) {
+            n.visible = visible;
+        }
+    }
+
+    pub fn set_text_z_order(&mut self, h: u64, z: f32) {
+        if let Some(n) = self.text_registry.nodes.get_mut(Handle::from_u64(h)) {
+            n.z_order = z;
+        }
+    }
+
+    /// Hot-path setter. Re-tessellates only if content changed.
+    pub fn set_text_content(&mut self, h: u64, content: &str) {
+        let handle = Handle::from_u64(h);
+        let atlas_idx = match self.text_registry.nodes.get(handle) {
+            Some(n) => n.atlas,
+            None => return,
+        };
+        if let Some(n) = self.text_registry.nodes.get_mut(handle) {
+            if n.content == content {
+                return;
+            }
+            n.content.clear();
+            n.content.push_str(content);
+            let atlas = &self.text_registry.atlases[atlas_idx];
+            n.update(&self.ctx, atlas);
+        }
+    }
+
+    pub fn set_text_position(&mut self, h: u64, x: f32, y: f32) {
+        let handle = Handle::from_u64(h);
+        let atlas_idx = match self.text_registry.nodes.get(handle) {
+            Some(n) => n.atlas,
+            None => return,
+        };
+        if let Some(n) = self.text_registry.nodes.get_mut(handle) {
+            if n.position[0] == x && n.position[1] == y {
+                return;
+            }
+            n.position = [x, y];
+            let atlas = &self.text_registry.atlases[atlas_idx];
+            n.update(&self.ctx, atlas);
+        }
+    }
+
+    /// Color is `0xRR_GG_BB_AA` (matches `packColor` from the TS bridge).
+    pub fn set_text_color(&mut self, h: u64, rgba: u32) {
+        let handle = Handle::from_u64(h);
+        let atlas_idx = match self.text_registry.nodes.get(handle) {
+            Some(n) => n.atlas,
+            None => return,
+        };
+        if let Some(n) = self.text_registry.nodes.get_mut(handle) {
+            if n.color == rgba {
+                return;
+            }
+            n.color = rgba;
+            let atlas = &self.text_registry.atlases[atlas_idx];
+            n.update(&self.ctx, atlas);
+        }
+    }
+
+    /// Apply a uniform pixel-scale to the glyph quads. Used by callers
+    /// that want zoom behavior equivalent to Pixi's `text.scale.set(v)`.
+    /// Re-tessellates the vertex buffer when scale changes.
+    pub fn set_text_scale(&mut self, h: u64, scale: f32) {
+        let handle = Handle::from_u64(h);
+        let atlas_idx = match self.text_registry.nodes.get(handle) {
+            Some(n) => n.atlas,
+            None => return,
+        };
+        if let Some(n) = self.text_registry.nodes.get_mut(handle) {
+            if (n.scale - scale).abs() < f32::EPSILON {
+                return;
+            }
+            n.scale = scale;
+            let atlas = &self.text_registry.atlases[atlas_idx];
+            n.update(&self.ctx, atlas);
+        }
+    }
+
+    /// Returns the rendered pixel width of the node's current content
+    /// at its current scale. Used by TS-side layout code that sizes
+    /// backgrounds / panels around the label. Sum of glyph advances ×
+    /// scale; charset-miss chars use `px_size * 0.5` as a fallback.
+    pub fn get_text_width(&self, h: u64) -> f32 {
+        let handle = Handle::from_u64(h);
+        let (atlas_idx, scale, content) = match self.text_registry.nodes.get(handle) {
+            Some(n) => (n.atlas, n.scale, n.content.clone()),
+            None => return 0.0,
+        };
+        let atlas = &self.text_registry.atlases[atlas_idx];
+        let mut pen_x: f32 = 0.0;
+        for ch in content.chars() {
+            match atlas.glyphs.get(&ch) {
+                Some(g) => pen_x += g.advance,
+                None => pen_x += atlas.px_size * 0.5,
+            }
+        }
+        pen_x * scale
+    }
+
     /// Render a single planet instance into a freshly-allocated texture
     /// and return a TextureRegistry handle compatible with create_sprite.
     /// The same pipeline + uniforms used by the live-shader path are
@@ -818,6 +984,20 @@ impl Renderer {
             pool.tessellate_all(&self.ctx);
         }
 
+        // M8: lazy-build the text pipeline on the first render (we
+        // don't have surface_format at construction time because the
+        // canvas surface isn't ready until create()).
+        if self.text_registry.pipeline.is_none() {
+            let text_shader = self.shader_registry.compile(&self.ctx, TEXT_WGSL, "text");
+            let text_module = &self.shader_registry.get(text_shader).unwrap().module;
+            self.text_registry.build_pipeline(
+                &self.ctx,
+                text_module,
+                &self.engine.layout,
+                self.surface.format,
+            );
+        }
+
         let maybe_frame = self
             .surface
             .acquire_next_texture(&self.ctx)
@@ -960,6 +1140,38 @@ impl Renderer {
                     if let Some(g) = pool.get(h) {
                         if g.fill_vertex_buffer.is_some() || g.stroke_vertex_buffer.is_some() {
                             g.draw(&mut pass, pipeline);
+                        }
+                    }
+                }
+            }
+
+            // Text (M8): one draw per TextNode, grouped by atlas so the
+            // bind group 2 (atlas texture) only changes between
+            // atlases. UI overlays (z >= 50) draw last.
+            if let Some(pipeline) = self.text_registry.pipeline.as_ref() {
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, &self.engine.bind_group, &[]);
+                // Group handles by atlas for bind-group-2 efficiency.
+                let n_atlases = self.text_registry.atlases.len();
+                let mut by_atlas: Vec<Vec<Handle>> = vec![Vec::new(); n_atlases];
+                let mut by_z: Vec<(f32, Handle)> = Vec::new();
+                for (h, n) in self.text_registry.nodes.iter() {
+                    if n.visible && n.vertex_count > 0 {
+                        by_atlas[n.atlas].push(h);
+                        by_z.push((n.z_order, h));
+                    }
+                }
+                by_z.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                for (atlas_idx, handles) in by_atlas.iter().enumerate() {
+                    if handles.is_empty() { continue; }
+                    if let Some(bg) = self.text_registry.atlas_bind_groups.get(atlas_idx) {
+                        pass.set_bind_group(2, bg, &[]);
+                        for h in handles {
+                            if let Some(n) = self.text_registry.nodes.get(*h) {
+                                pass.set_bind_group(1, &n.uniforms_bind_group, &[]);
+                                pass.set_vertex_buffer(0, n.vertex_buffer.slice(..));
+                                pass.draw(0..n.vertex_count, 0..1);
+                            }
                         }
                     }
                 }

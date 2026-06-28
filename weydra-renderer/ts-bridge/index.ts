@@ -295,6 +295,18 @@ export class Renderer {
   innerSetTextZOrder(h: bigint, z: number): void {
     this.inner.set_text_z_order(h, z);
   }
+  innerSetTextScale(h: bigint, scale: number): void {
+    this.inner.set_text_scale(h, scale);
+  }
+  innerGetTextWidth(h: bigint): number {
+    return this.inner.get_text_width(h);
+  }
+
+  /** Public helper for callers that need a glyph-width computation
+   *  on the underlying WeydraText object directly. */
+  getTextWidth(t: Text): number {
+    return this.inner.get_text_width(t.handle);
+  }
 
   /**
    * Allocate a new Graphics object. `worldSpace`:
@@ -998,6 +1010,9 @@ export class Text {
   private _visible = true;
   private _zOrder = 0;
 
+  private _color: number = 0xFFFFFFFF;
+  private _scale: number = 1;
+
   constructor(
     public readonly handle: bigint,
     private readonly r: Renderer,
@@ -1012,13 +1027,32 @@ export class Text {
   set y(v: number) { this._y = v; this.r.innerSetTextPosition(this.handle, this._x, v); }
   get y(): number { return this._y; }
 
-  set color(rgba: number) { this.r.innerSetTextColor(this.handle, rgba); }
+  set color(rgba: number) {
+    this._color = rgba;
+    this.r.innerSetTextColor(this.handle, rgba);
+  }
+  get color(): number { return this._color; }
 
   set visible(v: boolean) { this._visible = v; this.r.innerSetTextVisible(this.handle, v); }
   get visible(): boolean { return this._visible; }
 
   set zOrder(v: number) { this._zOrder = v; this.r.innerSetTextZOrder(this.handle, v); }
   get zOrder(): number { return this._zOrder; }
+
+  /** Pixel-uniform scale (1.0 = native baked px_size). Re-tessellates
+   *  the vertex buffer so quads scale around the node's position. */
+  set scale(v: number) {
+    this._scale = v;
+    this.r.innerSetTextScale(this.handle, v);
+  }
+  get scale(): number { return this._scale; }
+
+  /** Rendered pixel width of the current content at the current scale.
+   *  Used by TS-side layout code that sizes backgrounds / panels
+   *  around the label — sees the same value on Pixi and weydra paths. */
+  get width(): number {
+    return this.r.innerGetTextWidth(this.handle);
+  }
 }
 
 export type { };

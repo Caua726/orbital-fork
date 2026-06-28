@@ -67,6 +67,11 @@ pub struct TextNode {
     pub color: u32,
     pub visible: bool,
     pub z_order: f32,
+    /// Uniform scale applied to the per-glyph vertex positions during
+    /// tessellation. `1.0` (default) = native px_size. Caller-driven
+    /// for things like `memoria.info.scale.set(zoom)` — gives the
+    /// nevoa fog labels the same zoom behavior they had with Pixi.
+    pub scale: f32,
     pub vertex_buffer: wgpu::Buffer,
     pub vertex_count: u32,
     pub capacity_chars: usize,
@@ -193,6 +198,23 @@ pub fn bake_atlas(
 }
 
 impl TextNode {
+    /// Compute the on-screen pixel width of the current content at
+    /// the node's `scale`. Walks the content, summing `glyph.advance`
+    /// per char (charset-miss chars use `px_size * 0.5` as a fallback).
+    /// Used by the bridge's `get_text_width` so TS-side layout code
+    /// (e.g. sizing a background panel around a label) sees the same
+    /// value on both Pixi and weydra paths.
+    pub fn measure_width(&self, atlas: &GlyphAtlas) -> f32 {
+        let mut pen_x: f32 = 0.0;
+        for ch in self.content.chars() {
+            match atlas.glyphs.get(&ch) {
+                Some(g) => pen_x += g.advance,
+                None => pen_x += atlas.px_size * 0.5,
+            }
+        }
+        pen_x * self.scale
+    }
+
     pub fn new(
         ctx: &GpuContext,
         atlas: usize,
@@ -228,6 +250,7 @@ impl TextNode {
             color: 0xFFFF_FFFF,
             visible: true,
             z_order: 0.0,
+            scale: 1.0,
             vertex_buffer,
             vertex_count: 0,
             capacity_chars,
@@ -255,10 +278,14 @@ impl TextNode {
         let g = ((self.color >> 16) & 0xff) as f32 / 255.0;
         let b = ((self.color >> 8) & 0xff) as f32 / 255.0;
         let a = (self.color & 0xff) as f32 / 255.0;
+        let scale = self.scale;
 
         // Baseline is `pen_y + px_size` (top-of-text + one line of ascent).
         // fontdue's ymin is the pixel offset up from the baseline, so the
         // glyph's top edge is at `baseline - ymin - height`.
+        // All quad positions are scaled by `self.scale` so callers can
+        // apply zoom / pixel-density adjustments without changing the
+        // atlas's baked px_size. (Mirrors Pixi's `text.scale.set(v)`.)
         let baseline = pen_y + atlas.px_size;
         for ch in self.content.chars() {
             let glyph = match atlas.glyphs.get(&ch) {
@@ -270,10 +297,10 @@ impl TextNode {
                     continue;
                 }
             };
-            let x0 = pen_x + glyph.quad_offset[0];
-            let y0 = baseline - glyph.quad_offset[1] - glyph.quad_size[1];
-            let x1 = x0 + glyph.quad_size[0];
-            let y1 = y0 + glyph.quad_size[1];
+            let x0 = (pen_x + glyph.quad_offset[0]) * scale;
+            let y0 = (baseline - glyph.quad_offset[1] - glyph.quad_size[1]) * scale;
+            let x1 = x0 + glyph.quad_size[0] * scale;
+            let y1 = y0 + glyph.quad_size[1] * scale;
             let [u0, v0, uw, vh] = glyph.uv;
             let u1 = u0 + uw;
             let v1 = v0 + vh;

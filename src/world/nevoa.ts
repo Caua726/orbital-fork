@@ -359,9 +359,9 @@ export function atualizarEscalaLabelMemoria(planeta: Planeta, zoom: number): voi
 
   const escalaInversa = 1 / Math.max(zoom, 0.1);
   const escala = Math.min(Math.max(escalaInversa, 0.5), 2.5);
-  memoria.info.scale?.set(escala);
+  memoria.info.scale = escala;
   memoria.infoBg.scale.set(escala);
-  memoria.tempoLabel.scale?.set(escala);
+  memoria.tempoLabel.scale = escala;
 }
 
 export function removerMemoriaPlaneta(mundo: Mundo, planeta: Planeta): void {

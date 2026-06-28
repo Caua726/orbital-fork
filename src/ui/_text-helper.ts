@@ -27,7 +27,8 @@ export interface TextLike {
   alpha: number;
   width: number;
   height: number;
-  scale: { set: (v: number) => void } | undefined;
+  scale?: number;
+  color?: number;
   style: PixiText['style'];
   anchor: PixiText['anchor'];
   _weydra?: WeydraText;
@@ -81,11 +82,14 @@ export function criarText(
         set visible(v: boolean) { t.visible = v; },
         get alpha() { return 1; },
         set alpha(_v: number) { /* weydra alpha comes from per-vertex color */ },
-        get width() { return 0; },
+        get width() { return r.getTextWidth(t); },
         get height() { return 0; },
-        get scale() { return undefined; },
+        set scale(v: number) { t.scale = v; },
+        get scale() { return t.scale; },
+        set color(v: number) { t.color = v; },
+        get color() { return t.color; },
         get style() { return emptyStyle(); },
-        set style(_v: PixiText['style']) { /* weydra color is immutable post-create */ },
+        set style(_v: PixiText['style']) { /* weydra px_size is baked at atlas create */ },
         get anchor() { return emptyAnchor(); },
         set anchor(_v: PixiText['anchor']) { /* weydra origin is top-left */ },
         _weydra: t,
@@ -111,7 +115,10 @@ export function criarText(
     set alpha(v: number) { pixiT.alpha = v; },
     get width() { return pixiT.width; },
     get height() { return pixiT.height; },
-    get scale() { return pixiT.scale; },
+    get scale() { return pixiT.scale.x; },
+    set scale(v: number) { pixiT.scale.set(v); },
+    set color(v: number) { pixiT.style.fill = v; },
+    get color() { return pixiT.style.fill as number; },
     get style() { return pixiT.style; },
     set style(v: PixiText['style']) { pixiT.style = v; },
     get anchor() { return pixiT.anchor; },
