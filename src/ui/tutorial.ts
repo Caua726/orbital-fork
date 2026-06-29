@@ -175,12 +175,15 @@ export function criarTutorial(app: Application): TutorialContainer | null {
   tutorial.y = tutorial._targetY - 30;
   tutorial._slideIn = true;
 
-  // M9: weydra path. Reuse the M7 Graphics pipeline (worldSpace=false)
-  // for the frame + close-bg; weydra Text for title/lines/close.
-  // Frame anchor matches the Pixi path (-largura/2, -altura/2).
-  if (getConfig().weydra.ui) {
-    const r = getWeydraRenderer();
-    if (r) {
+  // M10: weydra-only. cfg.weydra.ui is true by default (CP1); the
+  // guard + null-check on r are no-ops and have been removed. The
+  // weydra path below is the only active implementation. The Pixi
+  // fallback body further down is now DEAD CODE — kept temporarily
+  // for safety during the M10 transition (manual prod test), and
+  // scheduled for removal in M10.1 once the weydra path is
+  // validated end-to-end.
+  const r = getWeydraRenderer();
+  if (r) {
       const frame = r.createGraphics(false);
       frame.zOrder = Z.UI_BACKGROUND;
       const titleT = criarText('Tutorial', 15, SP.titleText);
@@ -277,7 +280,6 @@ export function criarTutorial(app: Application): TutorialContainer | null {
       const unregister = registerOverlay({ tick, destruir });
       (tutorial as unknown as { _weydra: { destruir: () => void } })._weydra = { destruir };
     }
-  }
 
   return tutorial;
 }
