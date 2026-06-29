@@ -235,7 +235,11 @@ async function bootstrap(): Promise<void> {
         delete attemptInit.context;
         delete attemptInit.canvas;
       }
-      await app.init(attemptInit);
+      // M10.1: app.init was a Pixi method to init the renderer. With
+      // Pixi removed, the weydra canvas is already initialized by
+      // index.html + the weydra-loader's renderer construction.
+      // Skip the init call — the weydra canvas is ready to use.
+      await Promise.resolve();
       initOk = true;
       // If we had to fall back, sync the config so the settings
       // panel reflects what actually got picked. Also toast the user.
