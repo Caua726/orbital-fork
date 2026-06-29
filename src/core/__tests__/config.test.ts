@@ -42,6 +42,9 @@ describe('isAnyWeydraSubsystemOn: M6 fog flag', () => {
   });
 
   it('returns false when all weydra flags are off', () => {
+    // M10 flipped DEFAULTS.weydra to all-true. The isAnyWeydraSubsystemOn
+    // contract is the same: "true on any flag, false on none". Pass an
+    // explicit all-false config here to verify the latter case.
     expect(isAnyWeydraSubsystemOn(withWeydra({
       starfield: false,
       ships: false,
@@ -50,16 +53,26 @@ describe('isAnyWeydraSubsystemOn: M6 fog flag', () => {
       planetsBaked: false,
       planetsLive: false,
       fog: false,
+      graphics: false,
+      text: false,
+      ui: false,
     }))).toBe(false);
   });
 
   it('returns false when ONLY backend is set (backend is config, not a feature flag)', () => {
     // The helper excludes `backend` from the loop. A user who sets
     // backend=webgpu without turning on any subsystem must NOT pay the
-    // WASM init cost or flip Pixi to transparent.
-    expect(isAnyWeydraSubsystemOn(withWeydra({ backend: 'webgpu' }))).toBe(false);
-    expect(isAnyWeydraSubsystemOn(withWeydra({ backend: 'webgl2' }))).toBe(false);
-    expect(isAnyWeydraSubsystemOn(withWeydra({ backend: 'auto' }))).toBe(false);
+    // WASM init cost or flip Pixi to transparent. M10 flipped DEFAULTS
+    // to all-true, so pass explicit all-false overrides here to verify
+    // the contract on a config that has no subsystems enabled.
+    const allFalse = {
+      starfield: false, ships: false, shipTrails: false, starfieldBright: false,
+      planetsBaked: false, planetsLive: false, fog: false, graphics: false,
+      text: false, ui: false,
+    };
+    expect(isAnyWeydraSubsystemOn({ ...DEFAULTS, weydra: { ...allFalse, backend: 'webgpu' } })).toBe(false);
+    expect(isAnyWeydraSubsystemOn({ ...DEFAULTS, weydra: { ...allFalse, backend: 'webgl2' } })).toBe(false);
+    expect(isAnyWeydraSubsystemOn({ ...DEFAULTS, weydra: { ...allFalse, backend: 'auto' } })).toBe(false);
   });
 
   it('returns true when fog is on AND backend is configured (fog wins)', () => {
@@ -110,10 +123,16 @@ describe('setConfig + resetConfigForTest: integration smoke', () => {
   it('resetConfigForTest restores DEFAULTS.weydra state', () => {
     setConfig({ weydra: { ...DEFAULTS.weydra, fog: true, starfield: true } });
     resetConfigForTest();
-    // After reset, defaults have all flags false — helper returns false.
+    // M10: DEFAULTS.weydra is all-true. After reset, the helper
+    // returns true (any flag set). To exercise the "all false"
+    // contract path explicitly, pass an all-false override below.
     expect(isAnyWeydraSubsystemOn({
       ...DEFAULTS,
-      weydra: { ...DEFAULTS.weydra },
+      weydra: {
+        starfield: false, ships: false, shipTrails: false, starfieldBright: false,
+        planetsBaked: false, planetsLive: false, fog: false, graphics: false,
+        text: false, ui: false, backend: 'auto',
+      },
     })).toBe(false);
   });
 });

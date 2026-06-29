@@ -127,16 +127,22 @@ export const DEFAULTS: OrbitalConfig = {
   },
 
   weydra: {
-    starfield: false,
-    ships: false,
-    shipTrails: false,
-    starfieldBright: false,
-    planetsBaked: false,
-    planetsLive: false,
-    fog: false,
-    graphics: false,
-    text: false,
-    ui: false,
+    // M10: weydra.* defaults flipped to `true` — the game now runs
+    // weydra for every layer. Pixi fallback paths were removed in
+    // commit-by-commit M10 work; the flag system itself stays as a
+    // safety net for the post-M10 transition. To go back to Pixi
+    // during a roll-back, set each flag to false in DevTools console:
+    //   Object.assign(getConfig().weydra, { starfield: false, ... });
+    starfield: true,
+    ships: true,
+    shipTrails: true,
+    starfieldBright: true,
+    planetsBaked: true,
+    planetsLive: true,
+    fog: true,
+    graphics: true,
+    text: true,
+    ui: true,
     backend: 'auto',
   },
 
