@@ -77,12 +77,10 @@ export function criarMinimapa(app: Application, mundo: Mundo): MinimapContainer 
   container.x = app.screen.width - TAMANHO_MAPA - MARGEM;
   container.y = app.screen.height - TAMANHO_MAPA - 50;
 
-  // M9: branch on weydra.graphics flag. Both paths share the same
-  // MinimapContainer shape (back-compat) but the weydra path keeps
-  // Graphics + Text in the weydra render pipeline.
-  if (getConfig().weydra.ui) {
-    const r = getWeydraRenderer();
-    if (r) {
+  // M10: weydra-only. Pixi fallback removed.
+  const r = getWeydraRenderer();
+  if (r) {
+    {
       const frame = r.createGraphics(false);
       const dots = r.createGraphics(false);
       const fleetLines = r.createGraphics(false);
@@ -125,49 +123,10 @@ export function criarMinimapa(app: Application, mundo: Mundo): MinimapContainer 
       const unregister = registerOverlay(overlay);
       container._weydra = { frame, dots, fleetLines, viewport, title, unregister };
     }
-  } else {
-    // Pixi fallback path. Identical to the pre-M9 implementation.
-    const frame = new Graphics();
-    container.addChild(frame);
-    container._frame = frame;
-
-    const dots = new Graphics();
-    container.addChild(dots);
-
-    const fleetLines = new Graphics();
-    container.addChild(fleetLines);
-
-    const viewport = new Graphics();
-    container.addChild(viewport);
-
-    container._dots = dots;
-    container._fleetLines = fleetLines;
-    container._viewport = viewport;
-    container._mundo = mundo;
-
-    const canvas = app.canvas;
-    const ac = new AbortController();
-    minimapAbortControllers.add(ac);
-    canvas.addEventListener('pointerdown', (e: PointerEvent) => {
-      if (!_clickCallback) return;
-      const b = {
-        left: container.x,
-        top: container.y,
-        right: container.x + TAMANHO_MAPA,
-        bottom: container.y + TAMANHO_MAPA,
-      };
-      if (e.clientX < b.left || e.clientX > b.right) return;
-      if (e.clientY < b.top || e.clientY > b.bottom) return;
-      const localX = e.clientX - b.left;
-      const localY = e.clientY - b.top;
-      const mapX = 6;
-      const mapY = 28;
-      const mapSize = TAMANHO_MAPA - 12;
-      const escala = mapSize / mundo.tamanho;
-      _clickCallback((localX - mapX) / escala, (localY - mapY) / escala);
-    }, { signal: ac.signal });
   }
-
+  // M10: Pixi fallback removed. container._mundo / _frame / _dots etc.
+  // stay as empty / no-op fields so the type still has the shape
+  // callers expect.
   container._mundo = mundo;
   return container;
 }
