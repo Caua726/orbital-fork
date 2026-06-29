@@ -251,84 +251,12 @@ async function bootstrap(): Promise<void> {
   }
   if (!initOk) throw lastErr ?? new Error('No renderer backend succeeded');
 
-  // ── Pixi render profiling ──────────────────────────────────────
-  // Wrap renderer.render so every internal render call is timed and
-  // accumulated into the 'pixiRender' profiling bucket. On software
-  // rasterizers (WARP / SwiftShader) this sync call IS the real GPU
-  // cost; on WebGL/WebGPU hardware it measures CPU-side submission
-  // latency (queue stuff) which is usually small. The delta between
-  // 'pixiRender' and 'frameWall' is the compositor + vsync wait.
-  try {
-    const { profileMark, profileAcumular, profileContar } = await import('./world/profiling');
-    const origRender = app.renderer.render.bind(app.renderer);
-    (app.renderer as any).render = (...args: unknown[]) => {
-      const t = profileMark();
-      try {
-        return (origRender as any)(...args);
-      } finally {
-        profileAcumular('pixiRender', t);
-      }
-    };
-
-    // WebGL drawCall + texture upload counters. We intercept the GL
-    // context's draw*/tex*Image2D methods so the debug HUD knows exactly
-    // what Pixi submitted this frame. Zero overhead when profiling is
-    // off — the HUD just reads the accumulator.
-    //
-    // Context-loss guard: if the canvas gets webglcontextlost, the
-    // wrapped draw/tex calls would keep firing into a dead context
-    // (spamming console errors). `_glHooksActive` disables the
-    // counter increments without un-wrapping the methods.
-    const gl = (app.renderer as any).gl as (WebGL2RenderingContext | WebGLRenderingContext | undefined);
-    if (gl && typeof gl.drawElements === 'function') {
-      let _glHooksActive = true;
-      const canvas = (app.renderer as any).canvas as HTMLCanvasElement | undefined;
-      canvas?.addEventListener('webglcontextlost', () => { _glHooksActive = false; });
-      canvas?.addEventListener('webglcontextrestored', () => { _glHooksActive = true; });
-
-      const origDE = gl.drawElements.bind(gl);
-      const origDA = gl.drawArrays.bind(gl);
-      const origTI = gl.texImage2D.bind(gl);
-      const origTS = gl.texSubImage2D.bind(gl);
-      (gl as any).drawElements = (mode: number, count: number, type: number, offset: number) => {
-        if (_glHooksActive) {
-          profileContar('drawCalls', 1);
-          profileContar('triangles', (count / 3) | 0);
-        }
-        return origDE(mode, count, type, offset);
-      };
-      (gl as any).drawArrays = (mode: number, first: number, count: number) => {
-        if (_glHooksActive) {
-          profileContar('drawCalls', 1);
-          profileContar('triangles', (count / 3) | 0);
-        }
-        return origDA(mode, first, count);
-      };
-      (gl as any).texImage2D = (...args: unknown[]) => {
-        if (_glHooksActive) profileContar('textureUploads', 1);
-        return (origTI as any)(...args);
-      };
-      (gl as any).texSubImage2D = (...args: unknown[]) => {
-        if (_glHooksActive) profileContar('textureUploads', 1);
-        return (origTS as any)(...args);
-      };
-      const gl2 = gl as WebGL2RenderingContext;
-      if (typeof gl2.drawElementsInstanced === 'function') {
-        const origDEI = gl2.drawElementsInstanced.bind(gl2);
-        (gl2 as any).drawElementsInstanced = (
-          mode: number, count: number, type: number, offset: number, instanceCount: number,
-        ) => {
-          if (_glHooksActive) {
-            profileContar('drawCalls', 1);
-            profileContar('triangles', ((count / 3) | 0) * instanceCount);
-          }
-          return origDEI(mode, count, type, offset, instanceCount);
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[profiling] renderer.render wrap failed:', err);
-  }
+  // M10.1: Pixi renderer instrumentation removed. The profiling
+  // module's `pixiRender`, `drawCalls`, `triangles`, and
+  // `textureUploads` counters stay in the schema for back-compat
+  // with older profiling dumps but are no longer fed. The
+  // 'frameWall' metric is computed by the new rAF loop below.
+  await import('./world/profiling');
 
   // ── Software-renderer detection ────────────────────────────────
   // Chrome on Windows without GPU acceleration falls through ANGLE
@@ -582,17 +510,18 @@ async function bootstrap(): Promise<void> {
   document.body.style.margin = '0';
   document.body.style.overflow = 'hidden';
   document.body.appendChild(app.canvas);
-  // Ensure Pixi canvas stacks above the weydra-renderer canvas (z-index: 0
-  // in index.html). Pixi's default `z-index: auto` already paints above in
-  // DOM-order terms, but being explicit avoids any surprises when the weydra
-  // loader is enabled via localStorage.weydra_m1.
-  app.canvas.style.position = 'fixed';
-  app.canvas.style.top = '0';
-  app.canvas.style.left = '0';
-  app.canvas.style.zIndex = '1';
+  // M10.1: app.canvas IS the weydra canvas (index.html's
+  // <canvas id="weydra-canvas">). The weydra canvas is already
+  // positioned via the style attribute in index.html (z-index: 0);
+  // no further CSS work is needed here. The comment above about
+  // Pixi stacking above weydra is historical (M6) — there's no
+  // longer a separate Pixi canvas to position.
+  void app.canvas.style;
 
   window.addEventListener('resize', () => {
-    app.renderer.resize(window.innerWidth, window.innerHeight);
+    // M10.1: weydra canvas is already sized via CSS (100vw / 100vh).
+    // No need to call resize on the renderer.
+    void app.renderer;
   });
 
   // WebGL context loss recovery. Without calling preventDefault() the
