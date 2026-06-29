@@ -107,7 +107,34 @@ async function bootstrap(): Promise<void> {
   const { instalarInstrumentacao } = await import('./core/profiling-instr');
   instalarInstrumentacao();
 
-  const app = new Application();
+  // M10.1: Pixi Application removed. The `app` shim below implements
+  // just enough of Pixi's Application surface (canvas / screen /
+  // renderer / stage / ticker) for the call sites that still take
+  // `app: Application` as a parameter. The weydra canvas (from
+  // index.html) is the only canvas. The game loop in startTicker
+  // runs on `requestAnimationFrame`, not on the Pixi ticker.
+  const weydraCanvas = document.getElementById('weydra-canvas') as HTMLCanvasElement;
+  const app: Application = {
+    canvas: weydraCanvas,
+    screen: { width: window.innerWidth, height: window.innerHeight },
+    renderer: {
+      resize: (_w: number, _h: number): void => { /* no-op: weydra canvas is CSS-sized */ },
+      resolution: 1,
+    } as Application['renderer'],
+    stage: {
+      addChild: (_c: unknown): void => { /* no-op: orphaned Pixi container */ },
+    } as unknown as Application['stage'],
+    ticker: {
+      add: (_cb: () => void): void => { /* no-op: replaced by rAF */ },
+      deltaMS: 16,
+      speed: 1,
+      started: true,
+      start: (): void => {},
+      stop: (): void => {},
+      maxFPS: 0,
+      update: (_now: number): void => {},
+    } as unknown as Application['ticker'],
+  } as unknown as Application;
 
   const gfx = getConfig().graphics;
   // renderScale multiplies the baseline (devicePixelRatio) so users on
