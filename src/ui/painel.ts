@@ -346,15 +346,13 @@ function criarBotaoAcao(
 }
 
 export function criarPainel(app: Application): PainelContainer {
-  // M9: dispatch to the weydra implementation when the flag is on.
-  // The weydra version has its own structure (weydra Graphics + Text
-  // don't sit in a Pixi container tree) and lives at the bottom of
-  // this file as `criarPainelWeydra`. The Pixi path below this branch
-  // is the pre-M9 implementation, kept intact for the fallback.
-  if (getConfig().weydra.ui) {
-    const r = getWeydraRenderer();
-    if (r) return criarPainelWeydra(app, r);
-  }
+  // M10: weydra-only. cfg.weydra.ui is true by default (CP1). The
+  // weydra implementation is the only active path; the Pixi body
+  // below is now DEAD CODE — kept temporarily for the M10
+  // transition safety net, removed in M10.1 once the weydra path
+  // is validated end-to-end.
+  const r = getWeydraRenderer();
+  if (r) return criarPainelWeydra(app, r);
 
   const container = new Container() as PainelContainer;
 

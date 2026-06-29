@@ -58,10 +58,9 @@ export function getTipos(): TipoJogador[] {
 }
 
 export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
-  if (getConfig().weydra.ui) {
-    const r = getWeydraRenderer();
-    if (r) return criarTelaSelecaoWeydra(app, r);
-  }
+  // M10: weydra-only. Pixi fallback below is DEAD CODE.
+  const r = getWeydraRenderer();
+  if (r) return criarTelaSelecaoWeydra(app, r);
   return new Promise<TipoJogador>((resolve) => {
 
     const overlay = new Container();
