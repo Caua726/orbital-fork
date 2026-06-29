@@ -501,7 +501,9 @@ export function criarNave(mundo: Mundo, planetaOrigem: Planeta, tipo: string, ti
   entrarEmOrbita(nave, planetaOrigem);
   instalarTrail(nave);
 
-  if (getConfig().weydra.ships) {
+  // M10: weydra.ships is now true by default (CP1). The if is a no-op.
+  // The Pixi fallback body further down is now DEAD CODE.
+  {
     const wsprite = criarWeydraShipSprite(nave, tipo, tier);
     if (wsprite) {
       nave._weydraSprite = wsprite;
@@ -510,7 +512,6 @@ export function criarNave(mundo: Mundo, planetaOrigem: Planeta, tipo: string, ti
     } else {
       // Retry once the sheet finishes decoding.
       onSpritesheetReady('ships', () => {
-        if (!getConfig().weydra.ships) return;
         if (nave._weydraSprite) return; // already created via another path
         // Liveness guard: ship may have been destroyed (scrap-on-arrival,
         // combat) before the sheet finished. Without this check, a late
