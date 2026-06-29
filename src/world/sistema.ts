@@ -73,8 +73,11 @@ export function criarSistemaSolar(container: Container, orbitasContainer: Contai
 // so the camera transform in graphics.wgsl positions it correctly.
 // Pixi fallback otherwise — the existing canvas-2D path stays valid.
 const weydraRenderer = getWeydraRenderer();
-const useWeydraGraphics =
-  getConfig().weydra.graphics && weydraRenderer !== null;
+// M10: weydra.graphics is now true by default (CP1). The check is a
+// no-op; left as-is for the M10.1 cleanup pass that fully removes
+// the Pixi fallback body below. The else branch (line 95) is
+// DEAD CODE — kept temporarily for the M10 transition safety net.
+const useWeydraGraphics = weydraRenderer !== null;
   const linhaOrbita: GraphicsAdapter = (() => {
     if (useWeydraGraphics) {
       // weydra Graphics doesn't have a `visible` flag — visibility is
