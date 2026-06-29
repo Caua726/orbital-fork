@@ -593,7 +593,7 @@ async function bootstrap(): Promise<void> {
   // the full 18-system game world. When the player clicks Novo Jogo we
   // destroy this and create the real one.
   const mundoMenu = await criarMundoMenu(app);
-  app.stage.addChild(mundoMenu.container);
+  // M10.1: app.stage.addChild is a no-op on the shim; weydra renders directly to canvas
   _mundoMenu = mundoMenu;
 
   // Park the camera at the center of the menu system and zoom out so
@@ -846,7 +846,7 @@ async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJ
     _mundoMenu = null;
   }
 
-  app.stage.addChild(mundo.container);
+  // M10.1: app.stage.addChild is a no-op on the shim; weydra renders directly to canvas
   _mundo = mundo;
 
   const planetaJogador = mundo.planetas.find((p) => p.dados.dono === 'jogador');
@@ -1237,7 +1237,7 @@ async function voltarAoMenu(): Promise<void> {
 
   // 5. Recreate menu background world (behind the curtain)
   const mundoMenu = await criarMundoMenu(app);
-  app.stage.addChild(mundoMenu.container);
+  // M10.1: app.stage.addChild is a no-op on the shim; weydra renders directly to canvas
   _mundoMenu = mundoMenu;
   setCameraPos(mundoMenu.sistema.sol.x, mundoMenu.sistema.sol.y);
   setZoom(0.55);
