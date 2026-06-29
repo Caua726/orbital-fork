@@ -3,6 +3,12 @@ import { criarText, type TextLike } from './_text-helper';
 import type { Application, TipoJogador } from '../types';
 import { TIPO_PLANETA } from '../world/planeta';
 import { criarPlanetaProceduralSprite } from '../world/planeta-procedural';
+import { Graphics as WeydraGraphics, Text as WeydraText, type Renderer as WeydraRenderer } from '@weydra/renderer';
+import { Z } from '../core/render-order';
+import { getConfig } from '../core/config';
+import { getWeydraRenderer } from '../weydra-loader';
+import { toCanvasXY, rgbaWithAlpha } from './_dom-helpers';
+import { registerOverlay } from './overlay-registry';
 
 interface AnimatedCard extends Container {
   _baseY: number;
@@ -52,6 +58,10 @@ export function getTipos(): TipoJogador[] {
 }
 
 export async function criarTelaSelecao(app: Application): Promise<TipoJogador> {
+  if (getConfig().weydra.ui) {
+    const r = getWeydraRenderer();
+    if (r) return criarTelaSelecaoWeydra(app, r);
+  }
   return new Promise<TipoJogador>((resolve) => {
 
     const overlay = new Container();
@@ -394,4 +404,191 @@ export function abortarListenersSelecao(): void {
   _cardsRegistradas.length = 0;
   _hoveredCard = null;
   _pressedCard = null;
+}
+
+/**
+ * M9 weydra implementation of the tipo selection dialog. Renders the
+ * dark space background, the 3 tipo cards (each with bg + ring +
+ * nome + desc + hint), and dispatches hover/press/tap via DOM
+ * hit-tests. Resolves the Promise<TipoJogador> when the user taps
+ * a card.
+ *
+ * Backward-compat: same Promise<TipoJogador> return shape as the
+ * Pixi path so `criarTelaSelecao` is agnostic to backend.
+ */
+function criarTelaSelecaoWeydra(
+  app: Application,
+  r: WeydraRenderer,
+): Promise<TipoJogador> {
+  const dpr = () => (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+  const d2 = (n: number) => n * dpr();
+
+  // Dark space background.
+  const bg = r.createGraphics(false);
+  bg.zOrder = Z.UI_BACKGROUND;
+  bg.rect(0, 0, d2(app.screen.width), d2(app.screen.height))
+    .fill({ color: 0x0a0a18, alpha: 0.95 });
+
+  // Dialog frame (Win95-style).
+  const largCard = 220;
+  const altCard = 280;
+  const gap = 20;
+  const dialogPad = 30;
+  const totalCardsW = TIPOS.length * largCard + (TIPOS.length - 1) * gap;
+  const dialogW = totalCardsW + dialogPad * 2;
+  const dialogH = altCard + 120;
+  const dialogX = (app.screen.width - dialogW) / 2;
+  const dialogY = (app.screen.height - dialogH) / 2;
+
+  const dialogBg = r.createGraphics(false);
+  dialogBg.zOrder = Z.UI_BACKGROUND;
+  dialogBg.rect(d2(dialogX), d2(dialogY), d2(dialogW), d2(dialogH)).fill({ color: 0xd4d0c8 });
+  dialogBg.moveTo(d2(dialogX), d2(dialogY + dialogH)).lineTo(d2(dialogX), d2(dialogY)).lineTo(d2(dialogX + dialogW), d2(dialogY)).stroke({ color: 0xdfdfdf, width: 2 });
+  dialogBg.moveTo(d2(dialogX + dialogW), d2(dialogY)).lineTo(d2(dialogX + dialogW), d2(dialogY + dialogH)).lineTo(d2(dialogX), d2(dialogY + dialogH)).stroke({ color: 0x404040, width: 2 });
+  dialogBg.rect(d2(dialogX + 4), d2(dialogY + 3), d2(dialogW - 8), 22 * dpr()).fill({ color: 0x0a246a });
+  dialogBg.rect(d2(dialogX + 4 + (dialogW - 8) / 3), d2(dialogY + 3), d2(dialogW - 8) * 2 / 3, 22 * dpr()).fill({ color: 0x3a6ea5, alpha: 0.7 });
+
+  const titulo = criarText('Escolha seu Imperio', 16, 0xffffff);
+  if (titulo._weydra) {
+    titulo._weydra.x = d2(dialogX + 10);
+    titulo._weydra.y = d2(dialogY + 5);
+    titulo._weydra.zOrder = Z.UI_TEXT;
+  }
+  const subtitulo = criarText('O tipo define os bonus do seu imperio', 14, 0x666666);
+  if (subtitulo._weydra) {
+    subtitulo._weydra.x = d2(dialogX + dialogW / 2);
+    subtitulo._weydra.y = d2(dialogY + 42);
+    subtitulo._weydra.zOrder = Z.UI_TEXT;
+  }
+
+  // Per-card state + weydra handles.
+  const cardStartX = dialogX + dialogPad;
+  const cardY = dialogY + 60;
+  type CardState = { hovered: boolean; pressed: boolean; bg: WeydraGraphics; ring: WeydraGraphics; nome: TextLike; desc: TextLike; hint: TextLike; };
+  const cards: CardState[] = [];
+
+  TIPOS.forEach((tipo, i) => {
+    const cardX = cardStartX + i * (largCard + gap);
+    const cBg = r.createGraphics(false);
+    cBg.zOrder = Z.UI_BACKGROUND;
+    const cRing = r.createGraphics(false);
+    cRing.zOrder = Z.UI_HOVER;
+    const cNome = criarText(tipo.nome, 18, tipo.cor);
+    if (cNome._weydra) cNome._weydra.zOrder = Z.UI_TEXT;
+    const cDesc = criarText(tipo.desc, 14, 0x222222);
+    if (cDesc._weydra) cDesc._weydra.zOrder = Z.UI_TEXT;
+    const cHint = criarText('Selecionar', 14, 0x222222);
+    if (cHint._weydra) cHint._weydra.zOrder = Z.UI_TEXT;
+    cards.push({ hovered: false, pressed: false, bg: cBg, ring: cRing, nome: cNome, desc: cDesc, hint: cHint });
+  });
+
+  const redraw = (): void => {
+    TIPOS.forEach((tipo, i) => {
+      const cardX = cardStartX + i * (largCard + gap);
+      const dpx = d2(cardX);
+      const dpy = d2(cardY);
+      const dpw = d2(largCard);
+      const dph = d2(altCard);
+      const s = cards[i];
+      const face = s.pressed ? 0xc0d8ff : 0xd4d0c8;
+      s.bg.clear();
+      s.bg.rect(dpx, dpy, dpw, dph).fill({ color: face, alpha: 0.95 });
+      s.bg.moveTo(dpx, dpy + dph).lineTo(dpx, dpy).lineTo(dpx + dpw, dpy).stroke({ color: 0xdfdfdf, width: 2 });
+      s.bg.moveTo(dpx + dpw, dpy).lineTo(dpx + dpw, dpy + dph).lineTo(dpx, dpy + dph).stroke({ color: 0x404040, width: 2 });
+      s.bg.rect(dpx + 4 * dpr(), dpy + 4 * dpr(), dpw - 8 * dpr(), 3 * dpr()).fill({ color: tipo.cor });
+      s.ring.clear();
+      if (s.hovered) {
+        s.ring.rect(dpx - 2 * dpr(), dpy - 2 * dpr(), dpw + 4 * dpr(), dph + 4 * dpr())
+          .stroke({ color: 0x66ccff, width: 1, alpha: 0.6 });
+      }
+      if (s.nome._weydra) {
+        s.nome._weydra.x = dpx + dpw / 2;
+        s.nome._weydra.y = dpy + 145 * dpr();
+      }
+      if (s.desc._weydra) {
+        s.desc._weydra.x = dpx + dpw / 2;
+        s.desc._weydra.y = dpy + 195 * dpr();
+      }
+      if (s.hint._weydra) {
+        s.hint._weydra.x = dpx + dpw / 2;
+        s.hint._weydra.y = dpy + (altCard - 42 + 14) * dpr();
+        s.hint._weydra.color = rgbaWithAlpha(0x222222, s.hovered ? 1.0 : 0.7);
+      }
+    });
+  };
+
+  const cardAt = (x: number, y: number): number => {
+    for (let i = 0; i < TIPOS.length; i++) {
+      const cardX = cardStartX + i * (largCard + gap);
+      if (x >= cardX && x < cardX + largCard && y >= cardY && y < cardY + altCard) return i;
+    }
+    return -1;
+  };
+
+  let chosen: TipoJogador | null = null;
+  let torndown = false;
+  const teardown = (): void => {
+    if (torndown) return;
+    torndown = true;
+    ac.abort();
+    r.destroyGraphics(bg);
+    r.destroyGraphics(dialogBg);
+    if (titulo._weydra) r.destroyText(titulo._weydra);
+    if (subtitulo._weydra) r.destroyText(subtitulo._weydra);
+    for (const c of cards) {
+      r.destroyGraphics(c.bg);
+      r.destroyGraphics(c.ring);
+      if (c.nome._weydra) r.destroyText(c.nome._weydra);
+      if (c.desc._weydra) r.destroyText(c.desc._weydra);
+      if (c.hint._weydra) r.destroyText(c.hint._weydra);
+    }
+  };
+
+  const canvas = app.canvas;
+  const ac = new AbortController();
+  canvas.addEventListener('pointermove', (ev) => {
+    const [x, y] = toCanvasXY(ev, canvas);
+    const hit = cardAt(x / dpr(), y / dpr());
+    let changed = false;
+    for (let i = 0; i < cards.length; i++) {
+      const h = i === hit;
+      if (cards[i].hovered !== h) { cards[i].hovered = h; changed = true; }
+    }
+    if (changed) redraw();
+  }, { signal: ac.signal });
+  canvas.addEventListener('pointerdown', (ev) => {
+    const [x, y] = toCanvasXY(ev, canvas);
+    const hit = cardAt(x / dpr(), y / dpr());
+    if (hit === -1) return;
+    cards[hit].pressed = true;
+    redraw();
+  }, { signal: ac.signal });
+  canvas.addEventListener('pointerup', (ev) => {
+    const [x, y] = toCanvasXY(ev, canvas);
+    const hit = cardAt(x / dpr(), y / dpr());
+    for (const c of cards) if (c.pressed) c.pressed = false;
+    if (hit !== -1) chosen = TIPOS[hit];
+    redraw();
+  }, { signal: ac.signal });
+
+  const overlay = { tick: redraw, destruir: teardown };
+  const unregister = registerOverlay(overlay);
+  void unregister;
+
+  // Initial draw
+  redraw();
+
+  return new Promise<TipoJogador>((resolve) => {
+    const checkChosen = (): void => {
+      if (chosen) {
+        const t = chosen;
+        chosen = null;
+        resolve(t);
+        teardown();
+        return;
+      }
+      requestAnimationFrame(checkChosen);
+    };
+    requestAnimationFrame(checkChosen);
+  });
 }
