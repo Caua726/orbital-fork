@@ -367,6 +367,15 @@ export function atualizarEscalaLabelMemoria(planeta: Planeta, zoom: number): voi
 export function removerMemoriaPlaneta(mundo: Mundo, planeta: Planeta): void {
   const memoria = memorias.get(planeta);
   if (!memoria) return;
+  // M10 review: free the weydra Text handles before destroying the
+  // Pixi container. Without this, every world reset leaks 2 atlas
+  // entries per visible planeta (info + tempoLabel). Pixi path keeps
+  // the `_pixi.destroy()` cascade via `memoria.visual.destroy({ children: true })`.
+  const r = getWeydraRenderer();
+  if (r) {
+    if (memoria.info._weydra) r.destroyText(memoria.info._weydra);
+    if (memoria.tempoLabel._weydra) r.destroyText(memoria.tempoLabel._weydra);
+  }
   mundo.memoriaPlanetasContainer.removeChild(memoria.visual);
   memoria.visual.destroy({ children: true });
   memorias.delete(planeta);
