@@ -7,6 +7,8 @@ import { bumpCounter } from '../core/profiling-instr';
 import { SHIP_TINT, limparPendingSprite } from './naves';
 import { destruirTrail } from './engine-trails';
 import { esquecerLastSeen } from './last-seen';
+import { getWeydraRenderer } from '../weydra-loader';
+import type { Sprite as WeydraSprite } from '@weydra/renderer';
 
 // ─── Hit-flash tracking ──────────────────────────────────────────────
 // When a ship takes damage, briefly tint its sprite white then fade back.
@@ -390,6 +392,21 @@ function _removerNaveDoMundo(mundo: Mundo, nave: Nave): void {
       mundo.navesContainer.removeChild(nave.gfx);
       nave.gfx.destroy({ children: true });
     } catch { /* noop */ }
+  }
+  // Combat-kill must free the weydra sprite + ring exactly like
+  // removerNave does — neither has a Pixi scene-graph parent, so
+  // gfx.destroy() doesn't touch them. Without this every kill leaves a
+  // frozen ghost ship + ring rendering at the death spot and leaks GPU
+  // resources per kill (combat is the primary ship-death path).
+  if (nave._weydraSprite) {
+    try {
+      const r = getWeydraRenderer();
+      if (r) r.destroySprite(nave._weydraSprite as WeydraSprite);
+    } catch { /* noop */ }
+    nave._weydraSprite = undefined;
+  }
+  if (nave._ring) {
+    try { nave._ring.destroy(); } catch { /* noop */ }
   }
   destruirTrail(nave);
 }

@@ -3,13 +3,13 @@ import type { Mundo, Sol, Planeta, Sistema, Nave, FonteVisao } from '../../types
 import type { MundoDTO, SolDTO, PlanetaDTO, NaveDTO, AlvoDTO } from './dto';
 import { criarMundoVazio, aplicarZOrderMundo, type MundoVazio } from '../mundo';
 import { GraphicsAdapter } from '../../core/graphics-adapter';
-import { trackOrbitaLinha } from '../sistema';
+import { trackOrbitaLinha, trackAnel } from '../sistema';
 import { criarEstrelaProcedural, criarPlanetaProceduralSprite, precompilarBakesPlanetas } from '../planeta-procedural';
 import { rngFromSeed } from '../lore/seeded-rng';
 import { criarMemoriaVisualPlaneta, restaurarMemoriaPlaneta } from '../nevoa';
 import { resetarNomesPlanetas } from '../nomes';
 import { instalarTrail } from '../engine-trails';
-import { criarVisualNave } from '../naves';
+import { criarVisualNave, instalarWeydraSpriteNave } from '../naves';
 import { restaurarMemoriasIa, resetMemoriasIa } from '../ia-memoria';
 import { restaurarEventos, resetEventos } from '../eventos';
 import { restaurarStats, resetStats } from '../stats';
@@ -119,6 +119,10 @@ export async function reconstruirMundo(
       nave.rotaGfx.attachTo(mv.rotasContainer);
       // Engine trail rendered behind the (placeholder) sprite.
       instalarTrail(nave);
+      // Create the weydra sprite — without this loaded ships render only
+      // their engine trail (the Pixi sprite is the dead no-op path). Same
+      // call criarNave makes; `naves` is the liveness list for the retry.
+      instalarWeydraSpriteNave(nave, naveDto.tipo, naveDto.tier, naves);
     }
   }
 
@@ -292,8 +296,12 @@ function reconstruirPlaneta(
   // attaches: the orbit ring (in orbitasContainer) and the selection
   // ring / construction overlay (children of the planeta itself).
   const linhaOrbita = GraphicsAdapter.create({ worldSpace: true, zOrder: 20 /* Z.ORBITS */ });
+  // Match criarSistemaSolar's per-system sun-colour palette so loaded
+  // orbits keep the same hue as freshly-created ones (was hardcoded
+  // 0xffd166, recolouring every system where index % 4 != 0).
+  const corSol = [0xffd166, 0xffb703, 0xfff1a8, 0xf4a261][dto.dados.sistemaId % 4];
   linhaOrbita.circle(dto.orbita.centroX, dto.orbita.centroY, dto.orbita.raio)
-    .stroke({ color: 0xffd166, width: 2, alpha: 0.3 });
+    .stroke({ color: corSol, width: 2, alpha: 0.3 });
   linhaOrbita.attachTo(mv.orbitasContainer);
   planeta._linhaOrbita = linhaOrbita as unknown as typeof planeta._linhaOrbita;
   // Track for destruirWeidraGraphicsGlobais cleanup. Without this,
@@ -303,6 +311,9 @@ function reconstruirPlaneta(
   const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: 55 /* Z.UI_HOVER */ });
   anel.attachTo(planeta);
   planeta._anel = anel;
+  // Register the ring so world teardown frees it (same as the live create
+  // path). Without this every loaded planet's ring leaks per world.
+  trackAnel(planeta, anel);
 
   return planeta;
 }

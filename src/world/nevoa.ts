@@ -1,9 +1,10 @@
-import { Container, Graphics } from 'pixi.js';
-import { criarText } from '../ui/_text-helper';
+import { Container } from 'pixi.js';
+import { criarText, type TextLike } from '../ui/_text-helper';
+import { GraphicsAdapter } from '../core/graphics-adapter';
+import { Z } from '../core/render-order';
+import { getWeydraRenderer } from '../weydra-loader';
 import type { Planeta, Mundo, FonteVisao, Camera } from '../types';
 import { nomeTipoPlaneta } from './planeta';
-import { criarPlanetaProceduralSprite } from './planeta-procedural';
-import { rngFromSeed } from './lore/seeded-rng';
 import { calcularBoundsViewport, type ViewportBounds } from './viewport-bounds';
 
 const _fogBoundsScratch: ViewportBounds = {
@@ -33,12 +34,11 @@ interface MemoriaPlanetaSnapshot {
 
 interface MemoriaPlaneta {
   conhecida: boolean;
-  visual: Container;
-  fantasma: Container;
-  anel: Graphics;
-  infoBg: Graphics;
-  info: import('../ui/_text-helper').TextLike;
-  tempoLabel: import('../ui/_text-helper').TextLike;
+  /** Transform + visibility manager over the weydra primitives below. */
+  visual: MemoriaVisual;
+  anel: GraphicsAdapter;
+  info: TextLike;
+  tempoLabel: TextLike;
   dados: MemoriaPlanetaSnapshot | null;
   _textoAnterior: string;
 }
@@ -47,6 +47,102 @@ const ALPHA_FANTASMA = 0.32;
 const ALPHA_FANTASMA_ANEL = 0.3;
 const COR_ANEL_FANTASMA = 0x8aa4bd;
 const DISTANCIA_LABEL_MEMORIA = 18;
+// Vertical gap (world units at scale 1) between the two label lines and
+// the tempo line. The labels counter-zoom, so this is multiplied by the
+// current label scale when positioning the tempo line below the info line.
+const INFO_BLOCK_PX = 26;
+
+/**
+ * Groups the weydra primitives of one fog-memory ghost (dim ring + two
+ * world-space text labels) behind a Pixi-container-like transform surface
+ * (`x`, `y`, `visible`). The migration dropped the Pixi scene graph, so
+ * there is no parent container to inherit a transform from: this object
+ * propagates position to the ring (via its per-instance translation) and
+ * to the labels (via absolute world coordinates, recentred for the
+ * anchor(0.5, 0) horizontal centring the old Pixi path used).
+ *
+ * The planet silhouette ("fantasma") and the rounded label background from
+ * the pre-weydra version are intentionally dropped: the weydra planet pool
+ * has no per-instance alpha to render a translucent ghost, and a label
+ * background would need its own counter-zoom pass. The dim ring + intel
+ * label carry the gameplay-relevant information (owner, type, fabricas,
+ * infra, ships, age) without either.
+ */
+class MemoriaVisual {
+  private _x = 0;
+  private _y = 0;
+  private _visible = false;
+  /** World offset from centre to the info label's top (set in redesenhar). */
+  infoOffsetY = 0;
+  /** World offset from centre to the tempo label's top (scale-aware). */
+  tempoOffsetY = 0;
+
+  constructor(
+    public readonly anel: GraphicsAdapter,
+    public readonly info: TextLike,
+    public readonly tempoLabel: TextLike,
+  ) {}
+
+  /** Cached half-widths for anchor(0.5) horizontal centring. Refreshed
+   *  (via a wasm getTextWidth call) only when the label text or scale
+   *  changes — NOT every frame. */
+  private _infoHalfW = 0;
+  private _tempoHalfW = 0;
+
+  get visible(): boolean { return this._visible; }
+  set visible(v: boolean) {
+    if (this._visible === v) return;
+    this._visible = v;
+    this.anel.visible = v;
+    this.info.visible = v;
+    this.tempoLabel.visible = v;
+  }
+
+  // x/y setters skip work when the value is unchanged — a fog ghost sits at
+  // a fixed remembered position, so after the first frame these are no-ops
+  // (no per-frame wasm position writes for stationary ghosts).
+  get x(): number { return this._x; }
+  set x(v: number) { if (this._x === v) return; this._x = v; this.posicionar(); }
+  get y(): number { return this._y; }
+  set y(v: number) { if (this._y === v) return; this._y = v; this.posicionar(); }
+
+  // The ghost dimness is baked into the per-command draw colours
+  // (COR_ANEL_FANTASMA + low alpha) and the label colours, so the old
+  // container-level alpha multiply has no weydra equivalent. No-op setter
+  // keeps the existing call sites compiling.
+  set alpha(_v: number) { /* baked into draw colours */ }
+
+  /** Re-measure label widths (one wasm getTextWidth each) and reposition.
+   *  Call ONLY when the label text, scale, or offsets changed — not every
+   *  frame. */
+  relayout(): void {
+    this._infoHalfW = (this.info.width ?? 0) / 2;
+    this._tempoHalfW = (this.tempoLabel.width ?? 0) / 2;
+    this.posicionar();
+  }
+
+  /** Apply the world transform to ring + labels using cached widths (no
+   *  wasm width reads). Labels are recentred horizontally (Pixi anchor 0.5). */
+  posicionar(): void {
+    this.anel.x = this._x;
+    this.anel.y = this._y;
+    this.info.x = this._x - this._infoHalfW;
+    this.info.y = this._y + this.infoOffsetY;
+    this.tempoLabel.x = this._x - this._tempoHalfW;
+    this.tempoLabel.y = this._y + this.tempoOffsetY;
+  }
+
+  destroy(): void {
+    const r = getWeydraRenderer();
+    this.anel.destroy();
+    if (r) {
+      if (this.info._weydra) r.destroyText(this.info._weydra);
+      if (this.tempoLabel._weydra) r.destroyText(this.tempoLabel._weydra);
+    }
+    this.info._pixi?.destroy();
+    this.tempoLabel._pixi?.destroy();
+  }
+}
 
 function nomeDonoCurto(dono: string): string {
   if (dono === 'jogador') return 'Seu';
@@ -107,56 +203,29 @@ export function criarCamadaMemoria(): Container {
 }
 
 export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void {
-  const container = new Container();
-  container.visible = false;
-  container.eventMode = 'none';
-  container.alpha = 0;
+  void mundo; // memoriaPlanetasContainer (Pixi) no longer parents the ghost
 
-  // Derivamos o RNG do fantasma a partir do mesmo _visualSeed do
-  // planeta real — assim a silhueta da memória bate com o que o
-  // jogador viu. Fallback p/ Math.random se o seed ainda não foi
-  // setado (caminho raro em saves muito antigos).
-  const fantasmaRng = planeta._visualSeed != null
-    ? rngFromSeed(planeta._visualSeed)
-    : undefined;
-  const fantasma = criarPlanetaProceduralSprite(
-    0,
-    0,
-    planeta.dados.tamanho,
-    planeta.dados.tipoPlaneta,
-    undefined,
-    fantasmaRng,
-  );
-  fantasma.alpha = ALPHA_FANTASMA;
-  container.addChild(fantasma);
-
-  const anel = new Graphics();
-  container.addChild(anel);
-
-  const infoBg = new Graphics();
-  container.addChild(infoBg);
+  // Dim ring marking the remembered planet — worldSpace so it tracks the
+  // map. Drawn at (0,0)-relative; its world position is carried by the
+  // GraphicsAdapter translation (set via MemoriaVisual).
+  const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.FOG_MEMORY });
+  anel.visible = false;
 
   const info = criarText('', 11, 0xcfe3ff, true);
-  // Pixi anchor(0.5, 0) centers the text horizontally on its x. On
-  // the weydra path the text is positioned by top-left corner, so we
-  // pre-shift x by -width/2 when the text content arrives (in
-  // atualizarVisibilidadeMemoria). The fallback Pixi path keeps
-  // its original anchor behavior via `_pixi.anchor.set(0.5, 0)` below.
+  info.visible = false;
+  // Pixi path keeps the original anchor(0.5, 0) horizontal centring; the
+  // weydra path recentres manually in MemoriaVisual.relayout() using the
+  // rendered width (weydra text origin is top-left).
   if (info._pixi) info._pixi.anchor.set(0.5, 0);
-  container.addChild(info._pixi ?? (info as unknown as Container));
 
   const tempoLabel = criarText('', 9, 0x8899aa, true);
+  tempoLabel.visible = false;
   if (tempoLabel._pixi) tempoLabel._pixi.anchor.set(0.5, 0);
-  container.addChild(tempoLabel._pixi ?? (tempoLabel as unknown as Container));
 
-  mundo.memoriaPlanetasContainer.addChild(container);
-
-  const memoria = {
+  const memoria: MemoriaPlaneta = {
     conhecida: false,
-    visual: container,
-    fantasma,
+    visual: new MemoriaVisual(anel, info, tempoLabel),
     anel,
-    infoBg,
     info,
     tempoLabel,
     dados: null,
@@ -171,10 +240,6 @@ function redesenharVisualMemoria(memoria: MemoriaPlaneta): void {
   if (!dados) return;
 
   const tamanho = dados.dados.tamanho;
-
-  memoria.fantasma.width = tamanho;
-  memoria.fantasma.height = tamanho;
-  memoria.fantasma.alpha = ALPHA_FANTASMA;
 
   memoria.anel.clear();
   const larguraAnel = 1.1;
@@ -194,17 +259,14 @@ function redesenharVisualMemoria(memoria: MemoriaPlaneta): void {
     memoria._textoAnterior = novoTexto;
   }
 
-  memoria.info.y = tamanho / 2 + DISTANCIA_LABEL_MEMORIA;
-
-  const largura = (memoria.info.width ?? 0) + 12;
-  const altura = (memoria.info.height ?? 0) + 8;
-  memoria.infoBg.clear();
-  memoria.infoBg.roundRect(-largura / 2, memoria.info.y - 4, largura, altura, 4).fill({
-    color: 0x08111f,
-    alpha: 0.62,
-  });
-
-  memoria.tempoLabel.y = memoria.info.y + altura + 2;
+  // Label layout (world units from the planet centre). The tempo line sits
+  // below the two-line info block; INFO_BLOCK_PX is scaled by the current
+  // label counter-zoom so the gap stays proportional to the glyph size.
+  memoria.visual.infoOffsetY = tamanho / 2 + DISTANCIA_LABEL_MEMORIA;
+  const escala = memoria.info.scale ?? 1;
+  memoria.visual.tempoOffsetY =
+    memoria.visual.infoOffsetY + INFO_BLOCK_PX * escala;
+  memoria.visual.relayout();
 }
 
 export function registrarMemoriaPlaneta(planeta: Planeta): void {
@@ -294,6 +356,9 @@ export function atualizarVisibilidadeMemoria(planeta: Planeta, visivelAoJogador:
     const tempoTexto = formatarTempoPassado(agora - memoriaDados.timestamp);
     if (memoria.tempoLabel.text !== tempoTexto) {
       memoria.tempoLabel.text = tempoTexto;
+      // The tempo line's width changed — recentre it (and the info line)
+      // against the new content so the anchor(0.5,0) centring holds.
+      memoria.visual.relayout();
     }
   } else {
     memoria.visual.visible = false;
@@ -357,34 +422,32 @@ export function atualizarEscalaLabelMemoria(planeta: Planeta, zoom: number): voi
   const memoria = memorias.get(planeta);
   if (!memoria?.visual.visible) return;
 
+  // Counter-zoom the labels so they stay a roughly constant screen size
+  // (the ring stays in world units, scaling with the map — it's a marker).
   const escalaInversa = 1 / Math.max(zoom, 0.1);
   const escala = Math.min(Math.max(escalaInversa, 0.5), 2.5);
   memoria.info.scale = escala;
-  memoria.infoBg.scale.set(escala);
   memoria.tempoLabel.scale = escala;
+  // The label glyph size changed → the tempo-line gap and the horizontal
+  // centring both depend on scale; recompute and re-apply.
+  memoria.visual.tempoOffsetY = memoria.visual.infoOffsetY + INFO_BLOCK_PX * escala;
+  memoria.visual.relayout();
 }
 
 export function removerMemoriaPlaneta(mundo: Mundo, planeta: Planeta): void {
+  void mundo;
   const memoria = memorias.get(planeta);
   if (!memoria) return;
-  // M10 review: free the weydra Text handles before destroying the
-  // Pixi container. Without this, every world reset leaks 2 atlas
-  // entries per visible planeta (info + tempoLabel). Pixi path keeps
-  // the `_pixi.destroy()` cascade via `memoria.visual.destroy({ children: true })`.
-  const r = getWeydraRenderer();
-  if (r) {
-    if (memoria.info._weydra) r.destroyText(memoria.info._weydra);
-    if (memoria.tempoLabel._weydra) r.destroyText(memoria.tempoLabel._weydra);
-  }
-  mundo.memoriaPlanetasContainer.removeChild(memoria.visual);
-  memoria.visual.destroy({ children: true });
+  // Free the weydra ring (SlotMap handle + GPU buffers) and both text
+  // atlas handles. Without this, every world reset leaks per remembered
+  // planeta — see MemoriaVisual.destroy.
+  memoria.visual.destroy();
   memorias.delete(planeta);
 }
 
 import { Sprite, Texture, ImageSource } from 'pixi.js';
 import { config } from '../ui/debug';
 import { profileMark, profileAcumular } from './profiling';
-import { getWeydraRenderer } from '../weydra-loader';
 
 // Fog resolution deliberadamente baixa mesmo no preset 'alto'. O fog
 // é composto de círculos `destination-out` com borda suave por

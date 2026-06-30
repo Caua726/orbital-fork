@@ -151,6 +151,10 @@ const useWeydraGraphics = weydraRenderer !== null;
     const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: 55 /* Z.UI_HOVER */ });
     anel.attachTo(p);
     p._anel = anel;
+    // Register so destruirWeidraGraphicsGlobais frees it on world teardown —
+    // the weydra ring has no Pixi parent, so the container destroy cascade
+    // never reaches it. Without this every planet's ring leaks per world.
+    trackAnel(p, anel);
 
     p.visible = false;
     container.addChild(p);

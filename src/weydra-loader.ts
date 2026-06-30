@@ -21,10 +21,48 @@ import { tickOverlays } from './ui/overlay-registry';
 let _renderer: Renderer | null = null;
 let _rafHandle: number | null = null;
 let _lastT: number = 0;
+let _firstFrame = true;
 let _resizeAbort: AbortController | null = null;
+
+// Render-loop fps cap. 0 = uncapped (rAF paces to the display refresh =
+// vsync). When the user picks vsync-off + a cap, we throttle the render
+// loop to `1000/cap` ms between painted frames. Replaces the old dead-Pixi
+// -ticker path in main.ts (which also leaked a perpetual setTimeout).
+let _renderIntervalMs = 0;
+let _lastRenderT = 0;
+let _renderCanvas: HTMLCanvasElement | null = null;
 
 export function getWeydraRenderer(): Renderer | null {
   return _renderer;
+}
+
+/** Set the render-loop fps cap (0 = uncapped). Driven by the graphics
+ *  vsync/fpsCap settings via main.ts. */
+export function setRenderFpsCap(cap: number): void {
+  _renderIntervalMs = cap > 0 ? 1000 / cap : 0;
+}
+
+/** Recompute the canvas backing-store size (applies renderScale) and
+ *  resize the weydra surface. Call after a renderScale config change. */
+export function aplicarTamanhoRenderizador(): void {
+  if (!_renderer || !_renderCanvas) return;
+  const dpr = (window.devicePixelRatio || 1) * renderScaleAtual();
+  const cssW = _renderCanvas.clientWidth || window.innerWidth;
+  const cssH = _renderCanvas.clientHeight || window.innerHeight;
+  const w = Math.max(1, Math.floor(cssW * dpr));
+  const h = Math.max(1, Math.floor(cssH * dpr));
+  _renderCanvas.width = w;
+  _renderCanvas.height = h;
+  _renderer.resize(w, h);
+}
+
+function renderScaleAtual(): number {
+  try {
+    const s = getConfig().graphics.renderScale ?? 1;
+    return s > 0 ? s : 1;
+  } catch {
+    return 1;
+  }
 }
 
 function anyFlagEnabled(): boolean {
@@ -89,18 +127,26 @@ function resolveBackend(
 
 export async function startWeydra(): Promise<void> {
   if (!anyFlagEnabled()) return;
+  // Double-init guard: a second call would stack a second renderer, a
+  // second rAF render loop, and a second (un-aborted) resize listener.
+  // The current single caller is correct, but HMR / future callers must
+  // be safe.
+  if (_renderer) return;
 
   const canvas = document.getElementById('weydra-canvas') as HTMLCanvasElement | null;
   if (!canvas) {
     console.warn('[weydra] #weydra-canvas not found in DOM — skipping init');
     return;
   }
+  _renderCanvas = canvas;
 
   // Match canvas backing-store to its display size so rendering isn't stretched.
   // At first call clientWidth/Height may still be 0 (layout not yet flushed).
   // Fallback to window size, then resize handler corrects it on first paint.
+  // `renderScale` (graphics setting) scales the backing store below display
+  // density to trade sharpness for fill-rate on weak GPUs.
   function currentSize(): { width: number; height: number; dpr: number } {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = (window.devicePixelRatio || 1) * renderScaleAtual();
     const cssW = canvas!.clientWidth || window.innerWidth;
     const cssH = canvas!.clientHeight || window.innerHeight;
     return { width: Math.max(1, Math.floor(cssW * dpr)), height: Math.max(1, Math.floor(cssH * dpr)), dpr };
@@ -159,14 +205,27 @@ export async function startWeydra(): Promise<void> {
 
   const loop = (t: number) => {
     if (_renderer) {
-      try {
-        // Tick UI overlays (slide-in, fade-out) before the render pass
-        // so per-frame state (alpha, offsetY) is in sync with the draw.
-        tickOverlays((t - _lastT) / 1000);
-        _lastT = t;
-        _renderer.render();
-      } catch (err) {
-        console.error('[weydra] render error:', err);
+      // fps cap: skip painting (but keep the rAF chain alive) until the
+      // configured inter-frame interval has elapsed. Uncapped when 0.
+      const due = _renderIntervalMs === 0 || (t - _lastRenderT) >= _renderIntervalMs;
+      if (due) {
+        _lastRenderT = t;
+        try {
+          // First frame: seed _lastT to `t` so the overlay delta is 0
+          // instead of the multi-second page-load timestamp (which would
+          // fast-forward the first slide-in/fade animation).
+          if (_firstFrame) {
+            _lastT = t;
+            _firstFrame = false;
+          }
+          // Tick UI overlays (slide-in, fade-out) before the render pass
+          // so per-frame state (alpha, offsetY) is in sync with the draw.
+          tickOverlays((t - _lastT) / 1000);
+          _lastT = t;
+          _renderer.render();
+        } catch (err) {
+          console.error('[weydra] render error:', err);
+        }
       }
     }
     _rafHandle = requestAnimationFrame(loop);
@@ -187,6 +246,11 @@ export function stopWeydra(): void {
     _resizeAbort = null;
   }
   _renderer = null;
+  _renderCanvas = null;
+  // Reset frame timing so a re-init reseeds the overlay delta cleanly
+  // instead of replaying the boot-time jump.
+  _firstFrame = true;
+  _lastRenderT = 0;
 }
 
 export const stopWeydraM1 = stopWeydra;

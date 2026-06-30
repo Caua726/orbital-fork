@@ -385,6 +385,11 @@ export function destruirMundo(mundo: Mundo, app: Application): void {
   // planet anel cache) before the Pixi container destroy — the Pixi
   // path cascades but weydra handles are independent.
   destruirWeidraGraphicsGlobais();
+  // Free the combat beam Graphics (a module-level singleton). Only
+  // criarMundo called this before, so loading a save (reconstruirMundo,
+  // which doesn't go through criarMundo) leaked the previous world's beam
+  // Graphics. Tearing it down here covers every world-swap path.
+  resetCombateVisuals();
   // Abort DOM event listeners registered by the M7 minimapa/tutorial
   // /painel/selecao UI. Without this, every world reset accumulates
   // handlers on app.canvas and every click fires N callbacks
@@ -556,6 +561,16 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     planeta._linhaOrbita.alpha = planeta._visivelAoJogador && !!(solDoSistema?._visivelAoJogador) ? 0.5 : 0.18;
     tVis += performance.now() - tV0;
 
+    // Selection ring: the ring is drawn at (0,0)-relative. On the Pixi
+    // path it inherited the planet container's transform + visibility;
+    // on the weydra path it has no scene-graph parent, so carry the
+    // planet's world position as the ring's own translation and toggle
+    // its visibility per frame (else it would render at world origin and
+    // stay visible for off-screen planets).
+    if (planeta._anel.weydra) {
+      planeta._anel.visible = vis;
+      if (vis) planeta._anel.setPosition(planeta.x, planeta.y);
+    }
     if (vis) {
       // Redraw só quando estado visual do anel muda. Seleção muda em
       // clique (~1×/seg), tamanho é constante durante o jogo — antes

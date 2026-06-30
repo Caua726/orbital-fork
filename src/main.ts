@@ -64,7 +64,7 @@ import { t } from './core/i18n/t';
 import { somVitoria, somDerrota } from './audio/som';
 import { iniciarMusicaAmbiente, pararMusicaAmbiente } from './audio/musica-ambiente';
 import { setAppReferenceForBake, precompilarShadersPlaneta } from './world/planeta-procedural';
-import { startWeydraM1 } from './weydra-loader';
+import { startWeydraM1, setRenderFpsCap, aplicarTamanhoRenderizador } from './weydra-loader';
 // Top-level state shared across bootstrap, iniciarJogoNovo, and carregarMundo.
 let _app: Application | null = null;
 let _mundo: Mundo | null = null;
@@ -73,6 +73,9 @@ let _gameStarted = false;
 let _hudInstalled = false;
 let _transitioning = false;
 let _fimTocado = false;
+// Frames rendered since the last HUD FPS sample. Incremented by the rAF
+// game loop (_gameTick), read+reset by the 500ms FPS HUD interval.
+let _fpsFrameCounter = 0;
 
 // Cinematic camera state during the main menu. Accumulated seconds,
 // fed into layered sines for a non-circular, more organic drift.
@@ -290,7 +293,10 @@ async function bootstrap(): Promise<void> {
         delete baseInit.context;
         delete baseInit.canvas;
         try {
-          await app.init({ ...baseInit, preference: 'webgl' });
+          // M10.1: `app` is a shim with no `init` (Pixi Application is gone).
+          // Mirror the main path (await Promise.resolve()) so this retry
+          // branch can't throw "app.init is not a function" if ever reached.
+          await Promise.resolve();
           initOk = true;
           window.setTimeout(() => toast(t('toast.webgl_fallback', { v: gfx.webglVersion }), 'err'), 2000);
           break;
@@ -347,29 +353,14 @@ async function bootstrap(): Promise<void> {
   //               MessageChannel trick that bypasses the clamp
   //               saturated the ticker and froze the tab, so we
   //               live with the ~250 ceiling.
-  let _loopTimer: number | null = null;
+  // FPS mode now drives the REAL weydra render loop (the Pixi ticker is a
+  // dead no-op shim post-M10.1). vsync on → uncapped, rAF paces to the
+  // display refresh. vsync off + cap → throttle the render loop to `cap`
+  // fps. The previous implementation drove `app.ticker` (no-op) and, in
+  // the vsync-off branch, spawned a perpetual ~250 Hz setTimeout loop that
+  // called a no-op forever — a CPU leak that never stopped.
   const aplicarModoFps = (vsync: boolean, cap: number): void => {
-    if (_loopTimer !== null) {
-      window.clearTimeout(_loopTimer);
-      _loopTimer = null;
-    }
-    if (vsync) {
-      app.ticker.maxFPS = cap > 0 ? cap : 0;
-      if (!app.ticker.started) app.ticker.start();
-      return;
-    }
-    app.ticker.stop();
-    const minDelayMs = cap > 0 ? 1000 / cap : 0;
-    let lastTickMs = performance.now();
-    const loop = (): void => {
-      const now = performance.now();
-      app.ticker.update(now);
-      const elapsed = performance.now() - lastTickMs;
-      lastTickMs = now;
-      const wait = Math.max(0, minDelayMs - elapsed);
-      _loopTimer = window.setTimeout(loop, wait) as unknown as number;
-    };
-    loop();
+    setRenderFpsCap(vsync ? 0 : cap);
   };
   aplicarModoFps(gfx.vsync, gfx.fpsCap);
   onConfigChange((cfg) => aplicarModoFps(cfg.graphics.vsync, cfg.graphics.fpsCap));
@@ -399,8 +390,12 @@ async function bootstrap(): Promise<void> {
     const next = Math.min(requested, safeMax);
     if (next === _lastRenderScale) return;
     _lastRenderScale = next;
-    (app.renderer as any).resolution = baselineDpr * next;
-    app.renderer.resize(window.innerWidth, window.innerHeight);
+    // Drive the weydra surface directly — recompute the backing-store size
+    // (weydra-loader's currentSize reads renderScale) and resize the wgpu
+    // surface. The old code set app.renderer.resolution (read by nothing)
+    // and called the shim resize (which never re-configured the weydra
+    // surface), so renderScale had zero effect under weydra.
+    aplicarTamanhoRenderizador();
   });
 
   // ── FPS counter ──
@@ -513,10 +508,13 @@ async function bootstrap(): Promise<void> {
   // M10.1: replace the no-op `app.ticker.add` FPS/RAM hook with a
   // 500ms setInterval. The original 60 Hz FPS sampling is overkill
   // for a HUD; the sampling is now decoupled from the game loop.
-  let _fpsFrames = 0;
   setInterval(() => {
-    _fpsFrames = 0;
-    fpsEl.textContent = `${Math.round(_fpsFrames / 0.5)} FPS`;
+    // Read the frames accumulated by the rAF game loop over the last
+    // 500 ms window, then reset. The previous version zeroed the counter
+    // BEFORE reading (always 0 FPS) and nothing ever incremented it.
+    const frames = _fpsFrameCounter;
+    _fpsFrameCounter = 0;
+    fpsEl.textContent = `${Math.round(frames / 0.5)} FPS`;
     if (ramEl.style.display !== 'none') {
       sampleRam();
     }
@@ -610,6 +608,15 @@ async function bootstrap(): Promise<void> {
   setAppReferenceForFundo(app);
   await precompilarShadersPlaneta(app);
   await precompilarShaderStarfield(app);
+
+  // Boot the weydra renderer BEFORE building any world. The menu world
+  // (criarMundoMenu → criarSistemaSolar) creates sprites/graphics/text
+  // via the GraphicsAdapter/sprite pool, which dispatch to weydra only
+  // when getWeydraRenderer() !== null. If weydra starts after the menu
+  // is built, every menu primitive silently falls back to the Pixi path
+  // (dead code post-M10) — black menu + addChild deprecation spam. Await
+  // here so the renderer exists when the first world is constructed.
+  await startWeydraM1();
 
   // Build the menu background: a lightweight single-system world, not
   // the full 18-system game world. When the player clicks Novo Jogo we
@@ -742,9 +749,11 @@ async function bootstrap(): Promise<void> {
     }
   } catch { /* SSR / restricted env */ }
 
-  // M1 validation: optionally start weydra-renderer clearing to black.
-  // Enable via: localStorage.setItem('weydra_m1', '1'); location.reload()
-  void startWeydraM1();
+  // weydra-renderer was already booted earlier in bootstrap() (before
+  // criarMundoMenu) so the menu world's primitives use the weydra path.
+  // Do NOT call startWeydraM1() again here — it isn't guarded against
+  // double-init and would stack a second renderer + rAF loop + resize
+  // listener.
 }
 
 function startTicker(): void {
@@ -762,6 +771,7 @@ function startTicker(): void {
     _lastT = _now;
     (app.ticker as { deltaMS: number }).deltaMS = _dt;
     (app.ticker as { speed: number }).speed = getDebugState().gameSpeed;
+    _fpsFrameCounter++;
     _gameTickBody();
     requestAnimationFrame(_gameTick);
   }

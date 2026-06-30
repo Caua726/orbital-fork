@@ -324,7 +324,6 @@ export function ehColonizadoraOutpost(nave: Nave): boolean {
 
 function desenharRotaNave(nave: Nave): void {
   const g = nave.rotaGfx;
-  g.clear();
 
   // Trajectory rules:
   //   - Manual waypoint targets (_tipoAlvo==='ponto') always get a
@@ -351,7 +350,21 @@ function desenharRotaNave(nave: Nave): void {
     pontos.push({ _tipoAlvo: 'ponto', x: nave.alvo.x, y: nave.alvo.y });
   }
   if (nave.rotaManual.length > 0) pontos.push(...nave.rotaManual);
-  if (pontos.length <= 0) return;
+
+  const nv = nave as Nave & { _rotaVazia?: boolean };
+  if (pontos.length <= 0) {
+    // Skip the wasm clear() when the route is already empty — desenharRotaNave
+    // runs for EVERY ship every frame, so without this every orbiting/parked
+    // ship and every AI ship (which never draws a route) pays a per-frame
+    // boundary crossing for nothing.
+    if (nv._rotaVazia !== true) {
+      g.clear();
+      nv._rotaVazia = true;
+    }
+    return;
+  }
+  g.clear();
+  nv._rotaVazia = false;
 
   g.moveTo(nave.x, nave.y);
   for (const ponto of pontos) {
@@ -501,33 +514,45 @@ export function criarNave(mundo: Mundo, planetaOrigem: Planeta, tipo: string, ti
   entrarEmOrbita(nave, planetaOrigem);
   instalarTrail(nave);
 
-  // M10: weydra.ships is now true by default (CP1). The if is a no-op.
-  // The Pixi fallback body further down is now DEAD CODE.
-  {
-    const wsprite = criarWeydraShipSprite(nave, tipo, tier);
-    if (wsprite) {
-      nave._weydraSprite = wsprite;
-      wsprite.x = nave.x;
-      wsprite.y = nave.y;
-    } else {
-      // Retry once the sheet finishes decoding.
-      onSpritesheetReady('ships', () => {
-        if (nave._weydraSprite) return; // already created via another path
-        // Liveness guard: ship may have been destroyed (scrap-on-arrival,
-        // combat) before the sheet finished. Without this check, a late
-        // callback would allocate a sprite that removerNave already ran
-        // past, leaking it forever.
-        if (!mundo.naves.includes(nave)) return;
-        const late = criarWeydraShipSprite(nave, tipo, tier);
-        if (late) {
-          nave._weydraSprite = late;
-          late.x = nave.x;
-          late.y = nave.y;
-        }
-      });
-    }
-  }
+  // M10: weydra.ships is now true by default (CP1). The Pixi sprite is a
+  // dead no-op; the weydra sprite is what actually renders.
+  instalarWeydraSpriteNave(nave, tipo, tier, mundo.naves);
   return nave;
+}
+
+/**
+ * Create the weydra sprite for a ship (and register the spritesheet-ready
+ * retry). Shared by `criarNave` and the save/load reconstruction so loaded
+ * ships get the SAME weydra sprite as freshly-created ones — otherwise a
+ * loaded ship renders only its engine trail (the Pixi `_sprite` is the dead
+ * no-op path). `livenessList` is the array the ship lives in
+ * (`mundo.naves`); the retry skips if the ship was removed before the
+ * spritesheet finished decoding, avoiding a leaked orphan sprite.
+ */
+export function instalarWeydraSpriteNave(
+  nave: Nave,
+  tipo: string,
+  tier: number,
+  livenessList: Nave[],
+): void {
+  const wsprite = criarWeydraShipSprite(nave, tipo, tier);
+  if (wsprite) {
+    nave._weydraSprite = wsprite;
+    wsprite.x = nave.x;
+    wsprite.y = nave.y;
+  } else {
+    // Retry once the sheet finishes decoding.
+    onSpritesheetReady('ships', () => {
+      if (nave._weydraSprite) return; // already created via another path
+      if (!livenessList.includes(nave)) return; // removed before sheet ready
+      const late = criarWeydraShipSprite(nave, tipo, tier);
+      if (late) {
+        nave._weydraSprite = late;
+        late.x = nave.x;
+        late.y = nave.y;
+      }
+    });
+  }
 }
 
 export function removerNave(mundo: Mundo, nave: Nave): void {
@@ -560,6 +585,13 @@ export function removerNave(mundo: Mundo, nave: Nave): void {
     const r = getWeydraRenderer();
     if (r) r.destroySprite(nave._weydraSprite as WeydraSprite);
     nave._weydraSprite = undefined;
+  }
+  // The selection/status ring is a standalone weydra Graphics — `attachTo`
+  // is a no-op on the weydra path, so `gfx.destroy()` never frees it. Without
+  // this it leaks a Graphics + GPU buffer on every removal (colonizadoras
+  // colonize constantly) and keeps rendering at the removal spot.
+  if (nave._ring) {
+    nave._ring.destroy();
   }
   destruirTrail(nave);
 }
@@ -680,6 +712,12 @@ export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
     }
     nave.gfx.x = nave.x;
     nave.gfx.y = nave.y;
+    // The ring (survey pulse / decision breath / outpost marker / selection)
+    // is drawn at (0,0)-relative. On the Pixi path it inherits nave.gfx's
+    // transform; on the weydra path there's no scene-graph parent, so we
+    // carry the world position as the Graphics' own translation. Set it
+    // every frame so the ring follows a moving ship even when not redrawn.
+    if (nave._ring?.weydra) nave._ring.setPosition(nave.x, nave.y);
     // Mirror world position + scale to the weydra sprite when the flag is
     // on. _sprite.scale.x carries the facing flip (set in the movement
     // branches above); we copy its sign so weydra renders flipped correctly.

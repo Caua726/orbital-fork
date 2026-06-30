@@ -219,7 +219,14 @@ function load(): OrbitalConfig {
 
 export function getConfig(): OrbitalConfig {
   if (!_cache) _cache = load();
-  return deepClone(_cache);
+  // Returns the shared cached snapshot directly — treat as READ-ONLY. The
+  // previous `deepClone(_cache)` on every call was a full JSON serialize +
+  // parse of the entire config, and getConfig() is called in 60 Hz hot
+  // paths (mundo.ts atualizarMundo, nevoa.ts per-frame). setConfig never
+  // mutates _cache in place — it replaces the reference via mergeDeep — so
+  // callers holding a snapshot keep a consistent (if stale) view and simply
+  // re-read for fresh values. No production caller mutates the result.
+  return _cache;
 }
 
 export function onConfigChange(fn: ConfigListener): () => void {
