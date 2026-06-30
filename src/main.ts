@@ -64,7 +64,7 @@ import { t } from './core/i18n/t';
 import { somVitoria, somDerrota } from './audio/som';
 import { iniciarMusicaAmbiente, pararMusicaAmbiente } from './audio/musica-ambiente';
 import { setAppReferenceForBake, precompilarShadersPlaneta } from './world/planeta-procedural';
-import { startWeydraM1, setRenderFpsCap, aplicarTamanhoRenderizador } from './weydra-loader';
+import { startWeydraM1, setRenderFpsCap, aplicarTamanhoRenderizador, takePaintedFrameCount } from './weydra-loader';
 // Top-level state shared across bootstrap, iniciarJogoNovo, and carregarMundo.
 let _app: Application | null = null;
 let _mundo: Mundo | null = null;
@@ -73,9 +73,6 @@ let _gameStarted = false;
 let _hudInstalled = false;
 let _transitioning = false;
 let _fimTocado = false;
-// Frames rendered since the last HUD FPS sample. Incremented by the rAF
-// game loop (_gameTick), read+reset by the 500ms FPS HUD interval.
-let _fpsFrameCounter = 0;
 
 // Cinematic camera state during the main menu. Accumulated seconds,
 // fed into layered sines for a non-circular, more organic drift.
@@ -509,11 +506,10 @@ async function bootstrap(): Promise<void> {
   // 500ms setInterval. The original 60 Hz FPS sampling is overkill
   // for a HUD; the sampling is now decoupled from the game loop.
   setInterval(() => {
-    // Read the frames accumulated by the rAF game loop over the last
-    // 500 ms window, then reset. The previous version zeroed the counter
-    // BEFORE reading (always 0 FPS) and nothing ever incremented it.
-    const frames = _fpsFrameCounter;
-    _fpsFrameCounter = 0;
+    // Painted frames over the last 500 ms (from the weydra render loop, so
+    // an active fps cap is reflected). The previous version zeroed a counter
+    // BEFORE reading it (always 0 FPS) and nothing incremented it.
+    const frames = takePaintedFrameCount();
     fpsEl.textContent = `${Math.round(frames / 0.5)} FPS`;
     if (ramEl.style.display !== 'none') {
       sampleRam();
@@ -771,7 +767,6 @@ function startTicker(): void {
     _lastT = _now;
     (app.ticker as { deltaMS: number }).deltaMS = _dt;
     (app.ticker as { speed: number }).speed = getDebugState().gameSpeed;
-    _fpsFrameCounter++;
     _gameTickBody();
     requestAnimationFrame(_gameTick);
   }

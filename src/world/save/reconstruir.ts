@@ -380,7 +380,15 @@ function reconstruirNave(
     _ring: visual.ring,
     orbita: dto.orbita ? { ...dto.orbita } : null,
     hp: dto.hp,
-    _ultimoTiroMs: dto.ultimoTiroMs,
+    // Rebase the fire cooldown to load time. dto.ultimoTiroMs is an absolute
+    // performance.now() from the saving session; restoring it verbatim
+    // breaks the cooldown gate (`now - lastShot`) — after a page reload
+    // performance.now() restarts near 0 while the restored value is huge, so
+    // `now - huge` stays negative and the ship can't fire for as long as the
+    // previous session had run. Reset to "fired now" so each ship simply
+    // waits one fresh cooldown after the world loads.
+    _ultimoTiroMs: dto.ultimoTiroMs !== undefined ? performance.now() : undefined,
+    _scrapAoChegar: dto.scrapAoChegar,
   } as Nave;
 }
 

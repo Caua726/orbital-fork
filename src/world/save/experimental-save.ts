@@ -4,17 +4,17 @@ import type { MundoDTO, PlanetaDTO, SistemaDTO, SolDTO, NaveDTO } from './dto';
 import { abrirDb, putMany, getAllByMundo, listMundos, deleteByMundo } from './indexed-db';
 import type { StoreName } from './indexed-db';
 
-interface MundoRecord {
-  nome: string;
-  schemaVersion: number;
-  criadoEm: number;
-  salvoEm: number;
-  tempoJogadoMs: number;
-  tamanho: number;
-  tipoJogador: MundoDTO['tipoJogador'];
-  fontesVisao: MundoDTO['fontesVisao'];
+// The header stores the ENTIRE MundoDTO minus the four entity arrays
+// (which live in their own object stores), plus the list metadata. Using
+// Omit + spread instead of cherry-picking fields means every non-entity
+// field — imperioJogador, personalidadesIa, dificuldade, camera, gameSpeed,
+// iaTickState/Memoria, eventosHistorico, statsAmostragem, firstContact,
+// battleHistory, lastSeenInimigos, procNamesUsados, seedMusical, etc. —
+// round-trips, and any field added to MundoDTO later auto-persists. (The
+// previous version dropped all of those on both save and load.)
+type MundoRecord = Omit<MundoDTO, 'sistemas' | 'sois' | 'planetas' | 'naves'> & {
   metadata: SaveMetadata;
-}
+};
 
 interface Entry<T> {
   mundoNome: string;
@@ -45,15 +45,11 @@ export class ExperimentalBackend implements StorageBackend {
       getAllByMundo<Entry<NaveDTO>>('naves', nome),
     ]);
 
+    // Spread every non-entity field back from the header, then attach the
+    // entity arrays from their stores. `metadata` is list-only — drop it.
+    const { metadata: _metadata, ...campos } = header;
     return {
-      schemaVersion: header.schemaVersion,
-      nome: header.nome,
-      criadoEm: header.criadoEm,
-      salvoEm: header.salvoEm,
-      tempoJogadoMs: header.tempoJogadoMs,
-      tamanho: header.tamanho,
-      tipoJogador: header.tipoJogador,
-      fontesVisao: header.fontesVisao,
+      ...campos,
       sistemas: sistemas.map((e) => e.data),
       sois: sois.map((e) => e.data),
       planetas: planetas.map((e) => e.data),
@@ -62,15 +58,11 @@ export class ExperimentalBackend implements StorageBackend {
   }
 
   async salvar(dto: MundoDTO): Promise<void> {
+    // Strip the entity arrays (they go to their own stores) and persist
+    // EVERYTHING else in the header so no top-level field is lost.
+    const { sistemas: _s, sois: _so, planetas: _p, naves: _n, ...campos } = dto;
     const header: MundoRecord = {
-      nome: dto.nome,
-      schemaVersion: dto.schemaVersion,
-      criadoEm: dto.criadoEm,
-      salvoEm: dto.salvoEm,
-      tempoJogadoMs: dto.tempoJogadoMs,
-      tamanho: dto.tamanho,
-      tipoJogador: dto.tipoJogador,
-      fontesVisao: dto.fontesVisao,
+      ...campos,
       metadata: extrairMetadata(dto),
     };
     const writes: Array<{ store: StoreName; value: any }> = [

@@ -212,7 +212,15 @@ describe('v2 save — nave HP and cooldown', () => {
       skipVisuals: true,
     });
     expect(rebuilt.naves[0].hp).toBe(42);
-    expect((rebuilt.naves[0] as any)._ultimoTiroMs).toBe(9999);
+    // _ultimoTiroMs is REBASED on load, not restored verbatim: the saved
+    // value is an absolute performance.now() from the prior session, and
+    // restoring it would break the `now - lastShot` cooldown gate after a
+    // page reload (ships frozen for minutes). It must be a fresh recent
+    // timestamp, never the stale 9999.
+    const reloaded = (rebuilt.naves[0] as any)._ultimoTiroMs as number;
+    expect(typeof reloaded).toBe('number');
+    expect(reloaded).not.toBe(9999);
+    expect(reloaded).toBeLessThanOrEqual(performance.now());
   });
 
   it('omits hp/cooldown when ship is at default state', () => {

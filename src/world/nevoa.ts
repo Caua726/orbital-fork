@@ -88,6 +88,9 @@ class MemoriaVisual {
    *  changes — NOT every frame. */
   private _infoHalfW = 0;
   private _tempoHalfW = 0;
+  /** Last applied counter-zoom scale; lets the per-frame escala update
+   *  skip re-tessellating the labels when the zoom hasn't changed. */
+  escalaAplicada = -1;
 
   get visible(): boolean { return this._visible; }
   set visible(v: boolean) {
@@ -174,21 +177,6 @@ function capturarMemoriaPlaneta(planeta: Planeta): MemoriaPlanetaSnapshot {
   };
 }
 
-function dadosMudaram(anterior: MemoriaPlanetaSnapshot | null, atual: MemoriaPlanetaSnapshot): boolean {
-  if (!anterior) return true;
-  const a = anterior.dados;
-  const b = atual.dados;
-  return (
-    a.dono !== b.dono ||
-    a.tipoPlaneta !== b.tipoPlaneta ||
-    a.tamanho !== b.tamanho ||
-    a.fabricas !== b.fabricas ||
-    a.infraestrutura !== b.infraestrutura ||
-    a.naves !== b.naves ||
-    a.producao !== b.producao
-  );
-}
-
 /** Mapa global de memórias: planeta -> memória. Desacoplado do sprite. */
 const memorias: WeakMap<Planeta, MemoriaPlaneta> = new WeakMap();
 
@@ -272,14 +260,44 @@ function redesenharVisualMemoria(memoria: MemoriaPlaneta): void {
 export function registrarMemoriaPlaneta(planeta: Planeta): void {
   const memoria = memorias.get(planeta);
   if (!memoria) return;
-
-  const novoSnapshot = capturarMemoriaPlaneta(planeta);
-  const mudou = dadosMudaram(memoria.dados, novoSnapshot);
-
   memoria.conhecida = true;
-  memoria.dados = novoSnapshot;
+
+  // Called every frame for every player-visible planet (visao.ts). The old
+  // version allocated a fresh snapshot + nested dados object EACH call (then
+  // reassigned even when nothing changed) — 60 Hz × visible planets of GC
+  // churn. Mutate the existing snapshot in place instead; only the position
+  // and last-seen timestamp change every frame, the rest rarely.
+  if (memoria.dados === null) {
+    memoria.dados = capturarMemoriaPlaneta(planeta);
+    redesenharVisualMemoria(memoria);
+    return;
+  }
+
+  const snap = memoria.dados;
+  const pd = planeta.dados;
+  const mudou =
+    snap.dados.dono !== pd.dono ||
+    snap.dados.tipoPlaneta !== pd.tipoPlaneta ||
+    snap.dados.tamanho !== pd.tamanho ||
+    snap.dados.fabricas !== pd.fabricas ||
+    snap.dados.infraestrutura !== pd.infraestrutura ||
+    snap.dados.naves !== pd.naves ||
+    snap.dados.producao !== pd.producao;
+
+  // Update position + last-seen time in place every frame (these drive the
+  // ghost's location and its "há X min" age once the planet leaves view).
+  snap.x = planeta.x;
+  snap.y = planeta.y;
+  snap.timestamp = performance.now();
 
   if (mudou) {
+    snap.dados.dono = pd.dono;
+    snap.dados.tipoPlaneta = pd.tipoPlaneta;
+    snap.dados.tamanho = pd.tamanho;
+    snap.dados.fabricas = pd.fabricas;
+    snap.dados.infraestrutura = pd.infraestrutura;
+    snap.dados.naves = pd.naves;
+    snap.dados.producao = pd.producao;
     redesenharVisualMemoria(memoria);
   }
 }
@@ -426,6 +444,13 @@ export function atualizarEscalaLabelMemoria(planeta: Planeta, zoom: number): voi
   // (the ring stays in world units, scaling with the map — it's a marker).
   const escalaInversa = 1 / Math.max(zoom, 0.1);
   const escala = Math.min(Math.max(escalaInversa, 0.5), 2.5);
+  // Skip when the zoom (hence scale) hasn't changed. Setting Text.scale
+  // re-tessellates the glyph buffer and relayout() does 2 wasm width reads
+  // + 4 position writes — doing that every frame for a stationary ghost at
+  // constant zoom was pure waste (the width cache the rewrite added was
+  // being defeated by this unconditional call).
+  if (escala === memoria.visual.escalaAplicada) return;
+  memoria.visual.escalaAplicada = escala;
   memoria.info.scale = escala;
   memoria.tempoLabel.scale = escala;
   // The label glyph size changed → the tempo-line gap and the horizontal
@@ -443,6 +468,23 @@ export function removerMemoriaPlaneta(mundo: Mundo, planeta: Planeta): void {
   // planeta — see MemoriaVisual.destroy.
   memoria.visual.destroy();
   memorias.delete(planeta);
+}
+
+/**
+ * Free every fog-memory ghost's weydra primitives (ring + 2 text nodes per
+ * planet) on world teardown. The `memorias` WeakMap can't be iterated, so
+ * we walk the world's planetas. Without this, destruirMundo left every
+ * ghost's SlotMap ring + atlas handles allocated — a leak per planet per
+ * world reload (destruirWeidraGraphicsGlobais only frees orbit lines + the
+ * selection ring, not these).
+ */
+export function liberarMemoriasVisuais(planetas: Planeta[]): void {
+  for (const p of planetas) {
+    const memoria = memorias.get(p);
+    if (!memoria) continue;
+    memoria.visual.destroy();
+    memorias.delete(p);
+  }
 }
 
 import { Sprite, Texture, ImageSource } from 'pixi.js';

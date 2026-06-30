@@ -9,7 +9,7 @@ import { abortarListenersPainel } from '../ui/painel';
 import { abortarListenersSelecao } from '../ui/selecao';
 import { destruirWeidraGraphicsGlobais } from './sistema';
 import { atualizarTempoPlanetas, atualizarLuzPlaneta, precompilarBakesPlanetas, processBakeQueueWeydra, resetBakeQueueWeydra, destroyAllWeydraBakedSprites } from './planeta-procedural';
-import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria, aplicarLimiteFantasmas, destruirFog } from './nevoa';
+import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria, aplicarLimiteFantasmas, destruirFog, liberarMemoriasVisuais } from './nevoa';
 import { criarSistemaSolar } from './sistema';
 import { calcularBoundsViewport, type ViewportBounds } from './viewport-bounds';
 
@@ -406,6 +406,10 @@ export function destruirMundo(mundo: Mundo, app: Application): void {
   // the next world's atualizarMundo runs — otherwise processBakeQueueWeydra
   // would fire extract.canvas on a freed Pixi object.
   resetBakeQueueWeydra();
+  // Free every fog-memory ghost's weydra ring + text nodes before the
+  // world's planeta objects are dropped (the memorias WeakMap can't be
+  // iterated, so this needs the planeta list).
+  liberarMemoriasVisuais(mundo.planetas);
   // The fog-of-war layer keeps module-level singletons (sprite, texture,
   // image source, backing canvas) that outlive a world otherwise.
   destruirFog();

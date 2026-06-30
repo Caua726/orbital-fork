@@ -820,6 +820,10 @@ async function bakePlanetaWeydra(planeta: any): Promise<void> {
       sprite.zOrder = Z.PLANET_BAKED;
       sprite.visible = true;
       (planeta as any)._weydraBakedSprite = sprite;
+      // Remember the texture handle so unbake can free the GPU texture —
+      // without this every bake/unbake cycle leaked one texture (there was
+      // no destroy_texture API at all until now).
+      (planeta as any)._weydraBakedTex = texHandle;
       // Keep liveInstance alive — auto-unbake on zoom-in flips back to
       // the live render path without re-allocating the pool slot. Live
       // shader keeps drawing into the same pool slot but at tamPx<40 the
@@ -888,6 +892,7 @@ async function bakePlanetaWeydra(planeta: any): Promise<void> {
     sprite.zOrder = Z.PLANET_BAKED;
     sprite.visible = true;
     (planeta as any)._weydraBakedSprite = sprite;
+    (planeta as any)._weydraBakedTex = texHandle;
 
     mesh.visible = false;
   } catch (err) {
@@ -900,6 +905,13 @@ function unbakePlanetaWeydra(planeta: any): void {
   const sprite = (planeta as any)._weydraBakedSprite as WeydraSprite | undefined;
   if (!sprite || !r) return;
   r.destroySprite(sprite);
+  // Free the baked GPU texture (sprite destroyed first so nothing references
+  // it). Frees VRAM that previously leaked on every unbake / world teardown.
+  const tex = (planeta as any)._weydraBakedTex as bigint | undefined | null;
+  if (tex != null) {
+    r.destroyTexture(tex);
+    (planeta as any)._weydraBakedTex = null;
+  }
   (planeta as any)._weydraBakedSprite = null;
   (planeta as any).visible = true;
 }

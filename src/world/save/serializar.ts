@@ -167,6 +167,7 @@ function serializarNave(nave: Nave): NaveDTO {
     rotaCargueira: serializarRotaCargueira(nave.rotaCargueira),
     hp: nave.hp,
     ultimoTiroMs: nave._ultimoTiroMs,
+    scrapAoChegar: nave._scrapAoChegar,
   };
 }
 

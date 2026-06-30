@@ -31,6 +31,10 @@ let _resizeAbort: AbortController | null = null;
 let _renderIntervalMs = 0;
 let _lastRenderT = 0;
 let _renderCanvas: HTMLCanvasElement | null = null;
+// Painted-frame counter for the FPS HUD. Incremented in the render loop
+// (NOT the game loop) so the HUD reflects actual painted frames — which is
+// what an fps cap throttles. Read+reset via takePaintedFrameCount.
+let _paintedFrames = 0;
 
 export function getWeydraRenderer(): Renderer | null {
   return _renderer;
@@ -42,18 +46,22 @@ export function setRenderFpsCap(cap: number): void {
   _renderIntervalMs = cap > 0 ? 1000 / cap : 0;
 }
 
+/** Painted frames since the last call; resets the counter. Used by the FPS
+ *  HUD so it reports painted frames (cap-aware), not uncapped game ticks. */
+export function takePaintedFrameCount(): number {
+  const n = _paintedFrames;
+  _paintedFrames = 0;
+  return n;
+}
+
 /** Recompute the canvas backing-store size (applies renderScale) and
  *  resize the weydra surface. Call after a renderScale config change. */
 export function aplicarTamanhoRenderizador(): void {
   if (!_renderer || !_renderCanvas) return;
-  const dpr = (window.devicePixelRatio || 1) * renderScaleAtual();
-  const cssW = _renderCanvas.clientWidth || window.innerWidth;
-  const cssH = _renderCanvas.clientHeight || window.innerHeight;
-  const w = Math.max(1, Math.floor(cssW * dpr));
-  const h = Math.max(1, Math.floor(cssH * dpr));
-  _renderCanvas.width = w;
-  _renderCanvas.height = h;
-  _renderer.resize(w, h);
+  const { width, height } = computeBackingSize(_renderCanvas);
+  _renderCanvas.width = width;
+  _renderCanvas.height = height;
+  _renderer.resize(width, height);
 }
 
 function renderScaleAtual(): number {
@@ -63,6 +71,30 @@ function renderScaleAtual(): number {
   } catch {
     return 1;
   }
+}
+
+// WebGPU's guaranteed `maxTextureDimension2D` is 8192 (WebGL2 is usually
+// higher). A backing store larger than the adapter limit renders blank on
+// WebGPU / falls back to 0×0 on some WebGL drivers, so clamp to this even
+// when renderScale × dpr would exceed it (e.g. renderScale 4 on a 4K
+// high-DPI display). Reducing the effective scale to fit is far better than
+// a black screen.
+const MAX_BACKING_DIM = 8192;
+
+/** Physical backing-store size for the canvas: CSS size × dpr × renderScale,
+ *  clamped so neither dimension exceeds the GPU's max texture size. */
+function computeBackingSize(canvas: HTMLCanvasElement): { width: number; height: number } {
+  const dpr = (window.devicePixelRatio || 1) * renderScaleAtual();
+  const cssW = canvas.clientWidth || window.innerWidth;
+  const cssH = canvas.clientHeight || window.innerHeight;
+  let w = Math.max(1, Math.floor(cssW * dpr));
+  let h = Math.max(1, Math.floor(cssH * dpr));
+  const over = Math.max(w, h) / MAX_BACKING_DIM;
+  if (over > 1) {
+    w = Math.max(1, Math.floor(w / over));
+    h = Math.max(1, Math.floor(h / over));
+  }
+  return { width: w, height: h };
 }
 
 function anyFlagEnabled(): boolean {
@@ -210,6 +242,7 @@ export async function startWeydra(): Promise<void> {
       const due = _renderIntervalMs === 0 || (t - _lastRenderT) >= _renderIntervalMs;
       if (due) {
         _lastRenderT = t;
+        _paintedFrames++;
         try {
           // First frame: seed _lastT to `t` so the overlay delta is 0
           // instead of the multi-second page-load timestamp (which would

@@ -164,8 +164,12 @@ export interface NaveDTO {
   rotaCargueira: RotaCargueiraDTO | null;
   /** Combat HP — omitted = ship is at STATS_COMBATE max for its type. */
   hp?: number;
-  /** Last performance.now() at which the ship fired (cooldown gate). */
+  /** Last performance.now() at which the ship fired (cooldown gate).
+   *  NOT restored verbatim — performance.now() resets across a page reload,
+   *  so reconstruir rebases the cooldown to load time. */
   ultimoTiroMs?: number;
+  /** Colonizadora ordered to scrap itself on arrival at origin. */
+  scrapAoChegar?: boolean;
 }
 
 export type AlvoDTO =

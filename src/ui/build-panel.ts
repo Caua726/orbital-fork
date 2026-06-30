@@ -643,10 +643,12 @@ function renderActiveTab(): void {
 
 function getRenderKey(planeta: Planeta): string {
   // Snapshot every value the cards depend on so we can skip re-rendering when nothing changed.
-  // Assumes every card cost is paid in `recursos.comum`; revisit when research/rare-resource
-  // costs become card-driven.
   const d = planeta.dados;
-  const pesquisas = ['cargueira', 'batedora', 'torreta']
+  // Include 'fragata' (it was missing → fragata research/ship cards never
+  // refreshed on tier change). Research is paid in `raro` and gated to one
+  // at a time, so `recursos.raro` and `pesquisaAtual` must be in the key too,
+  // else completing/starting a research doesn't re-enable/disable the cards.
+  const pesquisas = ['cargueira', 'batedora', 'torreta', 'fragata']
     .map((c) => highestUnlockedTier(planeta, c))
     .join(',');
   return [
@@ -654,7 +656,12 @@ function getRenderKey(planeta: Planeta): string {
     d.fabricas,
     d.infraestrutura,
     Math.floor(d.recursos.comum),
+    Math.floor(d.recursos.raro),
     d.filaProducao.length,
+    // Which research is active (or none) — drives the one-at-a-time
+    // enable/disable gate. Categoria:tier (not the object) so it detects
+    // start/stop/switch without re-rendering every frame on progress ticks.
+    d.pesquisaAtual ? `${d.pesquisaAtual.categoria}:${d.pesquisaAtual.tier}` : '',
     pesquisas,
   ].join('|');
 }
