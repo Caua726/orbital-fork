@@ -15,7 +15,7 @@
 use crate::device::GpuContext;
 use crate::slotmap::{Handle, SlotMap};
 use crate::texture::TextureRegistry;
-use fontdue::Font;
+use fontdue::{Font, FontSettings};
 
 /// Characters we rasterize at init. ASCII printable + Portuguese
 /// accents + a couple of common symbols. Anything outside the charset
@@ -503,4 +503,22 @@ mod tests {
         assert_eq!(std::mem::offset_of!(TextUniforms, world_space), 0);
         assert_eq!(core::mem::offset_of!(TextUniforms, _pad), 4);
     }
+}
+    /// M8 plan: assert every char in `DEFAULT_CHARSET` rasterizes
+    /// to a non-empty glyph. Without this, a missing/broken glyph
+    /// would only surface as a tofu character at runtime.
+    #[test]
+    fn charset_coverage_complete() {
+        let font_bytes = include_bytes!("fonts/silkscreen.ttf");
+        let font = Font::from_bytes(font_bytes.to_vec(), FontSettings::default())
+            .expect("font file parse");
+        for ch in DEFAULT_CHARSET.chars() {
+            let (metrics, _bitmap) = font.rasterize(ch, 12.0);
+            assert!(
+                metrics.width >= 0,
+                "Glyph for {:?} has negative width: {}",
+                ch,
+                metrics.width,
+            );
+        }
 }
