@@ -56,6 +56,7 @@ export function criarText(
   content: string,
   fontSize: number,
   color: number,
+  worldSpace: boolean = false,
 ): TextLike {
   if (getConfig().weydra.text) {
     const r = getWeydraRenderer();
@@ -66,7 +67,7 @@ export function criarText(
       const g8 = (color >> 8) & 0xff;
       const b8 = color & 0xff;
       const packed = ((r8 << 24) | (g8 << 16) | (b8 << 8) | 0xff) >>> 0;
-      const t = r.createText(fontIdx, Math.max(64, content.length + 16), false);
+      const t = r.createText(fontIdx, Math.max(64, content.length + 16), worldSpace);
       t.text = content;
       t.color = packed;
       let _x = 0;

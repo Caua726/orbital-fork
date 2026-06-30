@@ -136,7 +136,7 @@ export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void 
   const infoBg = new Graphics();
   container.addChild(infoBg);
 
-  const info = criarText('', 11, 0xcfe3ff);
+  const info = criarText('', 11, 0xcfe3ff, true);
   // Pixi anchor(0.5, 0) centers the text horizontally on its x. On
   // the weydra path the text is positioned by top-left corner, so we
   // pre-shift x by -width/2 when the text content arrives (in
@@ -145,7 +145,7 @@ export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void 
   if (info._pixi) info._pixi.anchor.set(0.5, 0);
   container.addChild(info._pixi ?? (info as unknown as Container));
 
-  const tempoLabel = criarText('', 9, 0x8899aa);
+  const tempoLabel = criarText('', 9, 0x8899aa, true);
   if (tempoLabel._pixi) tempoLabel._pixi.anchor.set(0.5, 0);
   container.addChild(tempoLabel._pixi ?? (tempoLabel as unknown as Container));
 
