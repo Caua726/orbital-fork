@@ -134,6 +134,16 @@ pub struct Graphics {
     pub stroke_index_buffer: Option<wgpu::Buffer>,
     pub stroke_index_count: u32,
 
+    // Allocated byte capacity of each buffer above. tessellate() reuses the
+    // buffer (queue.write_buffer) when the new geometry fits, and only
+    // reallocates when it grows — so an animated Graphics that re-tessellates
+    // every frame (survey pulses, combat beams, decision rings) stops
+    // churning GPU buffer allocations once its size stabilises.
+    fill_vertex_cap: u64,
+    fill_index_cap: u64,
+    stroke_vertex_cap: u64,
+    stroke_index_cap: u64,
+
     /// World-space (or screen-space, when `world_space == false`) offset
     /// added to every vertex in the shader. Mirrors a Pixi container's
     /// position. Mutated via `set_translation`.
@@ -204,6 +214,10 @@ impl Graphics {
             stroke_vertex_buffer: None,
             stroke_index_buffer: None,
             stroke_index_count: 0,
+            fill_vertex_cap: 0,
+            fill_index_cap: 0,
+            stroke_vertex_cap: 0,
+            stroke_index_cap: 0,
             translation: [0.0, 0.0],
             uniforms_buffer,
             uniforms_bind_group,
@@ -523,50 +537,41 @@ impl Graphics {
             }
         }
 
-        use wgpu::util::DeviceExt;
-        if !fill_geometry.vertices.is_empty() {
-            self.fill_vertex_buffer = Some(
-                ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("graphics fill verts"),
-                    contents: bytemuck::cast_slice(&fill_geometry.vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                }),
-            );
-            self.fill_index_buffer = Some(
-                ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("graphics fill indices"),
-                    contents: bytemuck::cast_slice(&fill_geometry.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                }),
-            );
-            self.fill_index_count = fill_geometry.indices.len() as u32;
-        } else {
-            self.fill_vertex_buffer = None;
-            self.fill_index_buffer = None;
-            self.fill_index_count = 0;
-        }
+        upload_or_reuse(
+            ctx,
+            &mut self.fill_vertex_buffer,
+            &mut self.fill_vertex_cap,
+            bytemuck::cast_slice(&fill_geometry.vertices),
+            wgpu::BufferUsages::VERTEX,
+            "graphics fill verts",
+        );
+        upload_or_reuse(
+            ctx,
+            &mut self.fill_index_buffer,
+            &mut self.fill_index_cap,
+            bytemuck::cast_slice(&fill_geometry.indices),
+            wgpu::BufferUsages::INDEX,
+            "graphics fill indices",
+        );
+        self.fill_index_count = fill_geometry.indices.len() as u32;
 
-        if !stroke_geometry.vertices.is_empty() {
-            self.stroke_vertex_buffer = Some(
-                ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("graphics stroke verts"),
-                    contents: bytemuck::cast_slice(&stroke_geometry.vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                }),
-            );
-            self.stroke_index_buffer = Some(
-                ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("graphics stroke indices"),
-                    contents: bytemuck::cast_slice(&stroke_geometry.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                }),
-            );
-            self.stroke_index_count = stroke_geometry.indices.len() as u32;
-        } else {
-            self.stroke_vertex_buffer = None;
-            self.stroke_index_buffer = None;
-            self.stroke_index_count = 0;
-        }
+        upload_or_reuse(
+            ctx,
+            &mut self.stroke_vertex_buffer,
+            &mut self.stroke_vertex_cap,
+            bytemuck::cast_slice(&stroke_geometry.vertices),
+            wgpu::BufferUsages::VERTEX,
+            "graphics stroke verts",
+        );
+        upload_or_reuse(
+            ctx,
+            &mut self.stroke_index_buffer,
+            &mut self.stroke_index_cap,
+            bytemuck::cast_slice(&stroke_geometry.indices),
+            wgpu::BufferUsages::INDEX,
+            "graphics stroke indices",
+        );
+        self.stroke_index_count = stroke_geometry.indices.len() as u32;
 
         self.dirty = false;
     }
@@ -585,17 +590,60 @@ impl Graphics {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(1, &self.uniforms_bind_group, &[]);
 
-        if let (Some(vb), Some(ib)) = (&self.fill_vertex_buffer, &self.fill_index_buffer) {
-            pass.set_vertex_buffer(0, vb.slice(..));
-            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..self.fill_index_count, 0, 0..1);
+        // Buffers persist across re-tessellation for reuse, so guard on the
+        // index COUNT (0 = nothing to draw this frame) rather than buffer
+        // presence — a cleared fill/stroke keeps its buffer but draws nothing.
+        if self.fill_index_count > 0 {
+            if let (Some(vb), Some(ib)) = (&self.fill_vertex_buffer, &self.fill_index_buffer) {
+                pass.set_vertex_buffer(0, vb.slice(..));
+                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..self.fill_index_count, 0, 0..1);
+            }
         }
-        if let (Some(vb), Some(ib)) = (&self.stroke_vertex_buffer, &self.stroke_index_buffer) {
-            pass.set_vertex_buffer(0, vb.slice(..));
-            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..self.stroke_index_count, 0, 0..1);
+        if self.stroke_index_count > 0 {
+            if let (Some(vb), Some(ib)) = (&self.stroke_vertex_buffer, &self.stroke_index_buffer) {
+                pass.set_vertex_buffer(0, vb.slice(..));
+                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..self.stroke_index_count, 0, 0..1);
+            }
         }
     }
+}
+
+/// Upload geometry into `buffer`, reusing it (queue.write_buffer) when the
+/// new data fits the existing capacity and only reallocating when it grows.
+/// Empty data keeps the buffer for reuse — the caller's index count gates
+/// the draw. Buffers carry COPY_DST so write_buffer is valid. This stops an
+/// animated Graphics (re-tessellated every frame) from churning GPU buffer
+/// allocations once its vertex count stabilises.
+fn upload_or_reuse(
+    ctx: &GpuContext,
+    buffer: &mut Option<wgpu::Buffer>,
+    capacity: &mut u64,
+    data: &[u8],
+    usage: wgpu::BufferUsages,
+    label: &str,
+) {
+    let size = data.len() as u64;
+    if size == 0 {
+        return;
+    }
+    if let Some(buf) = buffer.as_ref() {
+        if size <= *capacity {
+            ctx.queue.write_buffer(buf, 0, data);
+            return;
+        }
+    }
+    use wgpu::util::DeviceExt;
+    let buf = ctx
+        .device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: data,
+            usage: usage | wgpu::BufferUsages::COPY_DST,
+        });
+    *capacity = size;
+    *buffer = Some(buf);
 }
 
 /// Tessellate one path into fill + stroke VertexBuffers. Pulled out so the

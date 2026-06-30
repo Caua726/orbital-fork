@@ -1173,9 +1173,10 @@ impl Renderer {
                 pass.set_bind_group(0, &self.engine.bind_group, &[]);
                 for (_z, h) in ordered {
                     if let Some(g) = pool.get(h) {
-                        if g.visible
-                            && (g.fill_vertex_buffer.is_some() || g.stroke_vertex_buffer.is_some())
-                        {
+                        // Gate on index COUNT, not buffer presence: buffers now
+                        // persist across re-tessellation for reuse, so an empty
+                        // (cleared) Graphics still has buffers but draws nothing.
+                        if g.visible && (g.fill_index_count > 0 || g.stroke_index_count > 0) {
                             g.draw(&mut pass, pipeline);
                         }
                     }
