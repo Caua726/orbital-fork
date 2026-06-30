@@ -945,6 +945,17 @@ impl Renderer {
         handle.to_u64()
     }
 
+    /// Free a texture uploaded via upload_texture / upload_texture_tiled —
+    /// drops the GPU texture (+ view) and its bind group. Safe to call with
+    /// an unknown handle (no-op). The caller MUST ensure no live sprite
+    /// still references this texture (a dangling bind group in a render run
+    /// would point at a freed texture). Used to release baked-planet
+    /// textures on unbake/teardown; without it every bake leaked VRAM.
+    pub fn destroy_texture(&mut self, texture: u64) {
+        self.texture_bind_groups.remove(&texture);
+        self.textures.remove(Handle::from_u64(texture));
+    }
+
     pub fn create_sprite(&mut self, texture: u64, display_w: f32, display_h: f32) -> u64 {
         let tex = Handle::from_u64(texture);
         // Adapter-level guard in addition to SpritePool::insert's own assert.

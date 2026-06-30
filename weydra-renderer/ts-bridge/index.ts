@@ -219,6 +219,15 @@ export class Renderer {
     // readers will see `flags[slot] === 0` — a no-op in the render loop.
   }
 
+  /**
+   * Free a texture handle from `uploadTexture`/`uploadTextureTiled` (drops
+   * the GPU texture + bind group). Caller must ensure no live sprite still
+   * references it. Used to release baked-planet textures on unbake.
+   */
+  destroyTexture(handle: bigint): void {
+    this.inner.destroy_texture(handle);
+  }
+
   // ─── Fog (M6) ─────────────────────────────────────────────────────────
 
   /** @internal — populated by `createFogShader`, consumed by FogLayer. */
