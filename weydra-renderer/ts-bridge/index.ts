@@ -255,6 +255,10 @@ export class Renderer {
    */
   createGraphicsShader(wgslSource: string): void {
     this.inner.create_graphics_shader(wgslSource);
+    // No revalidate needed: this runs at boot before any sprite/planet
+    // instances exist (so there are no cached views to detach), and the
+    // first createPlanetInstance/createSprite of world-gen — plus every
+    // render() — revalidates before any shared-memory view is written.
   }
 
   // ─── Text (M8) ───────────────────────────────────────────────────────
@@ -319,6 +323,12 @@ export class Renderer {
    */
   createGraphics(worldSpace: boolean): Graphics {
     const handle = this.inner.create_graphics(worldSpace);
+    // No revalidate: Graphics exposes no shared-memory view of its own, and
+    // every create-graphics call site is followed by a revalidating
+    // createPlanetInstance/createSprite (and a per-frame render() revalidate)
+    // before any sprite/planet view is written — so a memory.grow here can't
+    // leave a stale view to be written through. (Adding one would also force
+    // graphics-only contexts to mock the full sprite/planet view machinery.)
     return new Graphics(BigInt(handle), worldSpace, this);
   }
 
