@@ -599,6 +599,9 @@ export function removerNave(mundo: Mundo, nave: Nave): void {
 export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
   for (let i = mundo.naves.length - 1; i >= 0; i--) {
     const nave = mundo.naves[i];
+    // Facing sign (±1), updated by the movement branches and consumed when
+    // mirroring the weydra sprite. Replaces writes to the dead Pixi _sprite.
+    const nv = nave as Nave & { _facing?: number };
     const alvo = nave.alvo;
     if (nave.estado === 'viajando' && alvo) {
       const dx = alvo.x - nave.x;
@@ -645,11 +648,11 @@ export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
         nave.y += (dy / dist) * velReal * deltaMs;
         // Ships in ships.png are side-profile art: rotation is meaningless,
         // but mirroring the sprite so it faces its travel direction reads
-        // correctly. Keep rotation at 0 and flip scale.x based on dx.
-        if (nave._sprite) {
-          nave._sprite.rotation = 0;
-          if (dx !== 0) nave._sprite.scale.x = dx >= 0 ? Math.abs(nave._sprite.scale.x) : -Math.abs(nave._sprite.scale.x);
-        }
+        // correctly. Track facing as ±1 (consumed when setting the weydra
+        // sprite's scaleX below). Writing the dead Pixi _sprite's scale here
+        // ran the ObservablePoint change/_onUpdate path per moving ship for
+        // nothing.
+        if (dx !== 0) nv._facing = dx >= 0 ? 1 : -1;
       }
     }
     if (nave.estado === 'orbitando' && nave.orbita && nave.alvo) {
@@ -657,11 +660,8 @@ export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
       nave.orbita.angulo += nave.orbita.velocidade * deltaMs;
       nave.x = nave.alvo.x + Math.cos(nave.orbita.angulo) * nave.orbita.raio;
       nave.y = nave.alvo.y + Math.sin(nave.orbita.angulo) * nave.orbita.raio;
-      if (nave._sprite) {
-        nave._sprite.rotation = 0;
-        const tdx = nave.x - prevX;
-        if (tdx !== 0) nave._sprite.scale.x = tdx >= 0 ? Math.abs(nave._sprite.scale.x) : -Math.abs(nave._sprite.scale.x);
-      }
+      const tdx = nave.x - prevX;
+      if (tdx !== 0) nv._facing = tdx >= 0 ? 1 : -1;
     }
     if (nave.estado === 'pilotando') {
       // Real-time thrust: ship moves each frame by thrust * velocity * dt.
@@ -673,10 +673,7 @@ export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
         const velReal = VELOCIDADE_NAVE * (cheats.velocidadeNave ? 10 : 1);
         nave.x += tx * velReal * deltaMs;
         nave.y += ty * velReal * deltaMs;
-        if (nave._sprite) {
-          nave._sprite.rotation = 0;
-          if (tx !== 0) nave._sprite.scale.x = tx >= 0 ? Math.abs(nave._sprite.scale.x) : -Math.abs(nave._sprite.scale.x);
-        }
+        if (tx !== 0) nv._facing = tx >= 0 ? 1 : -1;
       }
     }
     if ((nave.estado === 'fazendo_survey' || nave.estado === 'aguardando_decisao') && nave.orbita && nave.alvo) {
@@ -685,11 +682,8 @@ export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
       nave.orbita.angulo += nave.orbita.velocidade * 0.5 * deltaMs;
       nave.x = nave.alvo.x + Math.cos(nave.orbita.angulo) * nave.orbita.raio;
       nave.y = nave.alvo.y + Math.sin(nave.orbita.angulo) * nave.orbita.raio;
-      if (nave._sprite) {
-        nave._sprite.rotation = 0;
-        const tdx = nave.x - prevX;
-        if (tdx !== 0) nave._sprite.scale.x = tdx >= 0 ? Math.abs(nave._sprite.scale.x) : -Math.abs(nave._sprite.scale.x);
-      }
+      const tdx = nave.x - prevX;
+      if (tdx !== 0) nv._facing = tdx >= 0 ? 1 : -1;
       if (nave.estado === 'fazendo_survey') {
         nave.surveyTempoRestanteMs = Math.max(0, (nave.surveyTempoRestanteMs ?? 0) - deltaMs);
         if (nave.surveyTempoRestanteMs <= 0) {
@@ -718,16 +712,13 @@ export function atualizarNaves(mundo: Mundo, deltaMs: number): void {
     // carry the world position as the Graphics' own translation. Set it
     // every frame so the ring follows a moving ship even when not redrawn.
     if (nave._ring?.weydra) nave._ring.setPosition(nave.x, nave.y);
-    // Mirror world position + scale to the weydra sprite when the flag is
-    // on. _sprite.scale.x carries the facing flip (set in the movement
-    // branches above); we copy its sign so weydra renders flipped correctly.
+    // Mirror world position + facing to the weydra sprite. `_facing` (±1) is
+    // set by the movement branches above; default to facing right (1).
     if (nave._weydraSprite) {
       const ws = nave._weydraSprite as WeydraSprite;
       ws.x = nave.x;
       ws.y = nave.y;
-      if (nave._sprite) {
-        ws.scaleX = nave._sprite.scale.x >= 0 ? 1 : -1;
-      }
+      ws.scaleX = nv._facing ?? 1;
     }
     atualizarTrail(nave, deltaMs);
   }

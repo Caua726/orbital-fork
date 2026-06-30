@@ -405,7 +405,10 @@ export function destruirColonyModal(): void {
   _backdrop?.remove();
   _container = null;
   _backdrop = null;
-  _styleInjected = false;
+  // Do NOT reset _styleInjected: the injected <style> is never removed, so
+  // re-injecting on the next open would append a duplicate stylesheet every
+  // game cycle. The rules are static — leave the one stylesheet in place
+  // (matches planet/build/ship-panel).
   _nameInputEl = null;
   _subtitleEl = null;
   _bonusEl = null;

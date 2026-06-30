@@ -57,6 +57,11 @@ interface TrailState {
   /** Tracks whether the last frame had zero particles; lets atualizar
    *  skip the Graphics.clear() call when nothing has changed. */
   wasEmptyLastFrame: boolean;
+  /** Number of weydra trail sprites that were visible last frame. Lets the
+   *  per-frame update touch only the slots that change (write 0..n, hide
+   *  n..lastActiveCount) instead of looping all MAX_PARTICLES every frame
+   *  for every ship — a stationary/empty trail then does zero work. */
+  lastActiveCount: number;
 }
 
 const _state = new WeakMap<Nave, TrailState>();
@@ -64,7 +69,7 @@ const _state = new WeakMap<Nave, TrailState>();
 function getOrInitState(nave: Nave): TrailState {
   let s = _state.get(nave);
   if (!s) {
-    s = { particles: [], spawnAccum: 0, lastX: nave.x, lastY: nave.y, wasEmptyLastFrame: true };
+    s = { particles: [], spawnAccum: 0, lastX: nave.x, lastY: nave.y, wasEmptyLastFrame: true, lastActiveCount: 0 };
     _state.set(nave, s);
   }
   return s;
@@ -192,16 +197,17 @@ export function atualizarTrail(nave: Nave, deltaMs: number): void {
       trail.clear();
       state.wasEmptyLastFrame = true;
     }
+    const n = state.particles.length;
+    // Fast path: nothing to draw and nothing was drawn last frame — skip the
+    // pool entirely (don't even allocate it). atualizarTrail runs for every
+    // ship every frame, so this keeps stationary / empty-trail ships free.
+    if (n === 0 && state.lastActiveCount === 0) return;
+
     const pool = ensureWeydraSpritePool(nave);
     if (!pool) return;
-    // Active particles fill pool[0..n-1]; remaining slots hidden.
-    const n = state.particles.length;
-    for (let i = 0; i < MAX_PARTICLES; i++) {
+    // Write the active particles into pool[0..n-1].
+    for (let i = 0; i < n; i++) {
       const s = pool[i];
-      if (i >= n) {
-        s.visible = false;
-        continue;
-      }
       const p = state.particles[i];
       const t = 1 - p.age / LIFETIME_MS;
       const radius = baseWidth * t;
@@ -216,6 +222,13 @@ export function atualizarTrail(nave: Nave, deltaMs: number): void {
       // 0xRRGGBB shifted left 8, alpha byte ORed in (plan §"cor packed").
       s.tint = ((colorRgb << 8) | alpha) >>> 0;
     }
+    // Hide only the slots that were active last frame but aren't now — the
+    // pool is created with every slot hidden, so slots above lastActiveCount
+    // are already hidden and don't need touching.
+    for (let i = n; i < state.lastActiveCount; i++) {
+      pool[i].visible = false;
+    }
+    state.lastActiveCount = n;
     return;
   }
 

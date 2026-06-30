@@ -192,19 +192,6 @@ function buildSpatialHash(naves: Nave[]): Map<number, Nave[]> {
   return _spatialGrid;
 }
 
-function* iterNeighbors(grid: Map<number, Nave[]>, x: number, y: number): Generator<Nave> {
-  const cx = Math.floor(x / CELL_SIZE) + CELL_BIAS;
-  const cy = Math.floor(y / CELL_SIZE) + CELL_BIAS;
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const key = ((cx + dx) << 16) | (cy + dy);
-      const cell = grid.get(key);
-      if (!cell) continue;
-      for (const n of cell) yield n;
-    }
-  }
-}
-
 // ─── Throttle combat to 30Hz ─────────────────────────────────────────
 // Combat resolution runs every other frame. Beams/particles still age
 // at 60fps because they accumulate the deltaMs of skipped frames. The
@@ -236,18 +223,30 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
       const lastShot = atacante._ultimoTiroMs ?? 0;
       if (now - lastShot < cooldown) continue;
 
-      // Find nearest hostile via spatial grid (cell + 8 neighbors)
+      // Find nearest hostile via spatial grid (cell + 8 neighbors). Inlined
+      // 3×3 cell sweep instead of a generator — `iterNeighbors` allocated a
+      // fresh Generator object + paid iterator-protocol overhead per attacker
+      // every 30 Hz tick, defeating the spatial hash's purpose.
       let melhor: Nave | null = null;
       let melhorDist2 = stats.alcance * stats.alcance;
-      for (const alvo of iterNeighbors(spatialGrid, atacante.x, atacante.y)) {
-        if (alvo === atacante) continue;
-        if (!saoHostis(atacante.dono, alvo.dono)) continue;
-        const dx = alvo.x - atacante.x;
-        const dy = alvo.y - atacante.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < melhorDist2) {
-          melhorDist2 = d2;
-          melhor = alvo;
+      const cx = Math.floor(atacante.x / CELL_SIZE) + CELL_BIAS;
+      const cy = Math.floor(atacante.y / CELL_SIZE) + CELL_BIAS;
+      for (let gy = -1; gy <= 1; gy++) {
+        for (let gx = -1; gx <= 1; gx++) {
+          const cell = spatialGrid.get(((cx + gx) << 16) | (cy + gy));
+          if (!cell) continue;
+          for (let ci = 0; ci < cell.length; ci++) {
+            const alvo = cell[ci];
+            if (alvo === atacante) continue;
+            if (!saoHostis(atacante.dono, alvo.dono)) continue;
+            const dx = alvo.x - atacante.x;
+            const dy = alvo.y - atacante.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < melhorDist2) {
+              melhorDist2 = d2;
+              melhor = alvo;
+            }
+          }
         }
       }
       if (!melhor) continue;

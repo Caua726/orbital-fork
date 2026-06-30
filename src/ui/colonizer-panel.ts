@@ -1213,7 +1213,8 @@ export function destruirColonizerPanel(): void {
   _movePanelEl = null;
   _joystickNubEl = null;
   _joystickMaxR = 0;
-  _styleInjected = false;
+  // Keep _styleInjected true: the <style> is never removed, so re-injecting
+  // would stack a duplicate stylesheet per game cycle (rules are static).
   _portraitCanvas = null;
   _stageBadgeEl = null;
   _infoTitleEl = null;
