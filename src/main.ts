@@ -488,25 +488,17 @@ async function bootstrap(): Promise<void> {
   // Prime the label so the first toggle-on shows content right away.
   sampleRam();
 
-  let _fpsAccum = 0;
+  // M10.1: replace the no-op `app.ticker.add` FPS/RAM hook with a
+  // 500ms setInterval. The original 60 Hz FPS sampling is overkill
+  // for a HUD; the sampling is now decoupled from the game loop.
   let _fpsFrames = 0;
-  let _ramAccum = 0;
-  app.ticker.add(() => {
-    _fpsFrames++;
-    _fpsAccum += app.ticker.deltaMS;
-    if (_fpsAccum >= 500) {
-      fpsEl.textContent = `${Math.round(_fpsFrames / (_fpsAccum / 1000))} FPS`;
-      _fpsAccum = 0;
-      _fpsFrames = 0;
-    }
-    // RAM sampled at ~1Hz; performance.memory is a heavy call on some
-    // engines and the value only moves on the scale of MB anyway.
-    _ramAccum += app.ticker.deltaMS;
-    if (_ramAccum >= 1000 && ramEl.style.display !== 'none') {
-      _ramAccum = 0;
+  setInterval(() => {
+    _fpsFrames = 0;
+    fpsEl.textContent = `${Math.round(_fpsFrames / 0.5)} FPS`;
+    if (ramEl.style.display !== 'none') {
       sampleRam();
     }
-  });
+  }, 500);
   onConfigChange((cfg) => {
     fpsEl.style.display = cfg.graphics.mostrarFps ? 'block' : 'none';
     const showRam = cfg.graphics.mostrarRam;
@@ -733,8 +725,21 @@ function startTicker(): void {
   if (!_app) return;
   const app = _app;
 
-  app.ticker.add(() => {
-    app.ticker.speed = getDebugState().gameSpeed;
+  // M10.1 fix: the Pixi `app.ticker.add(...)` is now a no-op shim.
+  // Convert the game loop to a real rAF loop. `_lastT` tracks the
+  // wall-clock delta, written to `app.ticker.deltaMS` each frame
+  // so the existing call sites that read it see the right value.
+  let _lastT = performance.now();
+  function _gameTick(): void {
+    const _now = performance.now();
+    const _dt = _now - _lastT;
+    _lastT = _now;
+    (app.ticker as { deltaMS: number }).deltaMS = _dt;
+    (app.ticker as { speed: number }).speed = getDebugState().gameSpeed;
+    _gameTickBody();
+    requestAnimationFrame(_gameTick);
+  }
+  function _gameTickBody(): void {
 
     // ── Menu phase: cheap per-frame updates on the menu world only ──
     if (!_gameStarted) {
@@ -833,7 +838,11 @@ function startTicker(): void {
       somDerrota();
       _fimTocado = true;
     }
-  });
+  }
+  // M10.1: start the rAF loop. The game loop now fires on
+  // requestAnimationFrame directly — `app.ticker.add` is a no-op
+  // shim, so the original Pixi-ticker-driven game loop never fired.
+  requestAnimationFrame(_gameTick);
 }
 
 async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJogadoMs: number): Promise<void> {
