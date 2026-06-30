@@ -243,10 +243,20 @@ impl PlanetPool {
                 bytemuck::cast_slice(&self.instances),
             );
         } else {
-            for (i, inst) in self.instances.iter().enumerate() {
-                let offset = i as u64 * self.stride;
-                ctx.queue
-                    .write_buffer(&self.gpu_buffer, offset, bytemuck::bytes_of(inst));
+            // Padded path (always taken under downlevel_webgl2_defaults, where
+            // min_uniform_buffer_offset_alignment = 256 > the 192-byte struct).
+            // Write ONLY active slots — iterating all `capacity` instances
+            // (256) issued a write_buffer per free slot every frame (~256
+            // uploads/frame for a 3-planet scene). The render loop already
+            // draws only `slotmap` slots, so free-slot data is never read.
+            for (h, _) in self.slotmap.iter() {
+                let slot = h.slot as usize;
+                let offset = slot as u64 * self.stride;
+                ctx.queue.write_buffer(
+                    &self.gpu_buffer,
+                    offset,
+                    bytemuck::bytes_of(&self.instances[slot]),
+                );
             }
         }
     }

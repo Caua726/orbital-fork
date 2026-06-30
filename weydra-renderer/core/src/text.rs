@@ -15,7 +15,7 @@
 use crate::device::GpuContext;
 use crate::slotmap::{Handle, SlotMap};
 use crate::texture::TextureRegistry;
-use fontdue::{Font, FontSettings};
+use fontdue::Font;
 
 /// Characters we rasterize at init. ASCII printable + Portuguese
 /// accents + a couple of common symbols. Anything outside the charset
@@ -509,14 +509,23 @@ mod tests {
     /// would only surface as a tofu character at runtime.
     #[test]
     fn charset_coverage_complete() {
+        use fontdue::FontSettings;
         let font_bytes = include_bytes!("fonts/silkscreen.ttf");
         let font = Font::from_bytes(font_bytes.to_vec(), FontSettings::default())
             .expect("font file parse");
         for ch in DEFAULT_CHARSET.chars() {
+            // Space (and any intentional whitespace) advances the pen with no
+            // rasterized pixels — width 0 is correct there, so skip it.
+            if ch.is_whitespace() {
+                continue;
+            }
             let (metrics, _bitmap) = font.rasterize(ch, 12.0);
+            // `metrics.width` is usize, so `>= 0` was vacuously true and the
+            // test could never catch a missing glyph. A tofu/absent glyph
+            // rasterizes to width 0 — require a real positive width.
             assert!(
-                metrics.width >= 0,
-                "Glyph for {:?} has negative width: {}",
+                metrics.width > 0,
+                "Glyph for {:?} rasterized empty (missing/tofu): width={}",
                 ch,
                 metrics.width,
             );

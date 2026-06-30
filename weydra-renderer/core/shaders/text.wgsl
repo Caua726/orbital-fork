@@ -66,8 +66,12 @@ fn vs_main(in: VsIn) -> VsOut {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let sample = textureSample(atlas_tex, atlas_samp, in.uv);
     // Atlas pixels are (255, 255, 255, glyph_alpha). Use the alpha as
-    // coverage, RGB from the per-vertex tint. Pre-multiplied
-    // components (r, g, b * a) are correct under ALPHA_BLENDING.
+    // coverage, RGB from the per-vertex tint. The pipeline blends with
+    // straight ALPHA_BLENDING (src.rgb*src.a + dst*(1-src.a)), so the
+    // fragment must emit STRAIGHT (non-premultiplied) rgb. Emitting
+    // rgb*a here was double-applying alpha (rgb*a² + dst*(1-a)), which
+    // darkened every anti-aliased glyph edge (coverage 0.5 → 0.25) and
+    // made text render thinner/harsher than authored.
     let a = in.color.a * sample.a;
-    return vec4<f32>(in.color.rgb * a, a);
+    return vec4<f32>(in.color.rgb, a);
 }

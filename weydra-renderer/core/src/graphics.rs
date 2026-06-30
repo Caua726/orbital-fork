@@ -42,14 +42,20 @@ pub struct GraphicsVertex {
 const _: () = assert!(std::mem::size_of::<GraphicsVertex>() == 24);
 const _: () = assert!(std::mem::align_of::<GraphicsVertex>() == 4);
 
-/// Per-Graphics uniform passed via bind group 1. 16 B (std140 — single
-/// f32 padded out to a 16-byte row). `world_space = 1.0` → world coords;
-/// `world_space = 0.0` → screen pixels. Immutable after `Graphics::new`.
+/// Per-Graphics uniform passed via bind group 1. 16 B (std140 — one
+/// 16-byte row). `world_space = 1.0` → world coords; `world_space = 0.0`
+/// → screen pixels. `translation` is added to every vertex position in the
+/// shader BEFORE the world/screen transform, so it mirrors a Pixi
+/// container's `x`/`y`: game code can draw a ring at (0,0)-relative and set
+/// `translation = (ship.x, ship.y)` instead of baking the world position
+/// into every tessellated vertex. `translation` is a `vec2` at byte offset
+/// 8 (std140 8-byte alignment) — `_pad0` fills the gap after `world_space`.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct GraphicsUniforms {
     pub world_space: f32,
-    pub _pad: [f32; 3],
+    pub _pad0: f32,
+    pub translation: [f32; 2],
 }
 
 const _: () = assert!(std::mem::size_of::<GraphicsUniforms>() == 16);
@@ -115,6 +121,10 @@ pub struct Graphics {
     pub dirty: bool,
     pub world_space: bool,
     pub z_order: f32,
+    /// When false the render loop skips this Graphics entirely (mirrors a
+    /// Pixi DisplayObject's `visible`). O(1) hide/show — no re-tessellation,
+    /// unlike clearing the command list. Default true.
+    pub visible: bool,
 
     pub fill_vertex_buffer: Option<wgpu::Buffer>,
     pub fill_index_buffer: Option<wgpu::Buffer>,
@@ -123,6 +133,11 @@ pub struct Graphics {
     pub stroke_vertex_buffer: Option<wgpu::Buffer>,
     pub stroke_index_buffer: Option<wgpu::Buffer>,
     pub stroke_index_count: u32,
+
+    /// World-space (or screen-space, when `world_space == false`) offset
+    /// added to every vertex in the shader. Mirrors a Pixi container's
+    /// position. Mutated via `set_translation`.
+    pub translation: [f32; 2],
 
     pub uniforms_buffer: wgpu::Buffer,
     pub uniforms_bind_group: wgpu::BindGroup,
@@ -135,7 +150,8 @@ impl Graphics {
     ) -> Self {
         let uniforms = GraphicsUniforms {
             world_space: if world_space { 1.0 } else { 0.0 },
-            _pad: [0.0; 3],
+            _pad0: 0.0,
+            translation: [0.0, 0.0],
         };
 
         let uniforms_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -181,15 +197,35 @@ impl Graphics {
             dirty: true,
             world_space,
             z_order: 0.0,
+            visible: true,
             fill_vertex_buffer: None,
             fill_index_buffer: None,
             fill_index_count: 0,
             stroke_vertex_buffer: None,
             stroke_index_buffer: None,
             stroke_index_count: 0,
+            translation: [0.0, 0.0],
             uniforms_buffer,
             uniforms_bind_group,
         }
+    }
+
+    /// Update the per-instance translation (mirrors Pixi container x/y).
+    /// Rewrites only the 16-byte uniform buffer — no re-tessellation, so
+    /// this is cheap enough to call every frame for moving objects (ship
+    /// rings, fog-memory ghosts).
+    pub fn set_translation(&mut self, ctx: &GpuContext, x: f32, y: f32) {
+        if self.translation[0] == x && self.translation[1] == y {
+            return;
+        }
+        self.translation = [x, y];
+        let uniforms = GraphicsUniforms {
+            world_space: if self.world_space { 1.0 } else { 0.0 },
+            _pad0: 0.0,
+            translation: self.translation,
+        };
+        ctx.queue
+            .write_buffer(&self.uniforms_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
     pub fn clear(&mut self) {
@@ -309,8 +345,8 @@ impl Graphics {
             return;
         }
 
-        let mut fill_geometry: VertexBuffers<GraphicsVertex, u16> = VertexBuffers::new();
-        let mut stroke_geometry: VertexBuffers<GraphicsVertex, u16> = VertexBuffers::new();
+        let mut fill_geometry: VertexBuffers<GraphicsVertex, u32> = VertexBuffers::new();
+        let mut stroke_geometry: VertexBuffers<GraphicsVertex, u32> = VertexBuffers::new();
         let mut fill_tess = FillTessellator::new();
         let mut stroke_tess = StrokeTessellator::new();
 
@@ -551,12 +587,12 @@ impl Graphics {
 
         if let (Some(vb), Some(ib)) = (&self.fill_vertex_buffer, &self.fill_index_buffer) {
             pass.set_vertex_buffer(0, vb.slice(..));
-            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
+            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..self.fill_index_count, 0, 0..1);
         }
         if let (Some(vb), Some(ib)) = (&self.stroke_vertex_buffer, &self.stroke_index_buffer) {
             pass.set_vertex_buffer(0, vb.slice(..));
-            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
+            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..self.stroke_index_count, 0, 0..1);
         }
     }
@@ -572,8 +608,8 @@ fn tessellate_path(
     stroke: Option<(f32, [f32; 4])>,
     fill_tess: &mut FillTessellator,
     stroke_tess: &mut StrokeTessellator,
-    fill_geometry: &mut VertexBuffers<GraphicsVertex, u16>,
-    stroke_geometry: &mut VertexBuffers<GraphicsVertex, u16>,
+    fill_geometry: &mut VertexBuffers<GraphicsVertex, u32>,
+    stroke_geometry: &mut VertexBuffers<GraphicsVertex, u32>,
 ) {
     if let Some(color) = fill {
         let opts = FillOptions::default();
@@ -696,7 +732,10 @@ mod tests {
         assert_eq!(std::mem::size_of::<GraphicsUniforms>(), 16);
         assert_eq!(std::mem::align_of::<GraphicsUniforms>(), 4);
         assert_eq!(core::mem::offset_of!(GraphicsUniforms, world_space), 0);
-        assert_eq!(core::mem::offset_of!(GraphicsUniforms, _pad), 4);
+        assert_eq!(core::mem::offset_of!(GraphicsUniforms, _pad0), 4);
+        // vec2 translation lands at byte 8 — std140 8-byte alignment for a
+        // vec2, and the shader reads it from the same offset.
+        assert_eq!(core::mem::offset_of!(GraphicsUniforms, translation), 8);
     }
 
     /// Pin the default `GraphicsPool` shape. No `GpuContext` available in

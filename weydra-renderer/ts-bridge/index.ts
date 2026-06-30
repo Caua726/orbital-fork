@@ -340,6 +340,24 @@ export class Renderer {
     this.inner.graphics_set_z_order(handle, z);
   }
 
+  /**
+   * Update the per-instance translation for a Graphics (mirrors a Pixi
+   * container's x/y). Shapes authored at (0,0)-relative render at `(x, y)`.
+   * @internal — exposed for the Graphics.x/y setters.
+   */
+  setGraphicsTranslation(handle: bigint, x: number, y: number): void {
+    this.inner.graphics_set_translation(handle, x, y);
+  }
+
+  /**
+   * Toggle a Graphics' visibility (mirrors Pixi `visible`). O(1) — keeps
+   * the tessellation so re-showing is free.
+   * @internal — exposed for the Graphics.visible setter.
+   */
+  setGraphicsVisible(handle: bigint, visible: boolean): void {
+    this.inner.graphics_set_visible(handle, visible);
+  }
+
   // ─── Graphics mutators (called by Graphics instance methods) ──────────
 
   /** @internal — used by Graphics.fill/clear/etc. */
@@ -821,12 +839,26 @@ export class Graphics {
   private _polylineSegments: [number, number][] | null = null;
   private _pendingArc: { cx: number; cy: number; r: number; start: number; end: number } | null = null;
   private _zOrder: number = 0;
+  private _x: number = 0;
+  private _y: number = 0;
+  private _visible: boolean = true;
 
   constructor(
     public readonly handle: bigint,
     public readonly worldSpace: boolean,
     private readonly r: Renderer,
   ) {}
+
+  /** Visibility (mirrors Pixi `visible`). Hiding skips the draw without
+   *  dropping tessellation, so toggling is cheap. */
+  set visible(v: boolean) {
+    if (this._visible === v) return;
+    this._visible = v;
+    this.r.setGraphicsVisible(this.handle, v);
+  }
+  get visible(): boolean {
+    return this._visible;
+  }
 
   /** Clear all commands on this Graphics. */
   clear(): this {
@@ -978,6 +1010,37 @@ export class Graphics {
   }
   get zOrder(): number {
     return this._zOrder;
+  }
+
+  /**
+   * Per-instance translation, mirroring a Pixi container's `x`/`y`. Shapes
+   * drawn at (0,0)-relative render at `(x, y)` — in world units when
+   * `worldSpace` is true, screen pixels when false. The migration replaced
+   * Pixi containers (whose transform positioned child graphics) with weydra
+   * Graphics that have no scene-graph parent, so callers that previously set
+   * `container.x` now set `graphics.x`. Writes through to the renderer and
+   * caches locally so the getter round-trips.
+   */
+  set x(v: number) {
+    this._x = v;
+    this.r.setGraphicsTranslation(this.handle, v, this._y);
+  }
+  get x(): number {
+    return this._x;
+  }
+  set y(v: number) {
+    this._y = v;
+    this.r.setGraphicsTranslation(this.handle, this._x, v);
+  }
+  get y(): number {
+    return this._y;
+  }
+  /** Set both translation components in one wasm call. */
+  setPosition(x: number, y: number): this {
+    this._x = x;
+    this._y = y;
+    this.r.setGraphicsTranslation(this.handle, x, y);
+    return this;
   }
 
   private _warnDroppedPending(): void {

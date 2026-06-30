@@ -115,11 +115,11 @@ export class GraphicsAdapter {
   // ─── Pixi-specific properties (no-op on weydra path) ──────────────────
 
   get visible(): boolean {
-    return this.pixi ? this.pixi.visible : true;
+    return this.pixi ? this.pixi.visible : (this.weydra ? this.weydra.visible : true);
   }
   set visible(v: boolean) {
     if (this.pixi) this.pixi.visible = v;
-    // weydra Graphics: visibility is structural (no commands = no draw).
+    else if (this.weydra) this.weydra.visible = v;
   }
 
   get alpha(): number {
@@ -131,6 +131,37 @@ export class GraphicsAdapter {
     // Graphics; not worth the complexity for the few use sites
     // (orbita fade) — fall through to the per-command color's alpha
     // baked into tessellation.
+  }
+
+  // ─── Transform (mirrors a Pixi container's x/y) ───────────────────────
+  // The migration dropped the Pixi scene graph, so graphics that used to
+  // be positioned by a parent container's transform now carry their own
+  // per-instance translation on the weydra side. Game code that drew at
+  // (0,0)-relative and set `container.x = obj.x` keeps working by setting
+  // `adapter.x = obj.x`. On the Pixi fallback path these forward to the
+  // Pixi object as before.
+
+  get x(): number {
+    return this.pixi ? this.pixi.x : (this.weydra ? this.weydra.x : 0);
+  }
+  set x(v: number) {
+    if (this.pixi) this.pixi.x = v;
+    else if (this.weydra) this.weydra.x = v;
+  }
+
+  get y(): number {
+    return this.pixi ? this.pixi.y : (this.weydra ? this.weydra.y : 0);
+  }
+  set y(v: number) {
+    if (this.pixi) this.pixi.y = v;
+    else if (this.weydra) this.weydra.y = v;
+  }
+
+  /** Set both translation components at once (1 wasm call on weydra path). */
+  setPosition(x: number, y: number): this {
+    if (this.pixi) this.pixi.position.set(x, y);
+    else if (this.weydra) this.weydra.setPosition(x, y);
+    return this;
   }
 
   /** Pixi parent. weydra Graphics have no parent. */

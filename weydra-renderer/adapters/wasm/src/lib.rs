@@ -676,6 +676,30 @@ impl Renderer {
         }
     }
 
+    /// Set the per-instance translation (mirrors a Pixi container's x/y).
+    /// Shapes authored at (0,0)-relative render at `(x, y)` in world units
+    /// (world_space=true) or screen pixels (world_space=false). Only writes
+    /// the 16-byte uniform buffer — no re-tessellation — so it's safe to
+    /// call every frame for moving objects.
+    pub fn graphics_set_translation(&mut self, h: u64, x: f32, y: f32) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                g.set_translation(&self.ctx, x, y);
+            }
+        }
+    }
+
+    /// Toggle a Graphics' visibility (mirrors Pixi `visible`). O(1) — the
+    /// render loop skips invisible Graphics without dropping their
+    /// tessellation, so re-showing is free (no re-tessellation).
+    pub fn graphics_set_visible(&mut self, h: u64, visible: bool) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                g.visible = visible;
+            }
+        }
+    }
+
     // ─── Text (M8) ───────────────────────────────────────────────────────
 
     /// Allocate a TextNode bound to a glyph atlas.
@@ -1138,7 +1162,9 @@ impl Renderer {
                 pass.set_bind_group(0, &self.engine.bind_group, &[]);
                 for (_z, h) in ordered {
                     if let Some(g) = pool.get(h) {
-                        if g.fill_vertex_buffer.is_some() || g.stroke_vertex_buffer.is_some() {
+                        if g.visible
+                            && (g.fill_vertex_buffer.is_some() || g.stroke_vertex_buffer.is_some())
+                        {
                             g.draw(&mut pass, pipeline);
                         }
                     }

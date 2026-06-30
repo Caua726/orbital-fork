@@ -16,6 +16,11 @@ export const Z = Object.freeze({
   SHIPS: 30,
   BEAMS: 35,
   FOG: 40,
+  // Fog-of-war memory ghosts (remembered enemy planets shown in
+  // fogged regions). Drawn in the graphics/text passes, which run after
+  // the fog texture, so the dim ring + intel label stay legible over the
+  // darkened area. Above FOG, below the UI band.
+  FOG_MEMORY: 42,
   UI_BACKGROUND: 50,
   UI_GRAPHICS: 51,
   UI_TEXT: 52,
