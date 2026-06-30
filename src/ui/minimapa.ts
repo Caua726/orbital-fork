@@ -3,9 +3,7 @@ import type { Application } from 'pixi.js';
 import type { Mundo, Camera } from '../types';
 import { Graphics as WeydraGraphics, Text as WeydraText, FONT_SMALL } from '@weydra/renderer';
 import { Z } from '../core/render-order';
-import { getConfig } from '../core/config';
 import { getWeydraRenderer } from '../weydra-loader';
-import { toCanvasXY } from './_dom-helpers';
 import { registerOverlay } from './overlay-registry';
 
 const TAMANHO_MAPA = 210;
@@ -107,13 +105,18 @@ export function criarMinimapa(app: Application, mundo: Mundo): MinimapContainer 
         if (!_clickCallback) return;
         if (e.clientX < cx0 || e.clientX > cx0 + TAMANHO_MAPA) return;
         if (e.clientY < cy0 || e.clientY > cy0 + TAMANHO_MAPA) return;
-        const [x, y] = toCanvasXY(e, canvas);
+        // M10 review: cx0 / cy0 / mapX / mapY / TAMANHO_MAPA are CSS
+        // pixels; e.clientX is also CSS pixels. Don't call toCanvasXY
+        // here — that converts to physical pixels which would mix units
+        // with the world-coord calculation below.
         const mapX = 6;
         const mapY = 28;
         const mapSize = TAMANHO_MAPA - 12;
         const escala = mapSize / mundo.tamanho;
-        const worldX = (x - cx0 - mapX) / escala;
-        const worldY = (y - cy0 - mapY) / escala;
+        const localCssX = e.clientX - cx0 - mapX;
+        const localCssY = e.clientY - cy0 - mapY;
+        const worldX = localCssX / escala;
+        const worldY = localCssY / escala;
         _clickCallback(worldX, worldY);
       }, { signal: ac.signal });
 
