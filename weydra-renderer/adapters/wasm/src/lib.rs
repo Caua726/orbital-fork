@@ -1147,26 +1147,31 @@ impl Renderer {
 
             // Text (M8): one draw per TextNode, grouped by atlas so the
             // bind group 2 (atlas texture) only changes between
-            // atlases. UI overlays (z >= 50) draw last.
+            // atlases. Within each atlas, the handles are drawn in
+            // ascending z_order so UI overlays (z >= 50) draw after
+            // world labels (z < 50) when they share an atlas.
+            // M10 review bug: the previous version computed `by_z`
+            // but iterated `by_atlas` directly, dropping the z-order
+            // and risking a low-z label painting over a high-z UI label
+            // that happened to share its atlas.
             if let Some(pipeline) = self.text_registry.pipeline.as_ref() {
                 pass.set_pipeline(pipeline);
                 pass.set_bind_group(0, &self.engine.bind_group, &[]);
-                // Group handles by atlas for bind-group-2 efficiency.
                 let n_atlases = self.text_registry.atlases.len();
-                let mut by_atlas: Vec<Vec<Handle>> = vec![Vec::new(); n_atlases];
-                let mut by_z: Vec<(f32, Handle)> = Vec::new();
+                let mut by_atlas: Vec<Vec<(f32, Handle)>> = vec![Vec::new(); n_atlases];
                 for (h, n) in self.text_registry.nodes.iter() {
                     if n.visible && n.vertex_count > 0 {
-                        by_atlas[n.atlas].push(h);
-                        by_z.push((n.z_order, h));
+                        by_atlas[n.atlas].push((n.z_order, h));
                     }
                 }
-                by_z.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                for bucket in by_atlas.iter_mut() {
+                    bucket.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                }
                 for (atlas_idx, handles) in by_atlas.iter().enumerate() {
                     if handles.is_empty() { continue; }
                     if let Some(bg) = self.text_registry.atlas_bind_groups.get(atlas_idx) {
                         pass.set_bind_group(2, bg, &[]);
-                        for h in handles {
+                        for (_z, h) in handles {
                             if let Some(n) = self.text_registry.nodes.get(*h) {
                                 pass.set_bind_group(1, &n.uniforms_bind_group, &[]);
                                 pass.set_vertex_buffer(0, n.vertex_buffer.slice(..));
