@@ -113,12 +113,27 @@ async function bootstrap(): Promise<void> {
   // `app: Application` as a parameter. The weydra canvas (from
   // index.html) is the only canvas. The game loop in startTicker
   // runs on `requestAnimationFrame`, not on the Pixi ticker.
+  //
+  // M10 review bug: `app.screen` and `app.renderer.resize` were
+  // frozen at boot. Update both on window resize so the camera-pan
+  // math (src/core/player.ts uses `app.screen.width`) and the
+  // weydra canvas backing store (CSS-pixels × dpr) stay correct
+  // when the user resizes the window.
   const weydraCanvas = document.getElementById('weydra-canvas') as HTMLCanvasElement;
+  const appScreen = { width: window.innerWidth, height: window.innerHeight };
   const app: Application = {
     canvas: weydraCanvas,
-    screen: { width: window.innerWidth, height: window.innerHeight },
+    screen: appScreen,
     renderer: {
-      resize: (_w: number, _h: number): void => { /* no-op: weydra canvas is CSS-sized */ },
+      resize: (cssW: number, cssH: number): void => {
+        // M10 review: caller (renderScale slider + world render path)
+        // passes CSS pixels. The weydra canvas backing store is sized
+        // in physical pixels (cssW × dpr, cssH × dpr). Pre-multiply so
+        // the backing store matches what the world expects.
+        const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+        weydraCanvas.width = Math.max(1, Math.floor(cssW * dpr));
+        weydraCanvas.height = Math.max(1, Math.floor(cssH * dpr));
+      },
       resolution: 1,
     } as Application['renderer'],
     stage: {
@@ -542,8 +557,12 @@ async function bootstrap(): Promise<void> {
   void app.canvas.style;
 
   window.addEventListener('resize', () => {
-    // M10.1: weydra canvas is already sized via CSS (100vw / 100vh).
-    // No need to call resize on the renderer.
+    // M10 review: update the shim's `app.screen` so call sites
+    // that read app.screen.{width,height} (e.g. src/core/player.ts
+    // for camera-pan math) see fresh values. The weydra canvas
+    // itself is already CSS-sized (100vw / 100vh in index.html).
+    appScreen.width = window.innerWidth;
+    appScreen.height = window.innerHeight;
     void app.renderer;
   });
 
