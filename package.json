@@ -11,9 +11,10 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:determinism": "node weydra-renderer/tests/determinism/runner.mjs",
-    "build:renderer": "cd weydra-renderer/adapters/wasm && wasm-pack build --target web --out-dir pkg",
-    "build:renderer:release": "cd weydra-renderer/adapters/wasm && wasm-pack build --target web --release --out-dir pkg",
+    "build:renderer": "cd weydra-renderer/adapters/wasm && wasm-pack build --target web --out-dir pkg && npm run --prefix ../../.. sync:wasm",
+    "build:renderer:release": "cd weydra-renderer/adapters/wasm && wasm-pack build --target web --release --out-dir pkg && npm run --prefix ../../.. sync:wasm",
     "build:plugin": "cd weydra-renderer/vite-plugin-wgsl && tsc -p tsconfig.build.json",
+    "sync:wasm": "cp weydra-renderer/adapters/wasm/pkg/* weydra-renderer/ts-bridge/node_modules/weydra-renderer-wasm/ 2>/dev/null || true",
     "prebuild": "npm run build:renderer:release && npm run build:plugin"
   },
   "keywords": [],

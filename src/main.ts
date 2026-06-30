@@ -134,6 +134,13 @@ async function bootstrap(): Promise<void> {
         weydraCanvas.width = Math.max(1, Math.floor(cssW * dpr));
         weydraCanvas.height = Math.max(1, Math.floor(cssH * dpr));
       },
+      // M10.1: `render` was a Pixi method used by the shader-warmup
+      // paths (precompilarShadersPlaneta / precompilarShaderStarfield)
+      // to force a single Pixi draw so the GLSL compiles before the
+      // first real frame. The weydra renderer compiles its shaders at
+      // boot (createStarfield / createPlanetShader / createFogShader /
+      // createGraphicsShader in weydra-loader), so warmup is a no-op.
+      render: (_scene?: unknown): void => { /* no-op: weydra compiles shaders at boot */ },
       resolution: 1,
     } as Application['renderer'],
     stage: {
