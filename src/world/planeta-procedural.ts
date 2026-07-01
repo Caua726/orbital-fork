@@ -1007,9 +1007,26 @@ export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
   const zoom = getZoom() || 1;
 
   for (const planeta of planetas) {
-    if (!planeta.visible) {
-      if ((planeta as any)._bakedSprite) unbakePlaneta(planeta);
-      if ((planeta as any)._weydraBakedSprite) unbakePlanetaWeydra(planeta);
+    // A baked planet has planeta.visible=false EVERY frame (the mesh is
+    // hidden behind the baked sprite — see the cull loop in mundo.ts), so
+    // `!planeta.visible` is NOT an off-screen signal for it. Use the baked
+    // sprite's own visibility (which the cull loop sets to the true on-screen
+    // state) instead: unbake only when genuinely culled, otherwise fall
+    // through to the auto-bake logic below (which keeps/unbakes by zoom and
+    // follows the orbit). Treating visible=false as "unbake" force-unbaked
+    // on-screen baked planets every frame → unbake/rebake churn + a texture
+    // allocation per frame (in the shaderLive-on + planetsBaked config).
+    const wbs = (planeta as any)._weydraBakedSprite as WeydraSprite | undefined;
+    const bs = (planeta as any)._bakedSprite as Sprite | undefined;
+    if (wbs || bs) {
+      const spriteOnScreen = (wbs?.visible ?? bs?.visible) ?? false;
+      if (!spriteOnScreen) {
+        if (bs) unbakePlaneta(planeta);
+        if (wbs) unbakePlanetaWeydra(planeta);
+        continue;
+      }
+      // on-screen + baked: proceed to the auto-bake logic below.
+    } else if (!planeta.visible) {
       continue;
     }
     // Canvas planets already animated at the top of this function.
