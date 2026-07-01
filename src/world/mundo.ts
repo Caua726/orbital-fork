@@ -433,10 +433,14 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
   }
   _lastFrameMark = frameInicio;
 
-  // Use Pixi's ticker delta so the debug game-speed slider actually
-  // scales simulation time. Previously a hand-rolled performance.now()
-  // delta ignored `app.ticker.speed` entirely, making the slider inert.
-  const deltaMs = app.ticker.deltaMS;
+  // Simulation delta = wall delta × game speed. This is what actually makes
+  // the speed slider AND pause work: the shim stores the raw wall delta in
+  // deltaMS and the speed multiplier in `speed` (mirroring Pixi's ticker),
+  // but nothing multiplied them, so speed 0 (pause) / 2 / 4 were all inert —
+  // the sim always ran at 1× and "pause" never paused. Camera/pan/tempo-
+  // jogado in the game tick keep using the RAW deltaMS (they're real-time,
+  // independent of game speed).
+  const deltaMs = app.ticker.deltaMS * (app.ticker.speed ?? 1);
   mundo.ultimoTickMs = performance.now();
 
   // Per-system gameplay logic, split into fine sub-buckets so the

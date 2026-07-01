@@ -344,12 +344,16 @@ export function gerarAcoesCandidatas(ia: PersonalidadeIA, mundo: Mundo): AcaoCom
       && (n.tipo === 'fragata' || n.tipo === 'batedora'),
   );
 
-  // Pre-compute "which of MY planets have at least one of my ships
-  // orbiting" as a Set — avoids re-scanning the ship list for every
-  // target × planet combo inside the loop below.
-  const planetasOcupadas = new Set<Planeta>();
+  // Group my orbiting combat ships by the planet they orbit — ONCE — so the
+  // per-target loop below does O(planets-in-range) map lookups instead of
+  // re-filtering the whole ship list (and allocating a Set) for every target.
+  const frotaPorPlaneta = new Map<Planeta, Nave[]>();
   for (const n of todasMinhasOrbitando) {
-    if (n.alvo) planetasOcupadas.add(n.alvo as Planeta);
+    const pl = n.alvo as Planeta | undefined;
+    if (!pl) continue;
+    let arr = frotaPorPlaneta.get(pl);
+    if (!arr) { arr = []; frotaPorPlaneta.set(pl, arr); }
+    arr.push(n);
   }
 
   // For each visible target, compute the best mass-attack score
@@ -357,17 +361,18 @@ export function gerarAcoesCandidatas(ia: PersonalidadeIA, mundo: Mundo): AcaoCom
     if (alvo.dados.dono === ia.id) continue;
     if (!jaViuPlaneta(ia.id, alvo.id)) continue;
 
-    // Find all my planets within reach of this target + their orbiting ships
+    // Find all my planets within reach of this target that have a fleet.
     const planetasComFrota = meusPlanetas.filter(
-      (p) => dist(p, alvo) <= 8000 && planetasOcupadas.has(p),
+      (p) => dist(p, alvo) <= 8000 && frotaPorPlaneta.has(p),
     );
     if (planetasComFrota.length === 0) continue;
 
-    // Pool ships across all those planets (combat ships only)
-    const planetasComFrotaSet = new Set(planetasComFrota);
-    const frotaPool = todasMinhasOrbitando.filter(
-      (n) => planetasComFrotaSet.has(n.alvo as Planeta),
-    );
+    // Pool ships across all those planets (combat ships only).
+    const frotaPool: Nave[] = [];
+    for (const p of planetasComFrota) {
+      const arr = frotaPorPlaneta.get(p);
+      if (arr) for (const n of arr) frotaPool.push(n);
+    }
     if (frotaPool.length === 0) continue;
 
     // Best origin = closest planet (so we keep an "origem" reference for
