@@ -693,12 +693,16 @@ fn tessellate_path(
 /// tenant.
 pub struct GraphicsPool {
     pub graphics: SlotMap<Graphics>,
+    /// Reusable handle buffer for `tessellate_all` — snapshots the iteration
+    /// order each frame without a fresh Vec allocation.
+    handle_scratch: Vec<Handle>,
 }
 
 impl GraphicsPool {
     pub fn new() -> Self {
         Self {
             graphics: SlotMap::new(),
+            handle_scratch: Vec::new(),
         }
     }
 
@@ -731,11 +735,14 @@ impl GraphicsPool {
     /// `begin_render_pass`. The `dirty` fast-path skips every clean
     /// Graphics — the typical steady-state cost is zero for static rings.
     pub fn tessellate_all(&mut self, ctx: &GpuContext) {
-        // Collect handles first to avoid holding a borrow on `self.graphics`
-        // while tessellating (tessellate mutates the Graphics inside, but
-        // we need a stable iteration order).
-        let handles: Vec<Handle> = self.graphics.iter().map(|(h, _)| h).collect();
-        for h in handles {
+        // Snapshot handles into the reusable scratch (can't hold a borrow on
+        // `self.graphics` while `tessellate` mutates each Graphics). Reusing
+        // the buffer avoids a per-frame Vec allocation.
+        self.handle_scratch.clear();
+        self.handle_scratch
+            .extend(self.graphics.iter().map(|(h, _)| h));
+        for i in 0..self.handle_scratch.len() {
+            let h = self.handle_scratch[i];
             if let Some(g) = self.graphics.get_mut(h) {
                 g.tessellate(ctx);
             }
