@@ -3,10 +3,6 @@ import type { Application } from 'pixi.js';
 import type { Mundo, Planeta, Sol, Nave, Camera, TipoJogador } from '../types';
 import { criarFundo, atualizarFundo } from './fundo';
 import { TIPO_PLANETA } from './planeta';
-import { abortarListenersMinimapa } from '../ui/minimapa';
-import { abortarListenersTutorial } from '../ui/tutorial';
-import { abortarListenersPainel } from '../ui/painel';
-import { abortarListenersSelecao } from '../ui/selecao';
 import { destruirWeidraGraphicsGlobais } from './sistema';
 import { atualizarTempoPlanetas, atualizarLuzPlaneta, precompilarBakesPlanetas, processBakeQueueWeydra, resetBakeQueueWeydra, destroyAllWeydraBakedSprites } from './planeta-procedural';
 import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria, aplicarLimiteFantasmas, destruirFog, liberarMemoriasVisuais } from './nevoa';
@@ -390,14 +386,10 @@ export function destruirMundo(mundo: Mundo, app: Application): void {
   // which doesn't go through criarMundo) leaked the previous world's beam
   // Graphics. Tearing it down here covers every world-swap path.
   resetCombateVisuals();
-  // Abort DOM event listeners registered by the M7 minimapa/tutorial
-  // /painel/selecao UI. Without this, every world reset accumulates
-  // handlers on app.canvas and every click fires N callbacks
-  // (review: DOM event listener leak).
-  abortarListenersMinimapa();
-  abortarListenersTutorial();
-  abortarListenersPainel();
-  abortarListenersSelecao();
+  // (The old minimapa/tutorial/painel/selecao UI modules these used to
+  // tear down here were dead code — never instantiated. The live HUD
+  // widgets clean up their own listeners via their destruir* funcs in
+  // main.ts on return-to-menu.)
   app.stage.removeChild(mundo.container);
   mundo.container.destroy({ children: true });
   estadoJogo = 'jogando';
