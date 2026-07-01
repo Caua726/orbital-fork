@@ -2,7 +2,7 @@ import type { Mundo, Planeta, Nave } from '../types';
 import type { PersonalidadeIA } from './personalidade-ia';
 import { saoHostis } from './constantes';
 import { getStatsCombate, podeAtacar } from './combate';
-import { getRancor, tempoDesdeUltimoAtaque, registrarPlanetaVisto, jaViuPlaneta } from './ia-memoria';
+import { getRancor, tempoDesdeUltimoAtaque, registrarPlanetaVisto, jaViuPlaneta, registrarInvasao, observarForca, getForcaPercebida } from './ia-memoria';
 import { RAIO_VISAO_BASE, RAIO_VISAO_NAVE, RAIO_VISAO_BATEDORA } from './constantes';
 
 /**
@@ -41,6 +41,19 @@ function navesDoDono(mundo: Mundo, dono: string): Nave[] {
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/** Deterministic [0,1) hash of a string (FNV-1a). Used for AI score jitter so
+ *  candidate ordering is reproducible (Math.random() broke save/replay
+ *  determinism and made per-frame ordering unstable) while still varying
+ *  between distinct candidates. */
+function hash01(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 100000) / 100000;
 }
 
 /** Total combat power of a fleet (sum of dano × hp_ratio). */
@@ -111,14 +124,22 @@ function scoreProduzirNave(
   base *= ia.forca;
 
   // Cooldown bonus: encourage some variety
-  if (Math.random() < 0.1) base *= 0.7; // jitter
+  // Deterministic jitter per (AI, planet, ship-type) — ~10% of candidates get
+  // a small penalty, breaking uniform preference without the Math.random()
+  // non-determinism.
+  if (hash01(ia.id + planeta.id + tipoNave) < 0.1) base *= 0.7;
 
   return base;
 }
 
-/** Returns 0..3 representing how threatened this planet is. */
+/** Returns 0..3 representing how threatened this planet is. Also feeds the
+ *  AI's memory: hostile ships in our airspace build a grudge (revenge-on-
+ *  invasion) and get remembered as perceived enemy strength. Only meaningful
+ *  when `planeta` is owned by `donoIa` — which is the only way it's called. */
 function ameacaNoPlaneta(mundo: Mundo, planeta: Planeta, donoIa: string): number {
   let ameaca = 0;
+  let invasorMaisProximo: string | null = null;
+  let invasores = 0;
   for (const n of mundo.naves) {
     if (!saoHostis(n.dono, donoIa)) continue;
     const d = dist(n, planeta);
@@ -126,6 +147,17 @@ function ameacaNoPlaneta(mundo: Mundo, planeta: Planeta, donoIa: string): number
     const proximidade = 1 - d / 1500; // 0..1
     const stats = getStatsCombate(n);
     ameaca += proximidade * (stats.dano / 10);
+    if (n.dono !== 'neutro') {
+      invasores++;
+      if (!invasorMaisProximo) invasorMaisProximo = n.dono;
+    }
+  }
+  if (invasorMaisProximo && invasores > 0) {
+    // Small per-tick grudge (capped) so a persistent invader settles at a
+    // modest rancor equilibrium under decay instead of spiking; and remember
+    // the invading fleet's size as perceived strength.
+    registrarInvasao(donoIa, invasorMaisProximo, Math.min(1, invasores * 0.15));
+    observarForca(donoIa, invasorMaisProximo, invasores);
   }
   return Math.min(3, ameaca);
 }
@@ -168,6 +200,14 @@ function scoreEnviarFrota(
     // Don't spam attacks on same target
     const t = tempoDesdeUltimoAtaque(ia.id, alvoDono);
     if (t < 8000) base *= 0.4;
+
+    // Soft avoidance from MEMORY: de-prioritize factions we've repeatedly
+    // seen field larger fleets than ours (complements the live defesaInimiga
+    // hard cut above, which only sees ships currently near the target).
+    const forcaLembrada = getForcaPercebida(ia.id, alvoDono);
+    if (forcaLembrada > minhasNaves.length) {
+      base *= Math.max(0.4, minhasNaves.length / forcaLembrada);
+    }
   }
 
   // Distance penalty

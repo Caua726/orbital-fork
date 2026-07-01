@@ -51,11 +51,14 @@ export function registrarBaixa(donoIa: string, causador: string): void {
   m.rancor[causador] = (m.rancor[causador] ?? 0) + RANCOR_POR_BAIXA;
 }
 
-/** Record that an enemy entered our airspace at one of our planets. */
-export function registrarInvasao(donoIa: string, invasor: string): void {
+/** Record that an enemy is in our airspace at one of our planets. Called
+ *  once per invader per AI tick with a small `quantidade` (default is the
+ *  per-event amount) so a persistent invader settles at a modest rancor
+ *  equilibrium under decay rather than spiking. */
+export function registrarInvasao(donoIa: string, invasor: string, quantidade: number = RANCOR_POR_INVASAO): void {
   if (donoIa === invasor) return;
   const m = getMem(donoIa);
-  m.rancor[invasor] = (m.rancor[invasor] ?? 0) + RANCOR_POR_INVASAO;
+  m.rancor[invasor] = (m.rancor[invasor] ?? 0) + quantidade;
 }
 
 /** Update perceived strength of an enemy based on observed fleet size. */

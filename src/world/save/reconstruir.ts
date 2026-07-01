@@ -296,10 +296,15 @@ function reconstruirPlaneta(
   // attaches: the orbit ring (in orbitasContainer) and the selection
   // ring / construction overlay (children of the planeta itself).
   const linhaOrbita = GraphicsAdapter.create({ worldSpace: true, zOrder: 20 /* Z.ORBITS */ });
-  // Match criarSistemaSolar's per-system sun-colour palette so loaded
-  // orbits keep the same hue as freshly-created ones (was hardcoded
-  // 0xffd166, recolouring every system where index % 4 != 0).
-  const corSol = [0xffd166, 0xffb703, 0xfff1a8, 0xf4a261][dto.dados.sistemaId % 4];
+  // Match criarSistemaSolar's per-system sun-colour palette so loaded orbits
+  // keep the same hue as freshly-created ones. Derive the palette index from
+  // the ORIGINAL system index encoded in the planeta id ("pla-N-M"), which is
+  // stable across saves — `dados.sistemaId` is reassigned to the lexicographic
+  // array index on load, so keying the colour off it drifts the hue across
+  // repeated save/load cycles (worlds with >= 10 systems).
+  const idxOrig = parseInt(dto.id.split('-')[1] ?? '', 10);
+  const corIdx = (Number.isFinite(idxOrig) ? idxOrig : 0) % 4;
+  const corSol = [0xffd166, 0xffb703, 0xfff1a8, 0xf4a261][corIdx];
   linhaOrbita.circle(dto.orbita.centroX, dto.orbita.centroY, dto.orbita.raio)
     .stroke({ color: corSol, width: 2, alpha: 0.3 });
   linhaOrbita.attachTo(mv.orbitasContainer);
