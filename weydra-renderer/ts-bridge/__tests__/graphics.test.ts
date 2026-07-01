@@ -52,6 +52,8 @@ function makeRenderer(): Renderer {
     graphics_line: makeSpy('graphics_line'),
     graphics_arc: makeSpy('graphics_arc'),
     graphics_set_z_order: makeSpy('graphics_set_z_order'),
+    graphics_set_translation: makeSpy('graphics_set_translation'),
+    graphics_set_visible: makeSpy('graphics_set_visible'),
     create_fog_shader: vi.fn(),
     fog_uniforms_ptr: () => 0,
     fog_uniforms_size: () => 0,
@@ -71,6 +73,8 @@ function makeRenderer(): Renderer {
     r.inner.graphics_arc(h, cx, cy, rad, s, e, w, c);
   r.destroyGraphics = (g: Graphics) => r.inner.destroy_graphics(g.handle);
   r.setGraphicsZOrder = (h: bigint, z: number) => r.inner.graphics_set_z_order(h, z);
+  r.setGraphicsTranslation = (h: bigint, x: number, y: number) => r.inner.graphics_set_translation(h, x, y);
+  r.setGraphicsVisible = (h: bigint, v: boolean) => r.inner.graphics_set_visible(h, v);
   return r as Renderer;
 }
 
@@ -264,5 +268,72 @@ describe('Graphics: lifecycle', () => {
 
     const call = _calls.find(c => c.method === 'destroy_graphics')!;
     expect(call.args[0]).toBe(g.handle);
+  });
+});
+
+describe('Graphics: per-instance translation (mirrors Pixi container x/y)', () => {
+  it('x setter calls graphics_set_translation(handle, x, y) with current y', () => {
+    const r = makeRenderer();
+    const g = r.createGraphics(true);
+    g.x = 42;
+    const call = _calls.find(c => c.method === 'graphics_set_translation')!;
+    expect(call.args[0]).toBe(g.handle);
+    expect(call.args[1]).toBe(42);
+    expect(call.args[2]).toBe(0); // y still default
+    expect(g.x).toBe(42);         // getter round-trips
+  });
+
+  it('y setter preserves the previously-set x', () => {
+    const r = makeRenderer();
+    const g = r.createGraphics(true);
+    g.x = 10;
+    g.y = 20;
+    const last = [..._calls].reverse().find(c => c.method === 'graphics_set_translation')!;
+    expect(last.args[1]).toBe(10);
+    expect(last.args[2]).toBe(20);
+    expect(g.y).toBe(20);
+  });
+
+  it('setPosition sets both components in ONE wasm call', () => {
+    const r = makeRenderer();
+    const g = r.createGraphics(true);
+    g.setPosition(3, 4);
+    const calls = _calls.filter(c => c.method === 'graphics_set_translation');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args[1]).toBe(3);
+    expect(calls[0].args[2]).toBe(4);
+    expect(g.x).toBe(3);
+    expect(g.y).toBe(4);
+  });
+});
+
+describe('Graphics: visibility (O(1) draw-loop skip)', () => {
+  it('visible = false calls graphics_set_visible(handle, false)', () => {
+    const r = makeRenderer();
+    const g = r.createGraphics(true);
+    g.visible = false;
+    const call = _calls.find(c => c.method === 'graphics_set_visible')!;
+    expect(call.args[0]).toBe(g.handle);
+    expect(call.args[1]).toBe(false);
+    expect(g.visible).toBe(false);
+  });
+
+  it('defaults to visible=true and does not call wasm redundantly', () => {
+    const r = makeRenderer();
+    const g = r.createGraphics(true);
+    expect(g.visible).toBe(true);
+    // Setting the same value it already holds must NOT cross the wasm boundary.
+    g.visible = true;
+    expect(_calls.some(c => c.method === 'graphics_set_visible')).toBe(false);
+  });
+
+  it('coalesces repeated identical toggles into one wasm call', () => {
+    const r = makeRenderer();
+    const g = r.createGraphics(true);
+    g.visible = false;
+    g.visible = false; // no-op (already false)
+    g.visible = false;
+    const calls = _calls.filter(c => c.method === 'graphics_set_visible');
+    expect(calls).toHaveLength(1);
   });
 });

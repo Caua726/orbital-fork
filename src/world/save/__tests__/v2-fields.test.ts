@@ -234,6 +234,40 @@ describe('v2 save — nave HP and cooldown', () => {
     expect(dto.naves[0].hp).toBeUndefined();
     expect(dto.naves[0].ultimoTiroMs).toBeUndefined();
   });
+
+  it('preserves _scrapAoChegar (scrap-on-arrival order) through roundtrip', async () => {
+    const mundo = mockMundo();
+    const planeta = mockPlaneta('p-0');
+    mundo.planetas.push(planeta);
+    mundo.sistemas[0].planetas.push(planeta);
+    const nave = mockNave('n-0', planeta);
+    (nave as any)._scrapAoChegar = true;
+    mundo.naves.push(nave);
+
+    const dto = serializarMundo(mundo, 'rt');
+    expect(dto.naves[0].scrapAoChegar).toBe(true);
+
+    const fakeApp = { stage: { addChild: () => {} } } as any;
+    const rebuilt = await reconstruirMundo(dto, fakeApp, {
+      criarSol: fakeSol,
+      criarPlaneta: fakePlanetaFromFactory,
+      skipVisuals: true,
+    });
+    // Without the round-trip a scrapped ship that saved mid-flight would
+    // arrive home and just resume orbiting (refund never happens).
+    expect((rebuilt.naves[0] as any)._scrapAoChegar).toBe(true);
+  });
+
+  it('omits scrapAoChegar for a normal ship', () => {
+    const mundo = mockMundo();
+    const planeta = mockPlaneta('p-0');
+    mundo.planetas.push(planeta);
+    mundo.sistemas[0].planetas.push(planeta);
+    mundo.naves.push(mockNave('n-0', planeta));
+
+    const dto = serializarMundo(mundo, 'rt');
+    expect(dto.naves[0].scrapAoChegar).toBeUndefined();
+  });
 });
 
 describe('v2 save — IA memory', () => {

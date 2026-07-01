@@ -20,7 +20,7 @@ const _fakeStorage: Record<string, string> = {};
   clear: () => { for (const k of Object.keys(_fakeStorage)) delete _fakeStorage[k]; },
 };
 
-import { isAnyWeydraSubsystemOn, resetConfigForTest, setConfig, DEFAULTS } from '../config';
+import { isAnyWeydraSubsystemOn, resetConfigForTest, setConfig, getConfig, DEFAULTS } from '../config';
 import type { OrbitalConfig } from '../config';
 
 function withWeydra(overrides: Partial<OrbitalConfig['weydra']>): OrbitalConfig {
@@ -134,5 +134,37 @@ describe('setConfig + resetConfigForTest: integration smoke', () => {
         text: false, ui: false, backend: 'auto',
       },
     })).toBe(false);
+  });
+});
+
+describe('getConfig: shared cached reference (perf-critical, must NOT deep-clone)', () => {
+  beforeEach(() => {
+    delete _fakeStorage['orbital_config'];
+    resetConfigForTest();
+  });
+
+  it('returns the SAME object reference across calls (no per-call clone)', () => {
+    // getConfig() is hit in 60 Hz loops — the previous deepClone(_cache)
+    // per call was a full JSON serialize+parse. It must return the cached
+    // reference. If someone re-adds a clone, this fails.
+    expect(getConfig()).toBe(getConfig());
+  });
+
+  it('setConfig REPLACES the reference (immutable-snapshot semantics)', () => {
+    const before = getConfig();
+    setConfig({ weydra: { ...DEFAULTS.weydra, fog: true } });
+    const after = getConfig();
+    // A caller that cached `before` keeps a consistent (older) snapshot;
+    // re-reading yields the fresh one.
+    expect(after).not.toBe(before);
+    expect(after.weydra.fog).toBe(true);
+  });
+
+  it('setConfig does not mutate a previously-returned snapshot in place', () => {
+    const snap = getConfig();
+    const fogBefore = snap.weydra.fog;
+    setConfig({ weydra: { ...DEFAULTS.weydra, fog: !fogBefore } });
+    // The old snapshot is unchanged (setConfig built a new object).
+    expect(snap.weydra.fog).toBe(fogBefore);
   });
 });

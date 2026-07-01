@@ -89,7 +89,9 @@ export function getForcaPercebida(donoIa: string, contra: string): number {
  */
 export function tempoDesdeUltimoAtaque(donoIa: string, contra: string): number {
   const ult = getMem(donoIa).ultimoAtaque[contra];
-  return ult ? Date.now() - ult : Infinity;
+  // `!== undefined` (not truthiness): a timestamp of 0 is a real "attacked
+  // then" value, whereas `ult ? …` would misread it as "never attacked".
+  return ult !== undefined ? Date.now() - ult : Infinity;
 }
 
 /** TTL for ultimoAtaque entries — attacks older than this stop biasing

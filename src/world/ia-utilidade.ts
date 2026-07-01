@@ -46,8 +46,8 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 /** Deterministic [0,1) hash of a string (FNV-1a). Used for AI score jitter so
  *  candidate ordering is reproducible (Math.random() broke save/replay
  *  determinism and made per-frame ordering unstable) while still varying
- *  between distinct candidates. */
-function hash01(s: string): number {
+ *  between distinct candidates. Exported for unit testing the determinism. */
+export function hash01(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
