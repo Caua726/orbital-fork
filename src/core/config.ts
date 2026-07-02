@@ -104,12 +104,13 @@ export const DEFAULTS: OrbitalConfig = {
     webglVersion: 'auto',
     gpuPreference: 'auto',
     mostrarOrbitas: true,
-    // fogThrottle / densidadeStarfield must match PRESETS.alto so the
-    // settings panel shows "Alto" instead of "Personalizado" out of the
-    // box. Any drift here breaks presetBateComFlagsDerivadas.
-    fogThrottle: 1,
+    // Out-of-box values match the pre-weydra baseline (d51623e): dense
+    // starfield + fog redraw every 3 frames. These intentionally differ
+    // from PRESETS.alto (0.30 / 1), so the settings panel may show
+    // "Personalizado" out of the box — same as baseline.
+    fogThrottle: 3,
     maxFantasmas: -1,
-    densidadeStarfield: 0.30,
+    densidadeStarfield: 1.0,
     shaderLive: true,
   },
 
@@ -200,7 +201,7 @@ function migrarChavesLegadas(cfg: OrbitalConfig): void {
   // criarSelect would render the raw number with no label.
   const VALID_FOG = [1, 2, 3, 5, 10, 20];
   if (!VALID_FOG.includes(cfg.graphics.fogThrottle)) {
-    cfg.graphics.fogThrottle = 1;
+    cfg.graphics.fogThrottle = 3;
   }
 }
 

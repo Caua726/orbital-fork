@@ -124,7 +124,10 @@ function ensureWeydraSpritePool(nave: Nave): WeydraSprite[] | null {
 
   const pool: WeydraSprite[] = [];
   for (let i = 0; i < MAX_PARTICLES; i++) {
-    const s = r.createSprite(tex, 1, 1); // size set per frame from TRAIL_WIDTH
+    // Base display = texture size so the per-frame scale (2*radius/TRAIL_TEX_SIZE)
+    // yields a real footprint of 2*radius — matching the old Pixi trail circle.
+    // Created at 1×1 previously, which shrank every particle ~16× (sub-pixel).
+    const s = r.createSprite(tex, TRAIL_TEX_SIZE, TRAIL_TEX_SIZE);
     s.visible = false;
     s.zOrder = Z.SHIP_TRAILS;
     pool.push(s);

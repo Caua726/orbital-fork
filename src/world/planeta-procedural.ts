@@ -1141,6 +1141,67 @@ export function criarEstrelaProcedural(
     return sprite as unknown as Mesh<Geometry, Shader>;
   }
 
+  // Weydra live path (mirrors criarPlanetaProceduralSprite). The M10 Pixi-free
+  // shim never paints Pixi Meshes, so without a weydra PlanetInstance the sun
+  // was invisible. planetType 4 = star (self-emissive plasma); uPixels=128 and
+  // timeOffset=rng()*100 match the old Pixi uniforms exactly.
+  {
+    const r = getWeydraRenderer();
+    if (getConfig().weydra.planetsLive && r) {
+      const timeOffset = rng() * 100;
+      const initialRotation = rng() * 6.28;
+      const rotSpeed = 0.005 + rng() * 0.01;
+      const instance = r.createPlanetInstance();
+      instance.uSeed = seed;
+      instance.uPlanetType = paleta.planetType;
+      instance.uOctaves = paleta.octaves;
+      instance.uPixels = 128;
+      instance.uTime = timeOffset;
+      instance.uRotation = initialRotation;
+      instance.uTimeSpeed = paleta.timeSpeed;
+      instance.uDitherSize = paleta.ditherSize;
+      instance.uLightBorder1 = paleta.lightBorder1;
+      instance.uLightBorder2 = paleta.lightBorder2;
+      instance.uSize = paleta.size;
+      instance.uRiverCutoff = paleta.riverCutoff;
+      instance.uLandCutoff = paleta.landCutoff;
+      instance.uCloudCover = paleta.cloudCover;
+      instance.uStretch = paleta.stretch;
+      instance.uCloudCurve = paleta.cloudCurve;
+      instance.uTiles = paleta.tiles;
+      instance.uCloudAlpha = paleta.cloudAlpha;
+      instance.setLightOrigin(0.39, 0.39);
+      instance.setWorldPos(x, y);
+      instance.setWorldSize(tamanho, tamanho);
+      for (let i = 0; i < 6; i++) {
+        const c = paleta.colors[i];
+        instance.setColor(i, c[0], c[1], c[2], c[3]);
+      }
+      const stub = new Container() as unknown as Mesh<Geometry, Shader>;
+      stub.x = x;
+      stub.y = y;
+      (stub as unknown as Container).scale.set(tamanho);
+      (stub as any)._weydraPlanet = instance;
+      (stub as any)._rotSpeed = rotSpeed;
+      (stub as any)._uTime = timeOffset;
+      (stub as any)._uRotation = initialRotation;
+      const origDestroy = (stub as unknown as Container).destroy.bind(stub);
+      (stub as unknown as Container).destroy = ((opts?: any) => {
+        try {
+          const inst = (stub as any)._weydraPlanet as PlanetInstance | null;
+          if (inst) {
+            r.destroyPlanetInstance(inst);
+            (stub as any)._weydraPlanet = null;
+          }
+        } catch (err) {
+          console.warn('[planeta-procedural] weydra sun destroy failed:', err);
+        }
+        return origDestroy(opts);
+      }) as Container['destroy'];
+      return stub;
+    }
+  }
+
   const planetUniforms = criarUniformsPlaneta(paleta, seed, 128.0, rng() * 100, rng);
 
   const shader = new Shader({
