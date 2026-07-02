@@ -766,8 +766,9 @@ function startTicker(): void {
     // Clamp the wall delta: after the tab is backgrounded/refocused the gap
     // can be seconds, which would feed one giant delta into the economy
     // catch-up loop + combat accumulator (a spike / burst of simulation).
-    // 250 ms allows a brief hitch to catch up without a runaway frame.
-    const _dt = Math.min(_now - _lastT, 250);
+    // 100 ms matches Pixi's default ticker ceiling (_maxElapsedMS), so the
+    // simulation advances per hitch exactly like the original Pixi-driven loop.
+    const _dt = Math.min(_now - _lastT, 100);
     _lastT = _now;
     (app.ticker as { deltaMS: number }).deltaMS = _dt;
     (app.ticker as { speed: number }).speed = getDebugState().gameSpeed;

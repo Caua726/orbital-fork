@@ -3,7 +3,7 @@ import type { PersonalidadeIA, Dificuldade } from './personalidade-ia';
 import { gerarPersonalidades, PRESETS_DIFICULDADE } from './personalidade-ia';
 import { criarNave, enviarNaveParaAlvo } from './naves';
 import { gerarAcoesCandidatas, resetReconCache } from './ia-utilidade';
-import { decairMemorias, registrarBaixa, resetMemoriasIa, marcarAtaque } from './ia-memoria';
+import { decairMemorias, registrarBaixa, resetMemoriasIa } from './ia-memoria';
 
 /**
  * AI decision loop — substitutes ia-inimigo.ts.
@@ -249,23 +249,22 @@ export function atualizarIasV2(mundo: Mundo, deltaMs: number): void {
     // list, then decide each neutral once. Previously this re-filtered the
     // whole ship list per neutral planet — O(neutros × ships), a periodic
     // O(n²) burst with many neutrals + up to ~300 ships.
-    const porAlvo = new Map<Planeta, { counts: Record<string, number>; jogador: boolean }>();
+    const porAlvo = new Map<Planeta, { counts: Record<string, number> }>();
     for (const n of mundo.naves) {
       if (n.estado !== 'orbitando') continue;
       const alvo = n.alvo;
       if (!alvo || alvo._tipoAlvo !== 'planeta') continue;
+      if (!iaIds.has(n.dono)) continue;
       const pl = alvo as Planeta;
       let e = porAlvo.get(pl);
-      if (!e) { e = { counts: {}, jogador: false }; porAlvo.set(pl, e); }
-      if (n.dono === 'jogador') e.jogador = true;
-      else if (iaIds.has(n.dono)) e.counts[n.dono] = (e.counts[n.dono] ?? 0) + 1;
+      if (!e) { e = { counts: {} }; porAlvo.set(pl, e); }
+      e.counts[n.dono] = (e.counts[n.dono] ?? 0) + 1;
     }
     for (const planeta of mundo.planetas) {
       if (planeta.dados.dono !== 'neutro') continue;
       const e = porAlvo.get(planeta);
-      // No AI ships orbiting, or the player is also contesting it — don't
-      // let the AI silently snatch a neutral the player is fighting over.
-      if (!e || e.jogador) continue;
+      // No AI ships orbiting this neutral.
+      if (!e) continue;
       const winner = Object.entries(e.counts).sort((a, b) => b[1] - a[1])[0]?.[0];
       if (winner && e.counts[winner] > 0) {
         planeta.dados.dono = winner;
@@ -332,14 +331,6 @@ function executarAcao(mundo: Mundo, ia: PersonalidadeIA, acao: any): boolean {
           enviarNaveParaAlvo(mundo, navesDali[i], acao.alvo);
           totalEnviado++;
         }
-      }
-      if (totalEnviado > 0) {
-        // Record the attack so scoreEnviarFrota's 8s cooldown de-prioritizes
-        // re-sending at the same faction next tick. Without this call the
-        // cooldown was dead (tempoDesdeUltimoAtaque always Infinity) and the
-        // AI streamed fleets at one target every tick instead of in waves.
-        const alvoDono = (acao.alvo as Planeta)?.dados?.dono;
-        if (alvoDono) marcarAtaque(ia.id, alvoDono);
       }
       return totalEnviado > 0;
     }
