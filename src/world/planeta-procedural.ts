@@ -626,6 +626,44 @@ export function renderPlanetaParaCanvas(planeta: any, tamanho = 96): HTMLCanvasE
     return out;
   }
 
+  // Weydra planet/star: it's a Container stub with no Pixi mesh/shader, and
+  // the M10 Pixi-free shim has no renderer.extract/generateTexture — so the
+  // old Mesh-clone readback below returns null and every portrait went blank.
+  // Rasterize the thumbnail on the CPU from the palette+seed stashed on the
+  // stub (same procedural renderer the Canvas2D planet path uses), fully
+  // independent of Pixi/weydra.
+  {
+    const paleta = (planeta as any)._planetPaleta as PaletaPlaneta | undefined;
+    const seed = (planeta as any)._planetSeed as number | undefined;
+    if (paleta && seed !== undefined) {
+      // Internal pixelization grid matches the live shader: 64 for planets,
+      // 128 for stars (planetType 4).
+      const uPixels = paleta.planetType === 4 ? 128 : 64;
+      const src = document.createElement('canvas');
+      src.width = uPixels;
+      src.height = uPixels;
+      const sctx = src.getContext('2d', { alpha: true });
+      if (!sctx) return null;
+      const img = sctx.createImageData(uPixels, uPixels);
+      const rs: PlanetRenderState = {
+        uTime: (planeta as any)._uTime ?? 0,
+        uRotation: (planeta as any)._uRotation ?? 0,
+        uLightOriginX: 0.39,
+        uLightOriginY: 0.39,
+      };
+      renderPlanetParaImageData(img.data, uPixels, uPixels, paleta, rs, uPixels, seed);
+      sctx.putImageData(img, 0, 0);
+      const out = document.createElement('canvas');
+      out.width = tamanho;
+      out.height = tamanho;
+      const octx = out.getContext('2d');
+      if (!octx) return null;
+      octx.imageSmoothingEnabled = false;
+      octx.drawImage(src, 0, 0, tamanho, tamanho);
+      return out;
+    }
+  }
+
   if (!_appRef) return null;
   // Past this point we use renderer.extract.canvas() which Canvas2D
   // mode doesn't implement. Caller already returns early for canvas
@@ -1185,6 +1223,10 @@ export function criarEstrelaProcedural(
       (stub as any)._rotSpeed = rotSpeed;
       (stub as any)._uTime = timeOffset;
       (stub as any)._uRotation = initialRotation;
+      // Stash palette+seed so renderPlanetaParaCanvas can rasterize the
+      // star-drawer portrait on the CPU (no Pixi mesh/shader on the stub).
+      (stub as any)._planetPaleta = paleta;
+      (stub as any)._planetSeed = seed;
       const origDestroy = (stub as unknown as Container).destroy.bind(stub);
       (stub as unknown as Container).destroy = ((opts?: any) => {
         try {

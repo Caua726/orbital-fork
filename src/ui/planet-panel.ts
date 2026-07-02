@@ -1,6 +1,6 @@
-import { Container, Mesh, Rectangle } from 'pixi.js';
 import type { Application } from 'pixi.js';
 import type { Mundo, Planeta } from '../types';
+import { renderPlanetaParaCanvas } from '../world/planeta-procedural';
 import { registerPlanetPanel, unregisterPlanetPanel } from './hud-layout';
 import { marcarInteracaoUi } from './interacao-ui';
 import { calcularTempoRestantePlaneta, getPesquisaAtual, getTierMax, limparSelecoes, nomeTipoPlaneta, obterProducaoNaturalCiclo } from '../world/mundo';
@@ -13,7 +13,6 @@ import { gerarImperioLore } from '../world/lore/imperio-lore';
 import { abrirImperioLore, abrirPlanetaLore } from './lore-modal';
 
 const THUMB_REFRESH_MS = 1200;
-const THUMB_SCALE = 0.45;
 
 let _container: HTMLDivElement | null = null;
 let _styleInjected = false;
@@ -503,36 +502,7 @@ function resetPanelCache(): void {
   _lastThumbAt = 0;
 }
 
-function criarCloneRetrato(planeta: Planeta): { target: Container; frame: Rectangle } | null {
-  const original = planeta as unknown as Mesh;
-  const geometry = original.geometry;
-  const shader = original.shader;
-  const state = original.state;
-
-  if (!geometry || !shader || !state) return null;
-
-  const tamanho = planeta.dados.tamanho;
-  const frameSize = Math.max(64, tamanho * 1.08);
-
-  const clone = new Mesh({
-    geometry,
-    shader,
-    state,
-  });
-
-  clone.scale.set(tamanho, tamanho);
-  clone.position.set(frameSize / 2, frameSize / 2);
-
-  const wrapper = new Container();
-  wrapper.addChild(clone);
-
-  return {
-    target: wrapper,
-    frame: new Rectangle(0, 0, frameSize, frameSize),
-  };
-}
-
-function renderPortrait(app: Application, planeta: Planeta): void {
+function renderPortrait(_app: Application, planeta: Planeta): void {
   if (!_portraitCanvas) return;
 
   const now = performance.now();
@@ -557,52 +527,21 @@ function renderPortrait(app: Application, planeta: Planeta): void {
   ctx.arc(targetSize / 2, targetSize / 2, targetSize / 2 - 1, 0, Math.PI * 2);
   ctx.fill();
 
-  // Canvas2D mode: planet is a Sprite backed by a local canvas
-  // (_canvasRender.canvas). Draw that directly — the Mesh-based
-  // clone path below doesn't work without a WebGL renderer anyway.
-  if ((planeta as any)._isCanvasPlanet) {
-    const cs = (planeta as any)._canvasRender as { canvas: HTMLCanvasElement } | undefined;
-    if (!cs?.canvas) return;
-    const scale = Math.min(
-      (targetSize * 0.82) / cs.canvas.width,
-      (targetSize * 0.82) / cs.canvas.height,
-    );
-    const drawW = cs.canvas.width * scale;
-    const drawH = cs.canvas.height * scale;
-    const dx = (targetSize - drawW) / 2;
-    const dy = (targetSize - drawH) / 2;
-    ctx.drawImage(cs.canvas, dx, dy, drawW, drawH);
-    return;
-  }
-
-  const cloneData = criarCloneRetrato(planeta);
-  if (!cloneData) return;
-
-  try {
-    const texture = app.renderer.generateTexture({
-      target: cloneData.target,
-      frame: cloneData.frame,
-      resolution: THUMB_SCALE,
-      antialias: true,
-      clearColor: '#00000000',
-    });
-    const extracted = app.renderer.texture.generateCanvas(texture) as unknown as HTMLCanvasElement;
-
-    const scale = Math.min((targetSize * 0.82) / extracted.width, (targetSize * 0.82) / extracted.height);
-    const drawW = extracted.width * scale;
-    const drawH = extracted.height * scale;
-    const dx = (targetSize - drawW) / 2;
-    const dy = (targetSize - drawH) / 2;
-
-    ctx.drawImage(extracted, dx, dy, drawW, drawH);
-    extracted.width = 0;
-    extracted.height = 0;
-    texture.destroy(true);
-  } finally {
-    // The clone shares geometry/shader/state with the live planet mesh, so we must
-    // not call destroy on it — that would tear down GPU resources still in use.
-    cloneData.target.removeChildren();
-  }
+  // Rasterize the planet/star thumbnail on the CPU (works for weydra stubs,
+  // canvas2d planets, and legacy Pixi meshes alike). The old path cloned a
+  // Pixi Mesh + app.renderer.generateTexture — both gone in the Pixi-free
+  // build, so the portrait was blank.
+  const portrait = renderPlanetaParaCanvas(planeta, targetSize);
+  if (!portrait) return;
+  const scale = Math.min(
+    (targetSize * 0.82) / portrait.width,
+    (targetSize * 0.82) / portrait.height,
+  );
+  const drawW = portrait.width * scale;
+  const drawH = portrait.height * scale;
+  const dx = (targetSize - drawW) / 2;
+  const dy = (targetSize - drawH) / 2;
+  ctx.drawImage(portrait, dx, dy, drawW, drawH);
 }
 
 export function criarPlanetPanel(): HTMLDivElement {

@@ -19,10 +19,9 @@ import type { Mundo, Nave, Planeta } from '../types';
 import { marcarInteracaoUi } from './interacao-ui';
 import { nomeTipoPlaneta, TIPO_PLANETA } from '../world/planeta';
 import { getPersonalidades } from '../world/ia-decisao';
-import { criarPlanetaProceduralSprite, atualizarTempoPlanetas } from '../world/planeta-procedural';
+import { renderPlanetaParaCanvas } from '../world/planeta-procedural';
 import { parseAcaoNave } from '../world/naves';
 import { gerarPlanetaLore } from '../world/lore/planeta-lore';
-import { rngFromSeed } from '../world/lore/seeded-rng';
 import { calcularCustoTier, calcularTempoConstrucaoMs } from '../world/recursos';
 import { getEventos } from '../world/eventos';
 import { getBattles } from '../world/battle-log';
@@ -34,7 +33,6 @@ import { bindFilaDragDrop, isFilaDragging, isFilaInteracting } from './fila-dnd'
 import { attachTooltip } from './tooltip';
 import { aplicarTooltipsLore } from './lore-keywords';
 import { shouldRefresh, forceRefresh } from './hud-refresh';
-import { Application, Container, Ticker } from 'pixi.js';
 
 const TOOLTIPS: Record<string, string> = {
   // Recursos
@@ -146,19 +144,15 @@ let _closeResolver: (() => void) | null = null;
 let _keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 let _current: Planeta | null = null;
 let _currentMundo: Mundo | null = null;
-// Mini Pixi app driving the portrait sprite so the planet actually
-// rotates inside the details modal. Lazily booted on first open.
-let _portraitApp: Application | null = null;
-let _portraitContainer: Container | null = null;
-let _portraitSprite: Container | null = null;
-// Remember which planet the current portrait was built for. Rebuilding
-// every refreshContent() tick was destroying the sprite and making a
-// fresh one with a new random uRotation — the visual symptom was the
-// planet "girando loucamente" (jumping to a random angle 60x/sec).
-// Keeping the sprite alive lets atualizarTempoPlanetas advance its
-// uTime/uRotation smoothly between refreshes.
+// Portrait canvas. The old path booted a mini Pixi Application and added a
+// planet sprite — but with weydra it returned a stub that drew nothing into
+// this Pixi canvas AND leaked a PlanetInstance (at world 128,128) into the
+// global pool. Now we rasterize the planet on the CPU (renderPlanetaPara
+// Canvas) into a plain 2D canvas and re-render each frame; the planet's
+// uTime/uRotation are advanced by the world loop, so it still animates.
+let _portraitCanvas: HTMLCanvasElement | null = null;
 let _portraitForPlanet: Planeta | null = null;
-let _portraitTickerCb: ((t: Ticker) => void) | null = null;
+let _portraitRaf: number | null = null;
 
 type TabId = 'resumo' | 'imperio' | 'orbita' | 'pesquisa' | 'registro' | 'historia';
 const TABS: Array<{ id: TabId; label: string; tip: string }> = [
@@ -170,12 +164,6 @@ const TABS: Array<{ id: TabId; label: string; tip: string }> = [
   { id: 'historia', label: 'História', tip: 'Lore procedural do planeta.' },
 ];
 let _activeTab: TabId = 'resumo';
-// Init is async — Pixi v8 Application.init returns a Promise and the
-// renderer / canvas getters throw if accessed before it resolves. We
-// remember the init Promise so every renderPortrait call can await it
-// (the 'two-click to open' symptom was the Uncaught TypeError from
-// accessing app.canvas on the first click, before init landed).
-let _portraitInitPromise: Promise<unknown> | null = null;
 
 function injectStyles(): void {
   if (_styleInjected) return;
@@ -1682,69 +1670,62 @@ function buildSectionPesquisa(p: Planeta): HTMLDivElement {
   return sec;
 }
 
-async function renderPortrait(host: HTMLDivElement, p: Planeta): Promise<void> {
-  // Boot a tiny Pixi app once; reuse across opens.
-  if (!_portraitApp) {
-    const app = new Application();
-    _portraitApp = app;
-    _portraitInitPromise = app.init({
-      width: 256,
-      height: 256,
-      background: 0x050910,
-      antialias: true,
-    }).then(() => {
-      _portraitContainer = new Container();
-      app.stage.addChild(_portraitContainer);
-    }).catch((err) => {
-      console.warn('[planet-details] portrait Pixi init failed:', err);
-      _portraitApp = null;
-      _portraitContainer = null;
-    });
-  }
-  // Wait for init to resolve before touching app.canvas / app.renderer
-  // — otherwise Pixi's getters throw because renderer is still
-  // undefined. This is the actual fix for the two-click open bug.
-  await _portraitInitPromise;
-  // Caller could have navigated away in the meantime.
-  if (_current !== p) return;
-  const app = _portraitApp;
-  const cont = _portraitContainer;
-  if (!app || !cont) return;
+const PORTRAIT_SIZE = 220;
+/** Re-render interval for the portrait animation loop. Planet rotation is
+ *  slow (rotSpeed 0.02-0.08 rad/s), so ~10 Hz reads as smooth while keeping
+ *  the CPU rasterization cost negligible. */
+const PORTRAIT_REDRAW_MS = 100;
 
-  // Mount canvas on the host every call (refreshContent may have
-  // detached it via replaceChildren); cheap no-op when already there.
-  if (app.canvas.parentElement !== host) {
-    host.replaceChildren(app.canvas);
-  }
+function desenharPortrait(): void {
+  const p = _portraitForPlanet;
+  if (!_portraitCanvas || !p) return;
+  const src = renderPlanetaParaCanvas(p, PORTRAIT_SIZE);
+  if (!src) return;
+  const ctx = _portraitCanvas.getContext('2d');
+  if (!ctx) return;
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, PORTRAIT_SIZE, PORTRAIT_SIZE);
+  ctx.drawImage(src, 0, 0, PORTRAIT_SIZE, PORTRAIT_SIZE);
+}
 
-  // Only rebuild the planet mesh when the displayed planet actually
-  // changes. Otherwise we keep the same sprite and let the ticker
-  // advance its uTime/uRotation uniforms — matching how the real
-  // world animates planets.
-  if (_portraitForPlanet !== p) {
-    if (_portraitSprite) {
-      cont.removeChild(_portraitSprite);
-      _portraitSprite.destroy({ children: true });
-      _portraitSprite = null;
-    }
-    const size = 220;
-    // Use the planet's _visualSeed so the portrait matches the real
-    // shader output (same palette, same starting rotation + rotSpeed).
-    // Sem isso o modal gera uma paleta/rotação aleatória a cada abertura
-    // e o desenho nunca bate com o planeta no mundo.
-    const portraitRng = p._visualSeed != null ? rngFromSeed(p._visualSeed) : undefined;
-    const sprite = criarPlanetaProceduralSprite(128, 128, size, p.dados.tipoPlaneta, undefined, portraitRng);
-    cont.addChild(sprite as unknown as Container);
-    _portraitSprite = sprite as unknown as Container;
-    _portraitForPlanet = p;
+function renderPortrait(host: HTMLDivElement, p: Planeta): void {
+  // CPU-rasterized portrait via renderPlanetaParaCanvas — reads the palette/
+  // seed + live uTime/uRotation off the real planet object, so the drawing
+  // matches the in-world shader render. The old path booted a mini Pixi
+  // Application and fed it criarPlanetaProceduralSprite, which in the
+  // Pixi-free build returns a weydra stub that draws NOTHING into that Pixi
+  // canvas — the portrait was blank — and leaked a global-pool
+  // PlanetInstance at world (128,128) per open.
+  if (!_portraitCanvas) {
+    _portraitCanvas = document.createElement('canvas');
+    _portraitCanvas.width = PORTRAIT_SIZE;
+    _portraitCanvas.height = PORTRAIT_SIZE;
   }
+  // Mount on the host every call (refreshContent may have detached it via
+  // replaceChildren); cheap no-op when already there.
+  if (_portraitCanvas.parentElement !== host) {
+    host.replaceChildren(_portraitCanvas);
+  }
+  _portraitForPlanet = p;
+  desenharPortrait();
 
-  if (!_portraitTickerCb) {
-    _portraitTickerCb = (t: Ticker) => {
-      if (!_portraitSprite) return;
-      atualizarTempoPlanetas([_portraitSprite], t.deltaMS);
+  // Animation loop: the world tick advances p._uTime/_uRotation; re-rasterize
+  // at ~10 Hz while the modal is visible. (refreshContent's content-key skip
+  // means we can't rely on it re-calling us — the portrait would freeze.)
+  if (_portraitRaf === null) {
+    let last = 0;
+    const tick = (now: number): void => {
+      if (!_modal || !_modal.classList.contains('visible') || !_portraitForPlanet) {
+        _portraitRaf = null;
+        return;
+      }
+      if (now - last >= PORTRAIT_REDRAW_MS) {
+        last = now;
+        desenharPortrait();
+      }
+      _portraitRaf = requestAnimationFrame(tick);
     };
-    app.ticker.add(_portraitTickerCb);
+    _portraitRaf = requestAnimationFrame(tick);
   }
 }
 
@@ -1765,8 +1746,7 @@ function refreshContent(): void {
   }
 
   // Left: portrait + identity. Keep the portrait host DOM node alive
-  // across refreshes so its Pixi canvas child (and ticker animation)
-  // stay mounted — rebuilding would remount and reset the spin state.
+  // across refreshes so its canvas child (and redraw loop) stay mounted.
   const left = _modal.querySelector<HTMLDivElement>('.pd-left');
   if (left) {
     let portrait = left.querySelector<HTMLDivElement>('.pd-portrait');
@@ -1776,7 +1756,7 @@ function refreshContent(): void {
     }
     left.replaceChildren(portrait);
     if (mundo) left.appendChild(buildSectionIdentidade(p, mundo));
-    void renderPortrait(portrait, p);
+    renderPortrait(portrait, p);
   }
 
   // Right: tabs bar + content of active tab.
@@ -2096,9 +2076,9 @@ function close(): void {
   _backdrop.classList.remove('visible');
   _current = null;
   _currentMundo = null;
-  if (_portraitSprite) {
-    try { _portraitSprite.destroy({ children: true }); } catch { /* noop */ }
-    _portraitSprite = null;
+  if (_portraitRaf !== null) {
+    cancelAnimationFrame(_portraitRaf);
+    _portraitRaf = null;
   }
   _portraitForPlanet = null;
   if (_closeResolver) {
@@ -2114,15 +2094,7 @@ export function destruirPlanetDetailsModal(): void {
     window.removeEventListener('keydown', _keydownHandler);
     _keydownHandler = null;
   }
-  if (_portraitApp) {
-    if (_portraitTickerCb) {
-      try { _portraitApp.ticker.remove(_portraitTickerCb); } catch { /* noop */ }
-    }
-    try { _portraitApp.destroy(true, { children: true, texture: true }); } catch { /* noop */ }
-    _portraitApp = null;
-    _portraitContainer = null;
-  }
-  _portraitTickerCb = null;
+  _portraitCanvas = null;
   _portraitForPlanet = null;
   if (_modal) { _modal.remove(); _modal = null; }
   if (_backdrop) { _backdrop.remove(); _backdrop = null; }

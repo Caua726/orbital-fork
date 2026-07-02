@@ -1,6 +1,7 @@
 import { somClique } from '../audio/som';
-import { Graphics } from 'pixi.js';
 import type { Application } from 'pixi.js';
+import { GraphicsAdapter } from './graphics-adapter';
+import { Z } from './render-order';
 import type { Mundo, Camera, Nave, Planeta, Sol } from '../types';
 import { consumirInteracaoUi } from '../ui/interacao-ui';
 import { getConfig } from './config';
@@ -50,7 +51,7 @@ let clickInfo: { nave: Nave | null; planeta: Planeta | null; sol: Sol | null } |
 //                           click sends the colonizadora to that point
 type ComandoTipo = 'mover' | 'origem' | 'destino' | 'target_colonizadora' | 'move_colonizadora';
 let comandoNave: { tipo: ComandoTipo; nave: Nave | null; pontos: { x: number; y: number }[] } | null = null;
-let comandoPreviewGfx: Graphics | null = null;
+let comandoPreviewGfx: GraphicsAdapter | null = null;
 // Cached reference so zoomIn/zoomOut (called from keyboard/minimap/ship panel)
 // can anchor the zoom at screen center instead of the origin.
 let _appRef: Application | null = null;
@@ -334,9 +335,12 @@ export function configurarCamera(app: Application, mundo: Mundo): void {
   canvas.style.touchAction = 'none';
   _appRef = app;
   if (!comandoPreviewGfx) {
-    comandoPreviewGfx = new Graphics();
+    // Weydra Graphics (worldSpace) — the old raw Pixi Graphics was added to
+    // the now-orphaned rotasContainer, so the move-command route preview was
+    // invisible in the Pixi-free build. Z.ROUTES so it draws with the routes.
+    comandoPreviewGfx = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.ROUTES });
     comandoPreviewGfx.eventMode = 'none';
-    mundo.rotasContainer.addChild(comandoPreviewGfx);
+    comandoPreviewGfx.attachTo(mundo.rotasContainer);
   }
 
   canvas.addEventListener('contextmenu', (e: Event) => e.preventDefault(), { signal });
