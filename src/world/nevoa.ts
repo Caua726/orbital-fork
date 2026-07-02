@@ -47,10 +47,12 @@ const ALPHA_FANTASMA = 0.32;
 const ALPHA_FANTASMA_ANEL = 0.3;
 const COR_ANEL_FANTASMA = 0x8aa4bd;
 const DISTANCIA_LABEL_MEMORIA = 18;
-// Vertical gap (world units at scale 1) between the two label lines and
-// the tempo line. The labels counter-zoom, so this is multiplied by the
-// current label scale when positioning the tempo line below the info line.
-const INFO_BLOCK_PX = 26;
+// Vertical gap (world units at scale 1) between the info label's top and
+// the tempo line below it. Sized for the real two-line info block (the
+// weydra text renderer now honours '\n'): ≈ px_size + line_height at 11px
+// plus the baseline's 8+2 px padding. The labels counter-zoom, so this is
+// multiplied by the current label scale when positioning the tempo line.
+const INFO_BLOCK_PX = 34;
 
 /**
  * Groups the weydra primitives of one fog-memory ghost (dim ring + two
@@ -109,11 +111,19 @@ class MemoriaVisual {
   get y(): number { return this._y; }
   set y(v: number) { if (this._y === v) return; this._y = v; this.posicionar(); }
 
-  // The ghost dimness is baked into the per-command draw colours
-  // (COR_ANEL_FANTASMA + low alpha) and the label colours, so the old
-  // container-level alpha multiply has no weydra equivalent. No-op setter
-  // keeps the existing call sites compiling.
-  set alpha(_v: number) { /* baked into draw colours */ }
+  // Container-level alpha multiply (mirrors the old Pixi container.alpha):
+  // forwards to the ring's per-instance Graphics alpha and both labels'
+  // packed text alpha. Restores the baseline ghost dimming (0.47 × the
+  // per-command draw alphas — ring 0.3 → ~0.14 effective, labels → 0.47).
+  private _alpha = 1;
+  get alpha(): number { return this._alpha; }
+  set alpha(v: number) {
+    if (this._alpha === v) return;
+    this._alpha = v;
+    this.anel.alpha = v;
+    this.info.alpha = v;
+    this.tempoLabel.alpha = v;
+  }
 
   /** Re-measure label widths (one wasm getTextWidth each) and reposition.
    *  Call ONLY when the label text, scale, or offsets changed — not every

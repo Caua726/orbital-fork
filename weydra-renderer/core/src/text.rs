@@ -201,18 +201,25 @@ impl TextNode {
     /// Compute the on-screen pixel width of the current content at
     /// the node's `scale`. Walks the content, summing `glyph.advance`
     /// per char (charset-miss chars use `px_size * 0.5` as a fallback).
-    /// Used by the bridge's `get_text_width` so TS-side layout code
-    /// (e.g. sizing a background panel around a label) sees the same
-    /// value on both Pixi and weydra paths.
+    /// Multi-line content (`\n`) reports the WIDEST line — same as
+    /// Pixi's `text.width`. Used by the bridge's `get_text_width` so
+    /// TS-side layout code (e.g. sizing a background panel around a
+    /// label) sees the same value on both Pixi and weydra paths.
     pub fn measure_width(&self, atlas: &GlyphAtlas) -> f32 {
+        let mut max_w: f32 = 0.0;
         let mut pen_x: f32 = 0.0;
         for ch in self.content.chars() {
+            if ch == '\n' {
+                max_w = max_w.max(pen_x);
+                pen_x = 0.0;
+                continue;
+            }
             match atlas.glyphs.get(&ch) {
                 Some(g) => pen_x += g.advance,
                 None => pen_x += atlas.px_size * 0.5,
             }
         }
-        pen_x * self.scale
+        max_w.max(pen_x) * self.scale
     }
 
     pub fn new(
@@ -272,22 +279,54 @@ impl TextNode {
     /// vertices, one `queue.write_buffer` per call).
     pub fn update(&mut self, ctx: &GpuContext, atlas: &GlyphAtlas) {
         let mut verts: Vec<TextVertex> = Vec::with_capacity(self.content.len() * 6);
-        let mut pen_x = self.position[0];
-        let pen_y = self.position[1];
+        let origin_x = self.position[0];
+        let origin_y = self.position[1];
         let r = ((self.color >> 24) & 0xff) as f32 / 255.0;
         let g = ((self.color >> 16) & 0xff) as f32 / 255.0;
         let b = ((self.color >> 8) & 0xff) as f32 / 255.0;
         let a = (self.color & 0xff) as f32 / 255.0;
         let scale = self.scale;
 
-        // Baseline is `pen_y + px_size` (top-of-text + one line of ascent).
-        // fontdue's ymin is the pixel offset up from the baseline, so the
-        // glyph's top edge is at `baseline - ymin - height`.
-        // All quad positions are scaled by `self.scale` so callers can
-        // apply zoom / pixel-density adjustments without changing the
-        // atlas's baked px_size. (Mirrors Pixi's `text.scale.set(v)`.)
-        let baseline = pen_y + atlas.px_size;
+        // Pre-measure each line's advance width so multi-line content can
+        // be center-aligned within the block (Pixi `align: 'center'`
+        // parity — the fog-memory labels, the only consumer, used it).
+        let mut line_widths: Vec<f32> = Vec::new();
+        {
+            let mut w: f32 = 0.0;
+            for ch in self.content.chars() {
+                if ch == '\n' {
+                    line_widths.push(w);
+                    w = 0.0;
+                    continue;
+                }
+                w += match atlas.glyphs.get(&ch) {
+                    Some(g) => g.advance,
+                    None => atlas.px_size * 0.5,
+                };
+            }
+            line_widths.push(w);
+        }
+        let block_w = line_widths.iter().cloned().fold(0.0f32, f32::max);
+
+        // Baseline is one line of ascent below the node's top edge; each
+        // `\n` advances it by the atlas's baked line_height. fontdue's ymin
+        // is the pixel offset up from the baseline, so the glyph's top edge
+        // is at `baseline - ymin - height`.
+        //
+        // Glyph-local coordinates are scaled by `self.scale`; the node
+        // position is NOT (mirrors Pixi: position unscaled, scale local).
+        // The old `position * scale` coupling made world-space labels
+        // drift off their anchor whenever the counter-zoom scale ≠ 1.
+        let mut line = 0usize;
+        let mut pen_x = (block_w - line_widths[0]) * 0.5;
+        let mut baseline = atlas.px_size;
         for ch in self.content.chars() {
+            if ch == '\n' {
+                line += 1;
+                pen_x = (block_w - line_widths[line]) * 0.5;
+                baseline += atlas.line_height;
+                continue;
+            }
             let glyph = match atlas.glyphs.get(&ch) {
                 Some(g) => g,
                 None => {
@@ -297,8 +336,9 @@ impl TextNode {
                     continue;
                 }
             };
-            let x0 = (pen_x + glyph.quad_offset[0]) * scale;
-            let y0 = (baseline - glyph.quad_offset[1] - glyph.quad_size[1]) * scale;
+            let x0 = origin_x + (pen_x + glyph.quad_offset[0]) * scale;
+            let y0 = origin_y
+                + (baseline - glyph.quad_offset[1] - glyph.quad_size[1]) * scale;
             let x1 = x0 + glyph.quad_size[0] * scale;
             let y1 = y0 + glyph.quad_size[1] * scale;
             let [u0, v0, uw, vh] = glyph.uv;

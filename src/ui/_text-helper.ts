@@ -62,14 +62,30 @@ export function criarText(
     const r = getWeydraRenderer();
     if (r) {
       const fontIdx = fontIdxFor(fontSize);
-      // RGBA8 (with full alpha) — pack R/G/B/A into u32.
-      const r8 = (color >> 16) & 0xff;
-      const g8 = (color >> 8) & 0xff;
-      const b8 = color & 0xff;
-      const packed = ((r8 << 24) | (g8 << 16) | (b8 << 8) | 0xff) >>> 0;
+      // Baked px size of each atlas (Silkscreen 12/16, VT323 24). The
+      // requested fontSize is matched by scaling the glyphs — 11px on the
+      // 12px atlas renders at 11/12 scale. Composes with the caller-driven
+      // scale (e.g. the fog labels' counter-zoom). Without this, 9px and
+      // 11px labels both rendered at a flat 12px (size hierarchy lost).
+      const ATLAS_PX = [12, 16, 24];
+      const sizeFactor = fontSize / (ATLAS_PX[fontIdx] ?? 12);
+      let _rgb = color & 0xffffff;
+      let _alpha = 1;
+      let _userScale = 1;
       const t = r.createText(fontIdx, Math.max(64, content.length + 16), worldSpace);
+      // RGBA8 — R/G/B from the rgb value, the REAL alpha in the low byte
+      // (the shader multiplies by it; packing a hard 0xff made every label
+      // fully opaque, e.g. the fog ghost's 0.47 dimming was dropped).
+      const repack = (): void => {
+        const r8 = (_rgb >> 16) & 0xff;
+        const g8 = (_rgb >> 8) & 0xff;
+        const b8 = _rgb & 0xff;
+        const a8 = Math.max(0, Math.min(255, Math.round(_alpha * 255)));
+        t.color = ((r8 << 24) | (g8 << 16) | (b8 << 8) | a8) >>> 0;
+      };
       t.text = content;
-      t.color = packed;
+      repack();
+      t.scale = sizeFactor;
       let _x = 0;
       let _y = 0;
       const proxy: TextLike = {
@@ -81,14 +97,23 @@ export function criarText(
         set y(v: number) { _y = v; t.y = v; },
         get visible() { return t.visible; },
         set visible(v: boolean) { t.visible = v; },
-        get alpha() { return 1; },
-        set alpha(_v: number) { /* weydra alpha comes from per-vertex color */ },
+        get alpha() { return _alpha; },
+        set alpha(v: number) {
+          if (v === _alpha) return;
+          _alpha = v;
+          repack();
+        },
         get width() { return r.getTextWidth(t); },
         get height() { return 0; },
-        set scale(v: number) { t.scale = v; },
-        get scale() { return t.scale; },
-        set color(v: number) { t.color = v; },
-        get color() { return t.color; },
+        // Caller-facing scale is the USER scale; the atlas-size compensation
+        // factor is folded in transparently.
+        set scale(v: number) { _userScale = v; t.scale = sizeFactor * v; },
+        get scale() { return _userScale; },
+        // Pixi-style RGB (matches the Pixi proxy's `style.fill = v`); the
+        // current alpha is preserved. The old setter passed the RGB straight
+        // through as packed RGBA — the blue byte landed in the alpha slot.
+        set color(v: number) { _rgb = v & 0xffffff; repack(); },
+        get color() { return _rgb; },
         get style() { return emptyStyle(); },
         set style(_v: PixiText['style']) { /* weydra px_size is baked at atlas create */ },
         get anchor() { return emptyAnchor(); },
