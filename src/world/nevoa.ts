@@ -3,8 +3,10 @@ import { criarText, type TextLike } from '../ui/_text-helper';
 import { GraphicsAdapter } from '../core/graphics-adapter';
 import { Z } from '../core/render-order';
 import { getWeydraRenderer } from '../weydra-loader';
+import type { Sprite as WeydraSprite } from '@weydra/renderer';
 import type { Planeta, Mundo, FonteVisao, Camera } from '../types';
 import { nomeTipoPlaneta } from './planeta';
+import { renderPlanetaParaCanvas } from './planeta-procedural';
 import { calcularBoundsViewport, type ViewportBounds } from './viewport-bounds';
 
 const _fogBoundsScratch: ViewportBounds = {
@@ -47,6 +49,10 @@ const ALPHA_FANTASMA = 0.32;
 const ALPHA_FANTASMA_ANEL = 0.3;
 const COR_ANEL_FANTASMA = 0x8aa4bd;
 const DISTANCIA_LABEL_MEMORIA = 18;
+// CPU-rasterized silhouette texture resolution (matches the live planet
+// shader's uPixels=64 pixelization grid, so the ghost image is pixel-true
+// to what the player saw).
+const SILHUETA_PX = 64;
 // Vertical gap (world units at scale 1) between the info label's top and
 // the tempo line below it. Sized for the real two-line info block (the
 // weydra text renderer now honours '\n'): ≈ px_size + line_height at 11px
@@ -81,9 +87,26 @@ class MemoriaVisual {
 
   constructor(
     public readonly anel: GraphicsAdapter,
+    public readonly infoBg: GraphicsAdapter,
     public readonly info: TextLike,
     public readonly tempoLabel: TextLike,
-  ) {}
+    /** Ghost planet silhouette (baseline's `fantasma`) — a post-fog weydra
+     *  sprite of the CPU-rasterized planet image at ALPHA_FANTASMA. Null
+     *  when the weydra renderer/palette wasn't available at creation. */
+    public readonly fantasma: WeydraSprite | null,
+    private readonly fantasmaTex: bigint | null,
+  ) {
+    this.aplicarTintFantasma();
+  }
+
+  /** Silhouette opacity = ALPHA_FANTASMA × container alpha (baseline:
+   *  child 0.32 × container 0.47 ≈ 0.15 effective), carried in the
+   *  sprite tint's alpha byte (white RGB = texture colours unchanged). */
+  private aplicarTintFantasma(): void {
+    if (!this.fantasma) return;
+    const a8 = Math.max(0, Math.min(255, Math.round(ALPHA_FANTASMA * this._alpha * 255)));
+    this.fantasma.tint = (((0xffffff << 8) | a8) >>> 0);
+  }
 
   /** Cached half-widths for anchor(0.5) horizontal centring. Refreshed
    *  (via a wasm getTextWidth call) only when the label text or scale
@@ -99,8 +122,10 @@ class MemoriaVisual {
     if (this._visible === v) return;
     this._visible = v;
     this.anel.visible = v;
+    this.infoBg.visible = v;
     this.info.visible = v;
     this.tempoLabel.visible = v;
+    if (this.fantasma) this.fantasma.visible = v;
   }
 
   // x/y setters skip work when the value is unchanged — a fog ghost sits at
@@ -121,8 +146,10 @@ class MemoriaVisual {
     if (this._alpha === v) return;
     this._alpha = v;
     this.anel.alpha = v;
+    this.infoBg.alpha = v;
     this.info.alpha = v;
     this.tempoLabel.alpha = v;
+    this.aplicarTintFantasma();
   }
 
   /** Re-measure label widths (one wasm getTextWidth each) and reposition.
@@ -131,7 +158,25 @@ class MemoriaVisual {
   relayout(): void {
     this._infoHalfW = (this.info.width ?? 0) / 2;
     this._tempoHalfW = (this.tempoLabel.width ?? 0) / 2;
+    this.redesenharBg();
     this.posicionar();
+  }
+
+  /** Re-tessellate the rounded plate behind the info label (baseline's
+   *  `infoBg`: roundRect fill 0x08111f @ 0.62 sized to the label bounds).
+   *  Drawn (0,0)-relative like the ring; counter-zoom is baked into the
+   *  tessellated size since weydra Graphics have no scale transform. */
+  private redesenharBg(): void {
+    const esc = this.escalaAplicada > 0 ? this.escalaAplicada : 1;
+    const largura = this._infoHalfW * 2 + 12 * esc;
+    // Baseline: altura = info.height + 8. The two-line info block height is
+    // INFO_BLOCK_PX - 10 (see the constant's comment), so altura works out
+    // to (INFO_BLOCK_PX - 2) × the label scale.
+    const altura = (INFO_BLOCK_PX - 2) * esc;
+    this.infoBg.clear();
+    this.infoBg
+      .roundRect(-largura / 2, this.infoOffsetY - 4 * esc, largura, altura, 4 * esc)
+      .fill({ color: 0x08111f, alpha: 0.62 });
   }
 
   /** Apply the world transform to ring + labels using cached widths (no
@@ -139,6 +184,12 @@ class MemoriaVisual {
   posicionar(): void {
     this.anel.x = this._x;
     this.anel.y = this._y;
+    this.infoBg.x = this._x;
+    this.infoBg.y = this._y;
+    if (this.fantasma) {
+      this.fantasma.x = this._x;
+      this.fantasma.y = this._y;
+    }
     this.info.x = this._x - this._infoHalfW;
     this.info.y = this._y + this.infoOffsetY;
     this.tempoLabel.x = this._x - this._tempoHalfW;
@@ -148,9 +199,12 @@ class MemoriaVisual {
   destroy(): void {
     const r = getWeydraRenderer();
     this.anel.destroy();
+    this.infoBg.destroy();
     if (r) {
       if (this.info._weydra) r.destroyText(this.info._weydra);
       if (this.tempoLabel._weydra) r.destroyText(this.tempoLabel._weydra);
+      if (this.fantasma) r.destroySprite(this.fantasma);
+      if (this.fantasmaTex !== null) r.destroyTexture(this.fantasmaTex);
     }
     this.info._pixi?.destroy();
     this.tempoLabel._pixi?.destroy();
@@ -203,11 +257,47 @@ export function criarCamadaMemoria(): Container {
 export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void {
   void mundo; // memoriaPlanetasContainer (Pixi) no longer parents the ghost
 
+  // Ghost planet silhouette (baseline's `fantasma`): CPU-rasterize the
+  // planet's seeded image once, upload as a weydra texture, and show it as
+  // a translucent post-fog sprite (Z.FOG_MEMORY ≥ Z.FOG → drawn after the
+  // fog pass, so the memory shows THROUGH the fog like the old Pixi
+  // container did). Static snapshot — matches the baseline, whose clone
+  // never advanced its uniforms either.
+  let fantasma: WeydraSprite | null = null;
+  let fantasmaTex: bigint | null = null;
+  {
+    const r = getWeydraRenderer();
+    if (r) {
+      try {
+        const canvas = renderPlanetaParaCanvas(planeta, SILHUETA_PX);
+        const ctx = canvas?.getContext('2d');
+        const img = ctx?.getImageData(0, 0, SILHUETA_PX, SILHUETA_PX);
+        if (img) {
+          fantasmaTex = r.uploadTexture(
+            new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength),
+            SILHUETA_PX,
+            SILHUETA_PX,
+          );
+          fantasma = r.createSprite(fantasmaTex, SILHUETA_PX, SILHUETA_PX);
+          fantasma.zOrder = Z.FOG_MEMORY;
+          fantasma.visible = false;
+        }
+      } catch (err) {
+        console.warn('[nevoa] fantasma rasterization failed:', err);
+      }
+    }
+  }
+
   // Dim ring marking the remembered planet — worldSpace so it tracks the
   // map. Drawn at (0,0)-relative; its world position is carried by the
   // GraphicsAdapter translation (set via MemoriaVisual).
   const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.FOG_MEMORY });
   anel.visible = false;
+
+  // Rounded plate behind the intel label (baseline's `infoBg`). Same layer
+  // as the ring — text renders in its own later pass, so it lands on top.
+  const infoBg = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.FOG_MEMORY });
+  infoBg.visible = false;
 
   const info = criarText('', 11, 0xcfe3ff, true);
   info.visible = false;
@@ -222,7 +312,7 @@ export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void 
 
   const memoria: MemoriaPlaneta = {
     conhecida: false,
-    visual: new MemoriaVisual(anel, info, tempoLabel),
+    visual: new MemoriaVisual(anel, infoBg, info, tempoLabel, fantasma, fantasmaTex),
     anel,
     info,
     tempoLabel,
@@ -247,6 +337,15 @@ function redesenharVisualMemoria(memoria: MemoriaPlaneta): void {
     width: larguraAnel,
     alpha: ALPHA_FANTASMA_ANEL,
   });
+
+  // Silhouette sized to the remembered planet (baseline: fantasma.width/
+  // height = tamanho). Sprite display is SILHUETA_PX; scale bridges to
+  // world units.
+  const fantasma = memoria.visual.fantasma;
+  if (fantasma) {
+    fantasma.scaleX = tamanho / SILHUETA_PX;
+    fantasma.scaleY = tamanho / SILHUETA_PX;
+  }
 
   const novoTexto =
     `${nomeDonoCurto(dados.dados.dono)} | ${nomeTipoPlaneta(dados.dados.tipoPlaneta)}\n` +

@@ -1122,8 +1122,10 @@ impl Renderer {
                 }
             }
 
-            // Sprite batcher — one draw call per texture run.
-            if !runs.is_empty() {
+            // Sprite batcher — one draw call per texture run. Only runs
+            // BELOW the fog layer here; post-fog runs (Z >= FOG_Z, e.g.
+            // fog-memory ghost silhouettes) draw after the fog pass below.
+            if runs.iter().any(|r| !r.post_fog) {
                 if let Some(path) = &self.sprite_path {
                     pass.set_pipeline(match path {
                         SpritePath::Storage { pipeline, .. } => pipeline,
@@ -1141,7 +1143,7 @@ impl Renderer {
                             pass.set_vertex_buffer(0, instance_buffer.slice(..));
                         }
                     }
-                    for run in &runs {
+                    for run in runs.iter().filter(|r| !r.post_fog) {
                         if let Some(bg) = self.texture_bind_groups.get(&run.texture_key) {
                             pass.set_bind_group(2, bg, &[]);
                             pass.draw(0..6, run.start..run.end);
@@ -1162,6 +1164,37 @@ impl Renderer {
             if let (Some(mesh), Some(pool)) = (&self.fog_mesh, &self.fog_pool) {
                 if pool.instances[0].active_count > 0 {
                     mesh.draw(&mut pass, Some(&pool.bind_group));
+                }
+            }
+
+            // Post-fog sprites (Z >= FOG_Z): fog-memory ghost silhouettes
+            // and any other sprite that must show THROUGH the fog. Same
+            // pipeline + packed buffer as the pre-fog batch; only the run
+            // filter differs.
+            if runs.iter().any(|r| r.post_fog) {
+                if let Some(path) = &self.sprite_path {
+                    pass.set_pipeline(match path {
+                        SpritePath::Storage { pipeline, .. } => pipeline,
+                        SpritePath::Instanced { pipeline, .. } => pipeline,
+                    });
+                    match path {
+                        SpritePath::Storage {
+                            sprite_bind_group, ..
+                        } => {
+                            pass.set_bind_group(1, sprite_bind_group, &[]);
+                        }
+                        SpritePath::Instanced {
+                            instance_buffer, ..
+                        } => {
+                            pass.set_vertex_buffer(0, instance_buffer.slice(..));
+                        }
+                    }
+                    for run in runs.iter().filter(|r| r.post_fog) {
+                        if let Some(bg) = self.texture_bind_groups.get(&run.texture_key) {
+                            pass.set_bind_group(2, bg, &[]);
+                            pass.draw(0..6, run.start..run.end);
+                        }
+                    }
                 }
             }
 
@@ -1238,12 +1271,21 @@ impl Renderer {
 
 // ─── Sprite helpers (internal, not exposed to TS) ────────────────────────
 
+/// Sprites with `z_order >= FOG_Z` draw AFTER the fog pass (e.g. fog-memory
+/// ghost silhouettes at Z.FOG_MEMORY = 42). Mirrors the game's canonical
+/// z-order convention (src/core/render-order.ts: Z.FOG = 40) — without the
+/// split, every sprite rendered under the fog overlay regardless of its z.
+const FOG_Z: f32 = 40.0;
+
 #[derive(Debug)]
 struct SpriteRun {
     /// Texture handle packed as u64 — same key used by `texture_bind_groups`.
     texture_key: u64,
     start: u32,
     end: u32,
+    /// True when this run's sprites sit at or above FOG_Z and must be
+    /// drawn after the fog pass.
+    post_fog: bool,
 }
 
 impl Renderer {
@@ -1565,15 +1607,19 @@ impl Renderer {
         let mut runs: Vec<SpriteRun> = Vec::new();
         for e in entries {
             let idx = self.sprite_scratch.len() as u32;
+            let post_fog = e.z >= FOG_Z;
             self.sprite_scratch.push(e.data);
             match runs.last_mut() {
-                Some(run) if run.texture_key == e.texture_key => {
+                // Never merge across the fog boundary — pre-fog and post-fog
+                // sprites draw in different segments of the render pass.
+                Some(run) if run.texture_key == e.texture_key && run.post_fog == post_fog => {
                     run.end = idx + 1;
                 }
                 _ => runs.push(SpriteRun {
                     texture_key: e.texture_key,
                     start: idx,
                     end: idx + 1,
+                    post_fog,
                 }),
             }
         }
