@@ -689,6 +689,16 @@ impl Renderer {
         }
     }
 
+    /// Set a Graphics' per-instance alpha (mirrors Pixi container `.alpha`).
+    /// O(1) — rewrites the 16-byte uniform block, no re-tessellation.
+    pub fn graphics_set_alpha(&mut self, h: u64, alpha: f32) {
+        if let Some(pool) = self.graphics_pool.as_mut() {
+            if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
+                g.set_alpha(&self.ctx, alpha);
+            }
+        }
+    }
+
     /// Toggle a Graphics' visibility (mirrors Pixi `visible`). O(1) — the
     /// render loop skips invisible Graphics without dropping their
     /// tessellation, so re-showing is free (no re-tessellation).

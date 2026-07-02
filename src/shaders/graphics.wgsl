@@ -27,7 +27,11 @@ struct CameraUniforms {
 
 struct GraphicsUniforms {
     world_space: f32,
-    _pad0: f32,
+    // Per-instance alpha multiplier (byte offset 4) — mirrors a Pixi
+    // container's `.alpha`. The fragment multiplies each colour's alpha by
+    // it, so game code can fade a whole Graphics (orbit rings under fog,
+    // fog-memory ghosts) without re-tessellating. Default 1.0.
+    alpha: f32,
     // Per-instance offset added to every vertex BEFORE the world/screen
     // transform — mirrors a Pixi container's x/y. vec2 at byte offset 8
     // (std140 8-byte alignment). Game code draws shapes at (0,0)-relative
@@ -72,5 +76,7 @@ fn vs_main(in: VsIn) -> VsOut {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    return in.color;
+    // Straight alpha (ALPHA_BLENDING contract): fold the per-instance alpha
+    // into the colour's alpha. Do NOT premultiply rgb by alpha.
+    return vec4<f32>(in.color.rgb, in.color.a * gfx.alpha);
 }

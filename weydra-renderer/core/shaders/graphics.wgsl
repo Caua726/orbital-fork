@@ -27,7 +27,8 @@ struct CameraUniforms {
 
 struct GraphicsUniforms {
     world_space: f32,
-    _pad0: f32,
+    // Per-instance alpha multiplier (byte offset 4) — mirrors Pixi `.alpha`.
+    alpha: f32,
     // Per-instance offset added to every vertex BEFORE the world/screen
     // transform — mirrors a Pixi container's x/y. vec2 at byte offset 8.
     translation: vec2<f32>,
@@ -76,5 +77,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // to cancel the encode. Same fix as M6 258b5dc applied to
     // planeta-weydra.wgsl and fog.wgsl.
     let linear_rgb = pow(in.color.rgb, vec3<f32>(2.2));
-    return vec4<f32>(linear_rgb * in.color.a, in.color.a);
+    let a = in.color.a * gfx.alpha;
+    return vec4<f32>(linear_rgb * a, a);
 }

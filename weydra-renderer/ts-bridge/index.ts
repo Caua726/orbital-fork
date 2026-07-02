@@ -377,6 +377,15 @@ export class Renderer {
     this.inner.graphics_set_visible(handle, visible);
   }
 
+  /**
+   * Set a Graphics' per-instance alpha (mirrors a Pixi container's
+   * `.alpha`). O(1) uniform rewrite — no re-tessellation.
+   * @internal — exposed for the Graphics.alpha setter.
+   */
+  setGraphicsAlpha(handle: bigint, alpha: number): void {
+    this.inner.graphics_set_alpha(handle, alpha);
+  }
+
   // ─── Graphics mutators (called by Graphics instance methods) ──────────
 
   /** @internal — used by Graphics.fill/clear/etc. */
@@ -861,6 +870,7 @@ export class Graphics {
   private _x: number = 0;
   private _y: number = 0;
   private _visible: boolean = true;
+  private _alpha: number = 1;
 
   constructor(
     public readonly handle: bigint,
@@ -877,6 +887,19 @@ export class Graphics {
   }
   get visible(): boolean {
     return this._visible;
+  }
+
+  /** Per-instance alpha (mirrors a Pixi container's `.alpha`). Multiplies
+   *  every drawn colour's alpha in the shader — O(1) uniform rewrite, no
+   *  re-tessellation. Lets game code fade a whole Graphics (e.g. orbit
+   *  rings dimming under fog). */
+  set alpha(v: number) {
+    if (this._alpha === v) return;
+    this._alpha = v;
+    this.r.setGraphicsAlpha(this.handle, v);
+  }
+  get alpha(): number {
+    return this._alpha;
   }
 
   /** Clear all commands on this Graphics. */

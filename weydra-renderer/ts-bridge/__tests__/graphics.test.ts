@@ -54,6 +54,7 @@ function makeRenderer(): Renderer {
     graphics_set_z_order: makeSpy('graphics_set_z_order'),
     graphics_set_translation: makeSpy('graphics_set_translation'),
     graphics_set_visible: makeSpy('graphics_set_visible'),
+    graphics_set_alpha: makeSpy('graphics_set_alpha'),
     create_fog_shader: vi.fn(),
     fog_uniforms_ptr: () => 0,
     fog_uniforms_size: () => 0,
@@ -75,6 +76,7 @@ function makeRenderer(): Renderer {
   r.setGraphicsZOrder = (h: bigint, z: number) => r.inner.graphics_set_z_order(h, z);
   r.setGraphicsTranslation = (h: bigint, x: number, y: number) => r.inner.graphics_set_translation(h, x, y);
   r.setGraphicsVisible = (h: bigint, v: boolean) => r.inner.graphics_set_visible(h, v);
+  r.setGraphicsAlpha = (h: bigint, a: number) => r.inner.graphics_set_alpha(h, a);
   return r as Renderer;
 }
 
@@ -334,6 +336,36 @@ describe('Graphics: visibility (O(1) draw-loop skip)', () => {
     g.visible = false; // no-op (already false)
     g.visible = false;
     const calls = _calls.filter(c => c.method === 'graphics_set_visible');
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('Graphics: per-instance alpha (mirrors Pixi container .alpha)', () => {
+  it('alpha setter calls graphics_set_alpha(handle, v)', () => {
+    const r = makeRenderer();
+    const g = r.createGraphics(true);
+    g.alpha = 0.18;
+    const call = _calls.find(c => c.method === 'graphics_set_alpha')!;
+    expect(call.args[0]).toBe(g.handle);
+    expect(call.args[1]).toBeCloseTo(0.18);
+    expect(g.alpha).toBeCloseTo(0.18);
+  });
+
+  it('defaults to alpha=1 and does not cross the wasm boundary redundantly', () => {
+    const r = makeRenderer();
+    const g = r.createGraphics(true);
+    expect(g.alpha).toBe(1);
+    g.alpha = 1; // same as default — no wasm call
+    expect(_calls.some(c => c.method === 'graphics_set_alpha')).toBe(false);
+  });
+
+  it('coalesces repeated identical alpha writes into one wasm call', () => {
+    const r = makeRenderer();
+    const g = r.createGraphics(true);
+    g.alpha = 0.5;
+    g.alpha = 0.5; // no-op
+    g.alpha = 0.5;
+    const calls = _calls.filter(c => c.method === 'graphics_set_alpha');
     expect(calls).toHaveLength(1);
   });
 });

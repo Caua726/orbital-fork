@@ -49,12 +49,15 @@ const _: () = assert!(std::mem::align_of::<GraphicsVertex>() == 4);
 /// container's `x`/`y`: game code can draw a ring at (0,0)-relative and set
 /// `translation = (ship.x, ship.y)` instead of baking the world position
 /// into every tessellated vertex. `translation` is a `vec2` at byte offset
-/// 8 (std140 8-byte alignment) — `_pad0` fills the gap after `world_space`.
+/// 8 (std140 8-byte alignment). `alpha` (byte offset 4) mirrors a Pixi
+/// container's `.alpha`: the shader multiplies every vertex colour's alpha
+/// by it, so game code can fade a whole Graphics (e.g. orbit rings dimming
+/// under fog) without re-tessellating.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct GraphicsUniforms {
     pub world_space: f32,
-    pub _pad0: f32,
+    pub alpha: f32,
     pub translation: [f32; 2],
 }
 
@@ -149,6 +152,11 @@ pub struct Graphics {
     /// position. Mutated via `set_translation`.
     pub translation: [f32; 2],
 
+    /// Per-instance alpha multiplier (mirrors Pixi container `.alpha`).
+    /// The shader multiplies each vertex colour's alpha by this. Default
+    /// 1.0. Mutated via `set_alpha`.
+    pub alpha: f32,
+
     pub uniforms_buffer: wgpu::Buffer,
     pub uniforms_bind_group: wgpu::BindGroup,
 }
@@ -160,7 +168,7 @@ impl Graphics {
     ) -> Self {
         let uniforms = GraphicsUniforms {
             world_space: if world_space { 1.0 } else { 0.0 },
-            _pad0: 0.0,
+            alpha: 1.0,
             translation: [0.0, 0.0],
         };
 
@@ -219,6 +227,7 @@ impl Graphics {
             stroke_vertex_cap: 0,
             stroke_index_cap: 0,
             translation: [0.0, 0.0],
+            alpha: 1.0,
             uniforms_buffer,
             uniforms_bind_group,
         }
@@ -233,9 +242,24 @@ impl Graphics {
             return;
         }
         self.translation = [x, y];
+        self.upload_uniforms(ctx);
+    }
+
+    /// Update the per-instance alpha (mirrors Pixi container `.alpha`).
+    /// Rewrites only the 16-byte uniform buffer — no re-tessellation.
+    pub fn set_alpha(&mut self, ctx: &GpuContext, alpha: f32) {
+        if self.alpha == alpha {
+            return;
+        }
+        self.alpha = alpha;
+        self.upload_uniforms(ctx);
+    }
+
+    /// Re-write the full uniform block from the current translation + alpha.
+    fn upload_uniforms(&self, ctx: &GpuContext) {
         let uniforms = GraphicsUniforms {
             world_space: if self.world_space { 1.0 } else { 0.0 },
-            _pad0: 0.0,
+            alpha: self.alpha,
             translation: self.translation,
         };
         ctx.queue
@@ -787,7 +811,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<GraphicsUniforms>(), 16);
         assert_eq!(std::mem::align_of::<GraphicsUniforms>(), 4);
         assert_eq!(core::mem::offset_of!(GraphicsUniforms, world_space), 0);
-        assert_eq!(core::mem::offset_of!(GraphicsUniforms, _pad0), 4);
+        assert_eq!(core::mem::offset_of!(GraphicsUniforms, alpha), 4);
         // vec2 translation lands at byte 8 — std140 8-byte alignment for a
         // vec2, and the shader reads it from the same offset.
         assert_eq!(core::mem::offset_of!(GraphicsUniforms, translation), 8);

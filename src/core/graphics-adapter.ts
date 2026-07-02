@@ -123,14 +123,16 @@ export class GraphicsAdapter {
   }
 
   get alpha(): number {
-    return this.pixi ? this.pixi.alpha : 1;
+    if (this.pixi) return this.pixi.alpha;
+    return this.weydra ? this.weydra.alpha : 1;
   }
   set alpha(v: number) {
     if (this.pixi) this.pixi.alpha = v;
-    // weydra Graphics: per-instance alpha would need a uniform per
-    // Graphics; not worth the complexity for the few use sites
-    // (orbita fade) — fall through to the per-command color's alpha
-    // baked into tessellation.
+    // weydra Graphics carry a per-instance alpha uniform (mirrors a Pixi
+    // container's .alpha). This restores the orbit-ring visibility fade
+    // (mundo.ts writes 0.5/0.18 per frame) and the fog-memory ghost
+    // dimming, which were flat before the uniform existed.
+    else if (this.weydra) this.weydra.alpha = v;
   }
 
   // ─── Transform (mirrors a Pixi container's x/y) ───────────────────────
