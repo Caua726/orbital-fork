@@ -640,6 +640,8 @@ async function bootstrap(): Promise<void> {
       return 'ok';
     },
     speed: (n: number) => { setGameSpeed(n); return 'ok'; },
+    // Non-zero while combat beams / impact particles are live on screen.
+    combatBytes: () => getCombateMemoryBytes(),
     sendToPlanet: (shipId: string, planetId: string) => {
       if (!_mundo) return 'no mundo';
       const nv = _mundo.naves.find((n) => n.id === shipId);
