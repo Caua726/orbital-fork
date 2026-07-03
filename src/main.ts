@@ -1,9 +1,11 @@
 import { Application } from 'pixi.js';
 import type { Mundo, TipoJogador } from './types';
 import { criarMundo, atualizarMundo, getEstadoJogo, destruirMundo, setDificuldadeProximoMundo, getDificuldadeAtual } from './world/mundo';
+import { criarNave as criarNaveTest, enviarNaveParaPosicao as enviarNaveParaPosicaoTest, enviarNaveParaAlvo as enviarNaveParaAlvoTest, removerNave as removerNaveTest } from './world/naves';
+import { abrirPlanetaDrawer as abrirPlanetaDrawerTest } from './ui/planet-drawer';
 import { getStarfieldMemoryBytes, precompilarShaderStarfield, setAppReferenceForFundo } from './world/fundo';
-import { getCanvasPlanetsMemoryBytes } from './world/planeta-procedural';
-import { getFogMemoryBytes } from './world/nevoa';
+import { getCanvasPlanetsMemoryBytes, renderPlanetaParaCanvas } from './world/planeta-procedural';
+import { getFogMemoryBytes, getMemoria as getMemoriaTest } from './world/nevoa';
 import { getSpritesheetMemoryBytes } from './world/spritesheets';
 import { getAiMemoryBytes } from './world/ia-memoria';
 import { getLastSeenMemoryBytes } from './world/last-seen';
@@ -600,6 +602,86 @@ async function bootstrap(): Promise<void> {
   (window as any).__mundo = () => _mundo;
   (window as any).__setCam = (x: number, y: number) => setCameraPos(x, y);
   (window as any).__setZoom = (z: number) => setZoom(z);
+  // Headless-audit driver: spawn/move ships, force combat, tick the sim —
+  // lets an automated screenshot pass exercise render paths (ships, trails,
+  // beams, fog ghost) that need live game state. Dev-only, same spirit as
+  // the cheats box; guarded behind the window namespace.
+  (window as any).__test = {
+    spawn: (tipo: string, n = 1) => {
+      if (!_mundo) return 'no mundo';
+      const home = _mundo.planetas.find((p) => p.dados.dono === 'jogador');
+      if (!home) return 'no home';
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const nv = criarNaveTest(_mundo, home, tipo, 1);
+        out.push(nv.id);
+      }
+      return out;
+    },
+    send: (naveId: string, x: number, y: number) => {
+      if (!_mundo) return 'no mundo';
+      const nv = _mundo.naves.find((n) => n.id === naveId);
+      if (!nv) return 'no ship';
+      return enviarNaveParaPosicaoTest(_mundo, nv, x, y);
+    },
+    ships: () => (_mundo?.naves ?? []).map((n) => ({ id: n.id, tipo: n.tipo, dono: n.dono, x: Math.round(n.x), y: Math.round(n.y), estado: n.estado })),
+    openDrawer: () => {
+      if (!_mundo) return 'no mundo';
+      const home = _mundo.planetas.find((p) => p.dados.dono === 'jogador');
+      if (!home) return 'no home';
+      void abrirPlanetaDrawerTest(home, _mundo);
+      return 'ok';
+    },
+    removeShip: (id: string) => {
+      if (!_mundo) return 'no mundo';
+      const nv = _mundo.naves.find((n) => n.id === id);
+      if (!nv) return 'no ship';
+      removerNaveTest(_mundo, nv);
+      return 'ok';
+    },
+    speed: (n: number) => { setGameSpeed(n); return 'ok'; },
+    sendToPlanet: (shipId: string, planetId: string) => {
+      if (!_mundo) return 'no mundo';
+      const nv = _mundo.naves.find((n) => n.id === shipId);
+      const pl = _mundo.planetas.find((p) => p.id === planetId);
+      if (!nv || !pl) return 'not found';
+      return enviarNaveParaAlvoTest(_mundo, nv, pl);
+    },
+    ghost: (planetId: string) => {
+      if (!_mundo) return 'no mundo';
+      const pl = _mundo.planetas.find((p) => p.id === planetId);
+      if (!pl) return 'no planet';
+      const mem = getMemoriaTest(pl);
+      if (!mem) return { hasMemoria: false };
+      return {
+        hasMemoria: true,
+        conhecida: mem.conhecida,
+        visualVisible: mem.visual.visible,
+        memX: mem.dados ? Math.round(mem.dados.x) : null,
+        memY: mem.dados ? Math.round(mem.dados.y) : null,
+        hasFantasma: !!mem.visual.fantasma,
+      };
+    },
+    // Rasterize a planet/sun portrait (the CPU path used by all 5 drawer/
+    // panel/modal surfaces) and report how much of it is non-blank — a
+    // blank canvas = the regression the fix addressed.
+    portrait: (kind = 'planet') => {
+      if (!_mundo) return 'no mundo';
+      const obj = kind === 'sun'
+        ? _mundo.sois[0]
+        : _mundo.planetas.find((p) => p.dados.dono === 'jogador');
+      if (!obj) return 'no obj';
+      const c = renderPlanetaParaCanvas(obj as any, 96);
+      if (!c) return { ok: false, reason: 'null canvas' };
+      const ctx = c.getContext('2d');
+      const d = ctx!.getImageData(0, 0, c.width, c.height).data;
+      let nonBlank = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] + d[i + 1] + d[i + 2] > 12 && d[i + 3] > 8) nonBlank++;
+      }
+      return { ok: true, w: c.width, h: c.height, nonBlankPct: Math.round((nonBlank / (c.width * c.height)) * 100) };
+    },
+  };
   setAppReferenceForBake(app);
 
   // Pre-compile the planet/star shader programs NOW so the driver link
