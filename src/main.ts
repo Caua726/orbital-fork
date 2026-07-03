@@ -599,6 +599,7 @@ async function bootstrap(): Promise<void> {
   // without a module import.
   (window as any).__mundo = () => _mundo;
   (window as any).__setCam = (x: number, y: number) => setCameraPos(x, y);
+  (window as any).__setZoom = (z: number) => setZoom(z);
   setAppReferenceForBake(app);
 
   // Pre-compile the planet/star shader programs NOW so the driver link

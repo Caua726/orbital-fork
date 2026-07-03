@@ -129,11 +129,15 @@ describe('shader source parity: fog', () => {
     expect(wgsl).toContain('array<VisionSource, 64>');
   });
 
-  it('uses smoothstep(radius * 0.75, radius, d) as the soft-edge knob', () => {
-    expect(wgsl).toMatch(/smoothstep\([^)]*\*\s*0\.75\s*,[^)]*,[^)]*\)/);
+  it('uses smoothstep(radius * 0.94, radius, d) as the soft-edge knob', () => {
+    // 0.94 = a ~6%-radius soft rim, matching the pre-weydra canvas-2D fog's
+    // defined vision circle (hard white ellipse + thin bilinear-upscale
+    // edge). The old 0.75 gave a 25%-radius vignette that read as
+    // "completely different" fog.
+    expect(wgsl).toMatch(/smoothstep\([^)]*\*\s*0\.94\s*,[^)]*,[^)]*\)/);
     // The exact form (edge0 first, then edge1) must match the contract
-    // documented in fog.wgsl:91-94 — swapping these inverts the mask.
-    expect(wgsl).toContain('smoothstep(src.radius * 0.75, src.radius, d)');
+    // documented in fog.wgsl — swapping these inverts the mask.
+    expect(wgsl).toContain('smoothstep(src.radius * 0.94, src.radius, d)');
   });
 
   it('pre-decodes the navy color with pow(..., 2.2) to cancel the sRGB swap chain', () => {

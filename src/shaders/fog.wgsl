@@ -88,11 +88,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     for (var i: u32 = 0u; i < fog.active_count; i = i + 1u) {
         let src = fog.sources[i];
         let d = distance(world, src.position);
-        // edge0 < edge1 (radius*0.75 < radius) → coverage=0 inside the
+        // edge0 < edge1 (radius*0.94 < radius) → coverage=0 inside the
         // vision, coverage=1 outside; alpha→0 inside (fog cleared).
+        //
+        // The 0.94 inner edge = a ~6%-radius soft rim. The old 0.75 gave
+        // a 25%-radius gradient — a mushy vignette nothing like the
+        // pre-weydra canvas-2D fog, whose vision circle was a HARD white
+        // ellipse (cleared to the full radius) with only the thin soft
+        // edge that a low-res (480×270) canvas bilinearly upscaled to the
+        // viewport produces (~3-6% of the radius in world units). This
+        // tight rim restores that defined-circle look.
+        //
         // Swapping edge0/edge1 silently inverts the mask (fog opaque
         // inside, clear outside) — no other code change required.
-        let coverage = smoothstep(src.radius * 0.75, src.radius, d);
+        let coverage = smoothstep(src.radius * 0.94, src.radius, d);
         alpha = alpha * coverage;
     }
 
