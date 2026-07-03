@@ -115,9 +115,19 @@ impl Default for PlanetUniforms {
 /// where `offset_for` returns the slot's byte offset into the shared buffer
 /// (stride-aligned to the device's `min_uniform_buffer_offset_alignment`).
 pub struct PlanetPool {
-    /// CPU mirror, length == capacity. Indexed by `Handle::slot`. Never
-    /// reallocates — TS-side typed-array views remain valid across frames.
-    pub instances: Vec<PlanetUniforms>,
+    /// CPU mirror of the GPU buffer: `capacity × stride` bytes laid out
+    /// with the SAME aligned stride the GPU uses. The TS bridge writes
+    /// uniforms straight into this memory at `slot * stride` (typed-array
+    /// views over `instances_ptr`), and `offset_for` computes GPU offsets
+    /// the same way — CPU, GPU, and TS all agree where each instance lives.
+    ///
+    /// Was previously `Vec<PlanetUniforms>` (packed at 192 B) while the TS
+    /// views indexed at the ALIGNED stride (256 B on most adapters): every
+    /// instance except slot 0 uploaded from the wrong bytes and silently
+    /// rendered nothing (zero world_size), and high slots let the TS view
+    /// write past the Vec allocation. Never reallocates — TS views stay
+    /// valid across frames.
+    pub instances: Vec<u8>,
     pub gpu_buffer: wgpu::Buffer,
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub bind_group: wgpu::BindGroup,
@@ -187,8 +197,16 @@ impl PlanetPool {
             }],
         });
 
-        let mut instances = Vec::with_capacity(capacity);
-        instances.resize(capacity, PlanetUniforms::default());
+        // Stride-aligned byte mirror; seed every slot with the default
+        // uniforms so a freshly-inserted instance renders sanely before the
+        // TS side writes it.
+        let mut instances = vec![0u8; (stride * capacity as u64) as usize];
+        let default_bytes = PlanetUniforms::default();
+        for slot in 0..capacity {
+            let off = slot * stride as usize;
+            instances[off..off + element_size as usize]
+                .copy_from_slice(bytemuck::bytes_of(&default_bytes));
+        }
 
         Self {
             instances,
@@ -230,42 +248,18 @@ impl PlanetPool {
 
     /// Upload current CPU instances to GPU.
     ///
-    /// Fast path when stride == element_size: one bulk write of the whole
-    /// `instances` slice. Otherwise (stride was padded to alignment) we
-    /// can't slice-cast the Vec — adjacent instances are not contiguous in
-    /// the GPU layout — so write each slot at its stride-aligned offset.
+    /// The CPU mirror shares the GPU buffer's exact stride-aligned layout,
+    /// so a single bulk write covers every slot — no per-slot offset math
+    /// and no per-active-slot write_buffer loop.
     pub fn upload(&self, ctx: &GpuContext) {
-        let element_size = std::mem::size_of::<PlanetUniforms>() as u64;
-        if self.stride == element_size {
-            ctx.queue.write_buffer(
-                &self.gpu_buffer,
-                0,
-                bytemuck::cast_slice(&self.instances),
-            );
-        } else {
-            // Padded path (always taken under downlevel_webgl2_defaults, where
-            // min_uniform_buffer_offset_alignment = 256 > the 192-byte struct).
-            // Write ONLY active slots — iterating all `capacity` instances
-            // (256) issued a write_buffer per free slot every frame (~256
-            // uploads/frame for a 3-planet scene). The render loop already
-            // draws only `slotmap` slots, so free-slot data is never read.
-            for (h, _) in self.slotmap.iter() {
-                let slot = h.slot as usize;
-                let offset = slot as u64 * self.stride;
-                ctx.queue.write_buffer(
-                    &self.gpu_buffer,
-                    offset,
-                    bytemuck::bytes_of(&self.instances[slot]),
-                );
-            }
-        }
+        ctx.queue.write_buffer(&self.gpu_buffer, 0, &self.instances);
     }
 
-    /// Pointer to the contiguous CPU instances Vec, exposed via wasm so TS
-    /// builds a typed-array view for direct memory writes in the hot path.
-    /// Backing Vec never reallocates (capacity fixed at construction), so
-    /// the view stays valid across frames.
-    pub fn instances_ptr(&self) -> *const PlanetUniforms {
+    /// Pointer to the stride-aligned CPU mirror, exposed via wasm so TS
+    /// builds typed-array views for direct memory writes in the hot path
+    /// (instance base = `slot * stride`). Backing Vec never reallocates
+    /// (capacity fixed at construction), so the views stay valid.
+    pub fn instances_ptr(&self) -> *const u8 {
         self.instances.as_ptr()
     }
 

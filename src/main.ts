@@ -594,6 +594,11 @@ async function bootstrap(): Promise<void> {
 
   _app = app;
   (window as any)._app = app;
+  // Debug/diagnostics hooks (same spirit as `_app` above): let DevTools and
+  // the headless smoke test inspect the live world / drive the camera
+  // without a module import.
+  (window as any).__mundo = () => _mundo;
+  (window as any).__setCam = (x: number, y: number) => setCameraPos(x, y);
   setAppReferenceForBake(app);
 
   // Pre-compile the planet/star shader programs NOW so the driver link
