@@ -25,8 +25,8 @@ use crate::slotmap::{Handle, SlotMap};
 use bytemuck::{Pod, Zeroable};
 use lyon::path::Path;
 use lyon::tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions,
-    StrokeTessellator, StrokeVertex, VertexBuffers,
+    BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator,
+    StrokeVertex, VertexBuffers,
 };
 
 /// Single vertex. 24 B total — `vec2 position` (world units or screen pixels
@@ -162,10 +162,7 @@ pub struct Graphics {
 }
 
 impl Graphics {
-    pub fn new(
-        ctx: &GpuContext,
-        world_space: bool,
-    ) -> Self {
+    pub fn new(ctx: &GpuContext, world_space: bool) -> Self {
         let uniforms = GraphicsUniforms {
             world_space: if world_space { 1.0 } else { 0.0 },
             alpha: 1.0,
@@ -189,23 +186,23 @@ impl Graphics {
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
-                            min_binding_size: wgpu::BufferSize::new(
-                                std::mem::size_of::<GraphicsUniforms>() as u64,
-                            ),
+                            min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<
+                                GraphicsUniforms,
+                            >()
+                                as u64),
                         },
                         count: None,
                     }],
                 });
 
-        let uniforms_bind_group =
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("graphics uniforms bind group"),
-                layout: &uniforms_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniforms_buffer.as_entire_binding(),
-                }],
-            });
+        let uniforms_bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("graphics uniforms bind group"),
+            layout: &uniforms_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniforms_buffer.as_entire_binding(),
+            }],
+        });
 
         ctx.queue
             .write_buffer(&uniforms_buffer, 0, bytemuck::bytes_of(&uniforms));
@@ -309,6 +306,7 @@ impl Graphics {
         self.dirty = true;
     }
 
+    #[allow(clippy::too_many_arguments)] // mirrors the immediate-mode TS API
     pub fn round_rect(
         &mut self,
         x: f32,
@@ -331,13 +329,7 @@ impl Graphics {
         self.dirty = true;
     }
 
-    pub fn line(
-        &mut self,
-        from: [f32; 2],
-        to: [f32; 2],
-        width: f32,
-        color: [f32; 4],
-    ) {
+    pub fn line(&mut self, from: [f32; 2], to: [f32; 2], width: f32, color: [f32; 4]) {
         self.commands.push(GraphicsCmd::Line {
             from,
             to,
@@ -347,6 +339,7 @@ impl Graphics {
         self.dirty = true;
     }
 
+    #[allow(clippy::too_many_arguments)] // mirrors the immediate-mode TS API
     pub fn arc(
         &mut self,
         cx: f32,
@@ -453,7 +446,7 @@ impl Graphics {
                         lyon::geom::point(*x, *y),
                         lyon::geom::point(*x + *w, *y + *h),
                     );
-                    let radii = lyon::path::builder::BorderRadii::new((*radius).into());
+                    let radii = lyon::path::builder::BorderRadii::new(*radius);
                     builder.add_rounded_rectangle(&rect, &radii, lyon::path::Winding::Positive);
                     let path = builder.build();
                     tessellate_path(
@@ -606,30 +599,26 @@ impl Graphics {
     /// and `set_bind_group(1, …)` happen once per call because the pipeline
     /// and GraphicsUniforms are identical across both passes for a single
     /// Graphics object.
-    pub fn draw<'a>(
-        &'a self,
-        pass: &mut wgpu::RenderPass<'a>,
-        pipeline: &'a wgpu::RenderPipeline,
-    ) {
+    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, pipeline: &'a wgpu::RenderPipeline) {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(1, &self.uniforms_bind_group, &[]);
 
         // Buffers persist across re-tessellation for reuse, so guard on the
         // index COUNT (0 = nothing to draw this frame) rather than buffer
         // presence — a cleared fill/stroke keeps its buffer but draws nothing.
-        if self.fill_index_count > 0 {
-            if let (Some(vb), Some(ib)) = (&self.fill_vertex_buffer, &self.fill_index_buffer) {
-                pass.set_vertex_buffer(0, vb.slice(..));
-                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..self.fill_index_count, 0, 0..1);
-            }
+        if self.fill_index_count > 0
+            && let (Some(vb), Some(ib)) = (&self.fill_vertex_buffer, &self.fill_index_buffer)
+        {
+            pass.set_vertex_buffer(0, vb.slice(..));
+            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..self.fill_index_count, 0, 0..1);
         }
-        if self.stroke_index_count > 0 {
-            if let (Some(vb), Some(ib)) = (&self.stroke_vertex_buffer, &self.stroke_index_buffer) {
-                pass.set_vertex_buffer(0, vb.slice(..));
-                pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..self.stroke_index_count, 0, 0..1);
-            }
+        if self.stroke_index_count > 0
+            && let (Some(vb), Some(ib)) = (&self.stroke_vertex_buffer, &self.stroke_index_buffer)
+        {
+            pass.set_vertex_buffer(0, vb.slice(..));
+            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..self.stroke_index_count, 0, 0..1);
         }
     }
 }
@@ -652,11 +641,11 @@ fn upload_or_reuse(
     if size == 0 {
         return;
     }
-    if let Some(buf) = buffer.as_ref() {
-        if size <= *capacity {
-            ctx.queue.write_buffer(buf, 0, data);
-            return;
-        }
+    if let Some(buf) = buffer.as_ref()
+        && size <= *capacity
+    {
+        ctx.queue.write_buffer(buf, 0, data);
+        return;
     }
     use wgpu::util::DeviceExt;
     let buf = ctx
@@ -749,10 +738,7 @@ impl GraphicsPool {
     /// Snapshot of all (z_order, slot) pairs — used by the render loop to
     /// sort Graphics before drawing. Cheap (no GPU work).
     pub fn draw_order(&self) -> Vec<(f32, Handle)> {
-        self.graphics
-            .iter()
-            .map(|(h, g)| (g.z_order, h))
-            .collect()
+        self.graphics.iter().map(|(h, g)| (g.z_order, h)).collect()
     }
 
     /// Re-tessellate all dirty Graphics. Called once per frame before

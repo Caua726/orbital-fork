@@ -37,7 +37,12 @@ impl CameraUniforms {
     /// Build a fresh instance. Padding is always zero — exists only to keep
     /// the struct at 32 bytes for the uniform buffer layout.
     pub fn new(camera: [f32; 2], viewport: [f32; 2], time: f32) -> Self {
-        Self { camera, viewport, time, _pad: [0.0; 3] }
+        Self {
+            camera,
+            viewport,
+            time,
+            _pad: [0.0; 3],
+        }
     }
 }
 

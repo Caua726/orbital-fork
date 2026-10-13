@@ -7,7 +7,7 @@
 //! Full adapter (input events, multi-monitor, etc) is deferred to M11.
 
 use std::sync::Arc;
-use weydra_renderer::{render_clear, GpuContext, RenderSurface, Result, WeydraError};
+use weydra_renderer::{GpuContext, RenderSurface, Result, WeydraError, render_clear};
 use winit::window::Window;
 
 /// Native renderer bound to a winit Window.
@@ -27,8 +27,7 @@ impl NativeRenderer {
     pub async fn new(window: Arc<dyn Window>) -> Result<Self> {
         let size = window.surface_size();
 
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
         let surface = instance
             .create_surface(window.clone())
@@ -37,7 +36,11 @@ impl NativeRenderer {
         let ctx = GpuContext::new_with_surface(instance, &surface).await?;
         let surface = RenderSurface::configure(&ctx, surface, size.width, size.height)?;
 
-        Ok(Self { surface, ctx, _window: window })
+        Ok(Self {
+            surface,
+            ctx,
+            _window: window,
+        })
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

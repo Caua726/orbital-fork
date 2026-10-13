@@ -17,10 +17,10 @@ use bytemuck::{Pod, Zeroable};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use weydra_renderer::{
-    bake_atlas, CameraUniforms, EngineBindings, FogPool, GpuContext, Graphics, GraphicsPool,
-    GraphicsVertex, Handle, Mesh, PlanetPool, RenderSurface, RenderTarget, ShaderRegistry,
-    SpritePool, TextNode, TextRegistry, Texture, TextureRegistry, UniformPool, DEFAULT_CHARSET,
-    FLAG_VISIBLE, FOG_MAX_SOURCES, FOG_UNIFORMS_SIZE,
+    CameraUniforms, DEFAULT_CHARSET, EngineBindings, FLAG_VISIBLE, FOG_MAX_SOURCES,
+    FOG_UNIFORMS_SIZE, FogPool, GpuContext, Graphics, GraphicsPool, GraphicsVertex, Handle, Mesh,
+    PlanetPool, RenderSurface, RenderTarget, ShaderRegistry, SpritePool, TextNode, TextRegistry,
+    Texture, TextureRegistry, UniformPool, bake_atlas,
 };
 
 const SILKSCREEN_TTF: &[u8] = include_bytes!("../../../core/src/fonts/silkscreen.ttf");
@@ -385,9 +385,7 @@ impl Renderer {
             self.fog_pool.is_none(),
             "create_fog_shader called twice — would invalidate the TS view over the previous pool",
         );
-        let shader = self
-            .shader_registry
-            .compile(&self.ctx, wgsl_source, "fog");
+        let shader = self.shader_registry.compile(&self.ctx, wgsl_source, "fog");
         let pool = FogPool::new(&self.ctx, "fog pool");
         let mesh = Mesh::new(
             &self.ctx,
@@ -446,24 +444,25 @@ impl Renderer {
         // graphics.wgsl: group 0 = engine camera (already on engine.layout),
         // group 1 = per-Graphics uniforms. Pipeline uses &[engine_layout]
         // directly; the per-Graphics bind group is bound per draw.
-        let graphics_uniform_layout = self
-            .ctx
-            .device
-            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("graphics uniform layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(
-                            std::mem::size_of::<weydra_renderer::GraphicsUniforms>() as u64,
-                        ),
-                    },
-                    count: None,
-                }],
-            });
+        let graphics_uniform_layout =
+            self.ctx
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("graphics uniform layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<
+                                weydra_renderer::GraphicsUniforms,
+                            >()
+                                as u64),
+                        },
+                        count: None,
+                    }],
+                });
 
         let mut layouts: Vec<Option<&wgpu::BindGroupLayout>> = vec![Some(&self.engine.layout)];
         layouts.push(Some(&graphics_uniform_layout));
@@ -496,40 +495,40 @@ impl Renderer {
             .expect("shader just compiled")
             .module;
 
-        let pipeline =
-            self.ctx
-                .device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("graphics"),
-                    layout: Some(&pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module: shader_module,
-                        entry_point: Some("vs_main"),
-                        buffers: &[GRAPHICS_VERTEX_LAYOUT],
-                        compilation_options: Default::default(),
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: shader_module,
-                        entry_point: Some("fs_main"),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: self.surface.format,
-                            // Pixi Graphics defaults to ALPHA_BLENDING;
-                            // match exactly (graphics.wgsl header comment
-                            // documents the contract).
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                        compilation_options: Default::default(),
-                    }),
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview_mask: None,
-                    cache: None,
-                });
+        let pipeline = self
+            .ctx
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("graphics"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: shader_module,
+                    entry_point: Some("vs_main"),
+                    buffers: &[GRAPHICS_VERTEX_LAYOUT],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: shader_module,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: self.surface.format,
+                        // Pixi Graphics defaults to ALPHA_BLENDING;
+                        // match exactly (graphics.wgsl header comment
+                        // documents the contract).
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
 
         self.graphics_pipeline = Some(pipeline);
         self.graphics_pool = Some(GraphicsPool::new());
@@ -574,7 +573,13 @@ impl Renderer {
     ) {
         if let Some(pool) = self.graphics_pool.as_mut() {
             if let Some(g) = pool.get_mut(Handle::from_u64(h)) {
-                g.circle(x, y, r, unpack_rgba_opt(fill_rgba), unpack_stroke(stroke_rgba, stroke_width));
+                g.circle(
+                    x,
+                    y,
+                    r,
+                    unpack_rgba_opt(fill_rgba),
+                    unpack_stroke(stroke_rgba, stroke_width),
+                );
             }
         }
     }
@@ -876,12 +881,12 @@ impl Renderer {
         // path the per-frame render uses.
         pool.upload(&self.ctx);
 
-        let mut encoder =
-            self.ctx
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("planet bake"),
-                });
+        let mut encoder = self
+            .ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("planet bake"),
+            });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("planet bake pass"),
@@ -1203,16 +1208,12 @@ impl Renderer {
             // the Z.* bands (ORBITS=20, ROUTES=25, BEAMS=35,
             // UI_GRAPHICS=51). Each Graphics emits 0-2 draws (fill +
             // stroke); sort cost is O(N log N) with N typically < 50.
-            if let (Some(pool), Some(pipeline)) = (
-                self.graphics_pool.as_ref(),
-                self.graphics_pipeline.as_ref(),
-            ) {
+            if let (Some(pool), Some(pipeline)) =
+                (self.graphics_pool.as_ref(), self.graphics_pipeline.as_ref())
+            {
                 let draw_order = pool.draw_order();
                 let mut ordered = draw_order;
-                ordered.sort_by(|a, b| {
-                    a.0.partial_cmp(&b.0)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+                ordered.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
                 pass.set_bind_group(0, &self.engine.bind_group, &[]);
                 for (_z, h) in ordered {
                     if let Some(g) = pool.get(h) {
@@ -1246,10 +1247,13 @@ impl Renderer {
                     }
                 }
                 for bucket in by_atlas.iter_mut() {
-                    bucket.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    bucket
+                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
                 }
                 for (atlas_idx, handles) in by_atlas.iter().enumerate() {
-                    if handles.is_empty() { continue; }
+                    if handles.is_empty() {
+                        continue;
+                    }
                     if let Some(bg) = self.text_registry.atlas_bind_groups.get(atlas_idx) {
                         pass.set_bind_group(2, bg, &[]);
                         for (_z, h) in handles {
@@ -1314,30 +1318,32 @@ impl Renderer {
     /// Created on demand and reused for every texture upload.
     fn sprite_texture_layout_lazy(&mut self) -> &wgpu::BindGroupLayout {
         if self.sprite_texture_layout.is_none() {
-            let layout = self
-                .ctx
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("sprite texture bind group layout"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            let layout =
+                self.ctx
+                    .device
+                    .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                        label: Some("sprite texture bind group layout"),
+                        entries: &[
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 0,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                ty: wgpu::BindingType::Texture {
+                                    multisampled: false,
+                                    view_dimension: wgpu::TextureViewDimension::D2,
+                                    sample_type: wgpu::TextureSampleType::Float {
+                                        filterable: true,
+                                    },
+                                },
+                                count: None,
                             },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                });
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 1,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                                count: None,
+                            },
+                        ],
+                    });
             self.sprite_texture_layout = Some(layout);
         }
         self.sprite_texture_layout.as_ref().unwrap()
@@ -1392,18 +1398,18 @@ impl Renderer {
                 }],
             });
 
-        let pipeline_layout = self
-            .ctx
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("sprite storage pipeline layout"),
-                bind_group_layouts: &[
-                    Some(&self.engine.layout),
-                    Some(&sprite_bind_group_layout),
-                    Some(texture_layout),
-                ],
-                immediate_size: 0,
-            });
+        let pipeline_layout =
+            self.ctx
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("sprite storage pipeline layout"),
+                    bind_group_layouts: &[
+                        Some(&self.engine.layout),
+                        Some(&sprite_bind_group_layout),
+                        Some(texture_layout),
+                    ],
+                    immediate_size: 0,
+                });
 
         let pipeline = self.build_pipeline(&pipeline_layout, &shader, &[]);
 
@@ -1435,14 +1441,14 @@ impl Renderer {
 
         // Pipeline layout has no group 1 — shader doesn't declare one.
         // Groups 0 (engine camera) and 2 (texture) are sufficient.
-        let pipeline_layout = self
-            .ctx
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("sprite instanced pipeline layout"),
-                bind_group_layouts: &[Some(&self.engine.layout), None, Some(texture_layout)],
-                immediate_size: 0,
-            });
+        let pipeline_layout =
+            self.ctx
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("sprite instanced pipeline layout"),
+                    bind_group_layouts: &[Some(&self.engine.layout), None, Some(texture_layout)],
+                    immediate_size: 0,
+                });
 
         // Vertex buffer attribute offsets must match `SpriteData` AoS so
         // both paths share the same CPU upload. color_rgba at offset 32 is

@@ -129,7 +129,9 @@ pub fn bake_atlas(
     let row_h = max_h + 2;
     // Approximate square atlas with 20 % slack so row wraps don't run out.
     let total_area = (total_w as f32) * (row_h as f32) * 1.2;
-    let atlas_w = (total_area.sqrt().ceil() as u32).next_power_of_two().max(256);
+    let atlas_w = (total_area.sqrt().ceil() as u32)
+        .next_power_of_two()
+        .max(256);
     // First pass: lay out positions (row-first).
     let mut pen_x: u32 = 0;
     let mut pen_y: u32 = 0;
@@ -154,7 +156,7 @@ pub fn bake_atlas(
             for gx in 0..metrics.width {
                 let src = bitmap[gy * metrics.width + gx];
                 let dst = (((y + gy as u32) * atlas_w) + (x + gx as u32)) as usize * 4;
-                buf[dst + 0] = 255;
+                buf[dst] = 255;
                 buf[dst + 1] = 255;
                 buf[dst + 2] = 255;
                 buf[dst + 3] = src;
@@ -241,15 +243,14 @@ impl TextNode {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let uniforms_bind_group =
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("text uniforms bind group"),
-                layout: uniforms_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniforms_buffer.as_entire_binding(),
-                }],
-            });
+        let uniforms_bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("text uniforms bind group"),
+            layout: uniforms_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniforms_buffer.as_entire_binding(),
+            }],
+        });
         Self {
             atlas,
             content: String::new(),
@@ -272,7 +273,8 @@ impl TextNode {
             world_space: if self.world_space { 1.0 } else { 0.0 },
             _pad: [0.0; 3],
         };
-        ctx.queue.write_buffer(&self.uniforms_buffer, 0, bytemuck::bytes_of(&u));
+        ctx.queue
+            .write_buffer(&self.uniforms_buffer, 0, bytemuck::bytes_of(&u));
     }
 
     /// Re-tessellate the text into the vertex buffer. Cheap (≤ capacity
@@ -337,19 +339,38 @@ impl TextNode {
                 }
             };
             let x0 = origin_x + (pen_x + glyph.quad_offset[0]) * scale;
-            let y0 = origin_y
-                + (baseline - glyph.quad_offset[1] - glyph.quad_size[1]) * scale;
+            let y0 = origin_y + (baseline - glyph.quad_offset[1] - glyph.quad_size[1]) * scale;
             let x1 = x0 + glyph.quad_size[0] * scale;
             let y1 = y0 + glyph.quad_size[1] * scale;
             let [u0, v0, uw, vh] = glyph.uv;
             let u1 = u0 + uw;
             let v1 = v0 + vh;
-            let tl = TextVertex { pos: [x0, y0], uv: [u0, v0], color: [r, g, b, a] };
-            let tr = TextVertex { pos: [x1, y0], uv: [u1, v0], color: [r, g, b, a] };
-            let br = TextVertex { pos: [x1, y1], uv: [u1, v1], color: [r, g, b, a] };
-            let bl = TextVertex { pos: [x0, y1], uv: [u0, v1], color: [r, g, b, a] };
-            verts.push(tl); verts.push(tr); verts.push(br);
-            verts.push(tl); verts.push(br); verts.push(bl);
+            let tl = TextVertex {
+                pos: [x0, y0],
+                uv: [u0, v0],
+                color: [r, g, b, a],
+            };
+            let tr = TextVertex {
+                pos: [x1, y0],
+                uv: [u1, v0],
+                color: [r, g, b, a],
+            };
+            let br = TextVertex {
+                pos: [x1, y1],
+                uv: [u1, v1],
+                color: [r, g, b, a],
+            };
+            let bl = TextVertex {
+                pos: [x0, y1],
+                uv: [u0, v1],
+                color: [r, g, b, a],
+            };
+            verts.push(tl);
+            verts.push(tr);
+            verts.push(br);
+            verts.push(tl);
+            verts.push(br);
+            verts.push(bl);
             pen_x += glyph.advance;
         }
 
@@ -392,23 +413,25 @@ pub struct TextRegistry {
 impl TextRegistry {
     pub fn new(ctx: &GpuContext) -> Self {
         let uniforms_layout =
-            ctx.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("text uniforms layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(
-                            std::mem::size_of::<TextUniforms>() as u64,
-                        ),
-                    },
-                    count: None,
-                }],
-            });
-        let atlas_layout =
-            ctx.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            ctx.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("text uniforms layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                std::mem::size_of::<TextUniforms>() as u64,
+                            ),
+                        },
+                        count: None,
+                    }],
+                });
+        let atlas_layout = ctx
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("text atlas layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -446,8 +469,9 @@ impl TextRegistry {
         engine_layout: &wgpu::BindGroupLayout,
         surface_format: wgpu::TextureFormat,
     ) {
-        let pipeline_layout =
-            ctx.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = ctx
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("text pipeline layout"),
                 bind_group_layouts: &[
                     Some(engine_layout),
@@ -543,26 +567,19 @@ mod tests {
         assert_eq!(std::mem::offset_of!(TextUniforms, world_space), 0);
         assert_eq!(core::mem::offset_of!(TextUniforms, _pad), 4);
     }
-}
-    /// M8 plan: assert every char in `DEFAULT_CHARSET` rasterizes
-    /// to a non-empty glyph. Without this, a missing/broken glyph
-    /// would only surface as a tofu character at runtime.
+
+    /// Assert every char in `DEFAULT_CHARSET` rasterizes to a non-empty glyph.
     #[test]
     fn charset_coverage_complete() {
         use fontdue::FontSettings;
         let font_bytes = include_bytes!("fonts/silkscreen.ttf");
-        let font = Font::from_bytes(font_bytes.to_vec(), FontSettings::default())
-            .expect("font file parse");
+        let font =
+            Font::from_bytes(&font_bytes[..], FontSettings::default()).expect("font file parse");
         for ch in DEFAULT_CHARSET.chars() {
-            // Space (and any intentional whitespace) advances the pen with no
-            // rasterized pixels — width 0 is correct there, so skip it.
             if ch.is_whitespace() {
                 continue;
             }
             let (metrics, _bitmap) = font.rasterize(ch, 12.0);
-            // `metrics.width` is usize, so `>= 0` was vacuously true and the
-            // test could never catch a missing glyph. A tofu/absent glyph
-            // rasterizes to width 0 — require a real positive width.
             assert!(
                 metrics.width > 0,
                 "Glyph for {:?} rasterized empty (missing/tofu): width={}",
@@ -570,4 +587,5 @@ mod tests {
                 metrics.width,
             );
         }
+    }
 }

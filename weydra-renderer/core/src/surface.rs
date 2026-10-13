@@ -43,7 +43,11 @@ impl<'window> RenderSurface<'window> {
 
         surface.configure(&ctx.device, &config);
 
-        Ok(Self { surface, config, format })
+        Ok(Self {
+            surface,
+            config,
+            format,
+        })
     }
 
     /// Resize the swap chain. Must be called when the window/canvas size changes.
@@ -73,9 +77,9 @@ impl<'window> RenderSurface<'window> {
             }
             wgpu::CurrentSurfaceTexture::Timeout => Ok(None),
             wgpu::CurrentSurfaceTexture::Occluded => Ok(None),
-            wgpu::CurrentSurfaceTexture::Validation => {
-                Err(WeydraError::SurfaceAcquireFailed("surface validation failed"))
-            }
+            wgpu::CurrentSurfaceTexture::Validation => Err(WeydraError::SurfaceAcquireFailed(
+                "surface validation failed",
+            )),
         }
     }
 }

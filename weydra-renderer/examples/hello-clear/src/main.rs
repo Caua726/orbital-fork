@@ -2,7 +2,7 @@
 //! Validates the core wgpu pipeline end-to-end without the browser stack.
 
 use std::sync::Arc;
-use weydra_renderer::{render_clear, GpuContext, RenderSurface};
+use weydra_renderer::{GpuContext, RenderSurface, render_clear};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -22,8 +22,7 @@ impl ApplicationHandler for App {
                 .expect("failed to create window"),
         );
 
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let surface = instance
             .create_surface(window.clone())
             .expect("surface creation failed");
@@ -32,8 +31,8 @@ impl ApplicationHandler for App {
             .expect("gpu init failed");
 
         let size = window.surface_size();
-        let render_surface =
-            RenderSurface::configure(&ctx, surface, size.width, size.height).expect("surface config");
+        let render_surface = RenderSurface::configure(&ctx, surface, size.width, size.height)
+            .expect("surface config");
 
         self.window = Some(window);
         self.surface = Some(render_surface);

@@ -32,19 +32,20 @@ impl<T: bytemuck::Pod + bytemuck::Zeroable> UniformPool<T> {
 
         let layout_label = format!("{label} layout");
         let bind_group_layout =
-            ctx.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some(&layout_label),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(element_size),
-                    },
-                    count: None,
-                }],
-            });
+            ctx.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some(&layout_label),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(element_size),
+                        },
+                        count: None,
+                    }],
+                });
 
         let bg_label = format!("{label} bind group");
         let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {

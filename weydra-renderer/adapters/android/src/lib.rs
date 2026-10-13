@@ -8,7 +8,7 @@
 //! (#[no_mangle] pub extern fn ANativeActivity_onCreate) ficam pro M12.
 
 use std::sync::Arc;
-use weydra_renderer::{render_clear, GpuContext, RenderSurface, Result, WeydraError};
+use weydra_renderer::{GpuContext, RenderSurface, Result, WeydraError, render_clear};
 use winit::window::Window;
 
 /// Android renderer bound to a winit Window.
@@ -36,15 +36,16 @@ impl AndroidRenderer {
             .map_err(|e| WeydraError::SurfaceCreationFailed(e.to_string()))?;
 
         // LowPower picks the efficiency GPU — mobile battery matters.
-        let ctx = GpuContext::new_with_surface_pref(
-            instance,
-            &surface,
-            wgpu::PowerPreference::LowPower,
-        )
-        .await?;
+        let ctx =
+            GpuContext::new_with_surface_pref(instance, &surface, wgpu::PowerPreference::LowPower)
+                .await?;
         let surface = RenderSurface::configure(&ctx, surface, size.width, size.height)?;
 
-        Ok(Self { surface, ctx, _window: window })
+        Ok(Self {
+            surface,
+            ctx,
+            _window: window,
+        })
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

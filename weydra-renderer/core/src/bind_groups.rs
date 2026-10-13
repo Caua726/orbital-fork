@@ -18,19 +18,21 @@ impl EngineBindings {
             mapped_at_creation: false,
         });
 
-        let layout = ctx.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("weydra engine bind group layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(CameraUniforms::BYTE_SIZE),
-                },
-                count: None,
-            }],
-        });
+        let layout = ctx
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("weydra engine bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(CameraUniforms::BYTE_SIZE),
+                    },
+                    count: None,
+                }],
+            });
 
         let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("weydra engine bind group"),
@@ -41,11 +43,16 @@ impl EngineBindings {
             }],
         });
 
-        Self { camera_buffer, layout, bind_group }
+        Self {
+            camera_buffer,
+            layout,
+            bind_group,
+        }
     }
 
     /// Write camera uniforms to GPU. Call once per frame before any mesh draw.
     pub fn update(&self, ctx: &GpuContext, uniforms: &CameraUniforms) {
-        ctx.queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(uniforms));
+        ctx.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(uniforms));
     }
 }

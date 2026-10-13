@@ -14,6 +14,7 @@ pub struct Mesh {
 }
 
 impl Mesh {
+    #[allow(clippy::too_many_arguments)] // pipeline construction needs each GPU contract explicitly
     pub fn new(
         ctx: &GpuContext,
         registry: &ShaderRegistry,
@@ -33,8 +34,9 @@ impl Mesh {
         }
 
         let pipeline_layout_label = format!("{label} layout");
-        let pipeline_layout =
-            ctx.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = ctx
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&pipeline_layout_label),
                 bind_group_layouts: &layouts,
                 immediate_size: 0,

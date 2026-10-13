@@ -21,9 +21,11 @@ pub fn render_clear(
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
 
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("weydra clear encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("weydra clear encoder"),
+        });
 
     {
         let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

@@ -35,17 +35,17 @@ pub use frame::render_clear;
 pub use graphics::{Graphics, GraphicsCmd, GraphicsPool, GraphicsUniforms, GraphicsVertex};
 pub use mesh::Mesh;
 pub use pools::{
-    FogPool, FogUniforms, PlanetPool, PlanetUniforms, VisionSource, FOG_MAX_SOURCES,
-    FOG_UNIFORMS_SIZE, PLANET_UNIFORMS_SIZE,
+    FOG_MAX_SOURCES, FOG_UNIFORMS_SIZE, FogPool, FogUniforms, PLANET_UNIFORMS_SIZE, PlanetPool,
+    PlanetUniforms, VisionSource,
 };
 pub use render_target::RenderTarget;
 pub use shader::{ShaderHandle, ShaderRegistry};
 pub use slotmap::{Handle, SlotMap};
-pub use sprite::{SpriteMeta, SpritePool, SpriteTransform, SpriteUv, FLAG_VISIBLE};
+pub use sprite::{FLAG_VISIBLE, SpriteMeta, SpritePool, SpriteTransform, SpriteUv};
 pub use surface::RenderSurface;
 pub use text::{
-    bake_atlas, GlyphAtlas, GlyphInfo, TextNode, TextRegistry, TextUniforms, TextVertex,
-    DEFAULT_CHARSET,
+    DEFAULT_CHARSET, GlyphAtlas, GlyphInfo, TextNode, TextRegistry, TextUniforms, TextVertex,
+    bake_atlas,
 };
 pub use texture::{Texture, TextureRegistry};
 pub use uniform_pool::UniformPool;

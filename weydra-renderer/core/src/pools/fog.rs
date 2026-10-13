@@ -96,22 +96,23 @@ impl FogPool {
         // `min_binding_size` is the full struct — 1040 B fits well under
         // the WebGPU 64 KiB UBO max. No dynamic offset: one fog instance
         // per frame.
-        let min_binding_size =
-            wgpu::BufferSize::new(byte_size).expect("FogUniforms is non-zero (compile-time asserted)");
+        let min_binding_size = wgpu::BufferSize::new(byte_size)
+            .expect("FogUniforms is non-zero (compile-time asserted)");
         let bind_group_layout =
-            ctx.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some(&layout_label),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(min_binding_size),
-                    },
-                    count: None,
-                }],
-            });
+            ctx.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some(&layout_label),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: Some(min_binding_size),
+                        },
+                        count: None,
+                    }],
+                });
 
         let bg_label = format!("{label} bind group");
         let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -123,8 +124,7 @@ impl FogPool {
             }],
         });
 
-        let mut instances = Vec::with_capacity(1);
-        instances.push(FogUniforms::default());
+        let instances = vec![FogUniforms::default()];
 
         Self {
             instances,

@@ -16,5 +16,5 @@
 pub mod fog;
 pub mod planet;
 
-pub use fog::{FogPool, FogUniforms, VisionSource, FOG_MAX_SOURCES, FOG_UNIFORMS_SIZE};
-pub use planet::{PlanetPool, PlanetUniforms, PLANET_UNIFORMS_SIZE};
+pub use fog::{FOG_MAX_SOURCES, FOG_UNIFORMS_SIZE, FogPool, FogUniforms, VisionSource};
+pub use planet::{PLANET_UNIFORMS_SIZE, PlanetPool, PlanetUniforms};

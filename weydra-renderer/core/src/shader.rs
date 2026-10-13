@@ -16,7 +16,10 @@ pub struct ShaderRegistry {
 
 impl ShaderRegistry {
     pub fn new() -> Self {
-        Self { shaders: Vec::new(), by_hash: HashMap::new() }
+        Self {
+            shaders: Vec::new(),
+            by_hash: HashMap::new(),
+        }
     }
 
     /// Compile a WGSL source string into a shader module. Cached by source
@@ -27,13 +30,18 @@ impl ShaderRegistry {
             return ShaderHandle(idx);
         }
 
-        let module = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
-        });
+        let module = ctx
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(label),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            });
 
         let idx = self.shaders.len() as u32;
-        self.shaders.push(CompiledShader { module, source_hash: hash });
+        self.shaders.push(CompiledShader {
+            module,
+            source_hash: hash,
+        });
         self.by_hash.insert(hash, idx);
         ShaderHandle(idx)
     }
@@ -44,7 +52,9 @@ impl ShaderRegistry {
 }
 
 impl Default for ShaderRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Deterministic hash so cache hits on repeated compile calls. `RandomState`

@@ -70,13 +70,15 @@ impl<T> SlotMap<T> {
             let slot = len as u32;
             self.slots.push(Some(value));
             self.generations.push(0);
-            Handle { slot, generation: 0 }
+            Handle {
+                slot,
+                generation: 0,
+            }
         }
     }
 
     pub fn get(&self, h: Handle) -> Option<&T> {
-        if (h.slot as usize) < self.slots.len()
-            && self.generations[h.slot as usize] == h.generation
+        if (h.slot as usize) < self.slots.len() && self.generations[h.slot as usize] == h.generation
         {
             self.slots[h.slot as usize].as_ref()
         } else {
@@ -85,8 +87,7 @@ impl<T> SlotMap<T> {
     }
 
     pub fn get_mut(&mut self, h: Handle) -> Option<&mut T> {
-        if (h.slot as usize) < self.slots.len()
-            && self.generations[h.slot as usize] == h.generation
+        if (h.slot as usize) < self.slots.len() && self.generations[h.slot as usize] == h.generation
         {
             self.slots[h.slot as usize].as_mut()
         } else {
@@ -104,8 +105,7 @@ impl<T> SlotMap<T> {
         if v.is_some() {
             // wrapping_add so a hot slot recycled 2^32 times still yields
             // a valid, distinct generation number rather than panicking.
-            self.generations[h.slot as usize] =
-                self.generations[h.slot as usize].wrapping_add(1);
+            self.generations[h.slot as usize] = self.generations[h.slot as usize].wrapping_add(1);
             self.free.push(h.slot);
         }
         v
