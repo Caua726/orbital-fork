@@ -132,6 +132,16 @@ export class Renderer {
     return new Renderer(inner);
   }
 
+  /**
+   * Largest canvas edge the device accepts. `Surface::configure` validates the
+   * backing store against it, so callers must clamp their canvas size with this
+   * value — the WebGPU spec guarantee (8192) is not what the device was created
+   * with on every backend.
+   */
+  get maxTextureDimension2d(): number {
+    return this.inner.max_texture_dimension_2d();
+  }
+
   resize(width: number, height: number): void {
     if (!Number.isFinite(width) || !Number.isFinite(height)) {
       throw new Error(`weydra resize: invalid dimensions ${width}x${height}`);

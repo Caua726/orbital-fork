@@ -115,15 +115,25 @@ const CREDITS_BAR_HABILITADO = false;
 const GLOBE_HABILITADO = false;
 const _guardedCanvases = new WeakSet<HTMLCanvasElement>();
 
-function instalarGuardasCanvas(canvas: HTMLCanvasElement): void {
+function instalarGuardasCanvas(canvas: HTMLCanvasElement, engine: GraphicsEngine): void {
   if (_guardedCanvases.has(canvas)) return;
   _guardedCanvases.add(canvas);
   canvas.addEventListener('webglcontextlost', (event: Event) => {
     // app.destroy() deliberately loses its context during an engine
     // transaction. That is teardown, not a recoverable device failure.
     if (_transitioning || !canvas.isConnected) return;
+    console.warn(`[renderer] contexto WebGL perdido (${engine})`);
+    if (engine === 'weydra') {
+      // Weydra não recria buffers/pipelines/texturas de um contexto perdido, e
+      // preventDefault() faria o navegador "restaurar" um contexto que o
+      // renderer não sabe reconstruir (quadro preto silencioso). Tratar como
+      // fatal troca a sessão para o Pixi, que reconstrói tudo do DTO.
+      window.dispatchEvent(new CustomEvent('orbital:renderer-fatal', {
+        detail: { engine: 'weydra', error: new Error('contexto WebGL perdido') },
+      }));
+      return;
+    }
     event.preventDefault();
-    console.warn('[renderer] WebGL context lost — requesting restore');
     void abrirSaveModal({
       title: 'CONTEXTO GRÁFICO PERDIDO',
       severity: 'erro',
@@ -152,7 +162,10 @@ async function bootstrap(): Promise<void> {
 
   const runtime = await initializeEngineRuntime();
   const app = runtime.app;
-  if (runtime.engine === 'pixi') instalarGuardasCanvas(runtime.canvas);
+  // Both engines paint into a canvas that the browser can lose (WebGL context
+  // loss); the guard is what turns that into a visible failure instead of a
+  // frozen frame.
+  instalarGuardasCanvas(runtime.canvas, runtime.engine);
   const gfx = getConfig().graphics;
   const renderScale = gfx.renderScale ?? 1;
   await import('./world/profiling');
@@ -1252,7 +1265,7 @@ async function montarRuntimeComSnapshot(engine: GraphicsEngine, dto: MundoDTO | 
   const runtime = await initializeEngineRuntime(engine);
   _app = runtime.app;
   (window as any)._app = runtime.app;
-  if (runtime.engine === 'pixi') instalarGuardasCanvas(runtime.canvas);
+  instalarGuardasCanvas(runtime.canvas, runtime.engine);
   setAppReferenceForBake(runtime.app);
   setAppReferenceForFundo(runtime.app);
 

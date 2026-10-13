@@ -1009,6 +1009,14 @@ impl Renderer {
         self.sprites.capacity() as u32
     }
 
+    /// Largest canvas edge the device accepts (`Surface::configure` validates
+    /// against it). The game clamps its backing store with this instead of the
+    /// 8192 px WebGPU guarantee, which is above what a WebGL2 device created
+    /// from `downlevel_webgl2_defaults` used to allow.
+    pub fn max_texture_dimension_2d(&self) -> u32 {
+        self.ctx.device.limits().max_texture_dimension_2d
+    }
+
     pub fn mem_version(&self) -> u32 {
         self.mem_version
     }
@@ -1056,9 +1064,7 @@ impl Renderer {
             Some(f) => f,
             None => return Ok(()),
         };
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = self.surface.view_for(&frame.texture);
 
         // Collect visible sprite slots ordered by (texture_id, z_order) so
         // the draw loop below emits one call per contiguous same-texture run.

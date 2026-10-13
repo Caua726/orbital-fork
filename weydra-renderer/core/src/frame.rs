@@ -17,9 +17,7 @@ pub fn render_clear(
         Some(t) => t,
         None => return Ok(()),
     };
-    let view = frame
-        .texture
-        .create_view(&wgpu::TextureViewDescriptor::default());
+    let view = target.view_for(&frame.texture);
 
     let mut encoder = ctx
         .device

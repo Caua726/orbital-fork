@@ -75,13 +75,14 @@ function renderScaleAtual(): number {
   }
 }
 
-// WebGPU's guaranteed `maxTextureDimension2D` is 8192 (WebGL2 is usually
-// higher). A backing store larger than the adapter limit renders blank on
-// WebGPU / falls back to 0×0 on some WebGL drivers, so clamp to this even
-// when renderScale × dpr would exceed it (e.g. renderScale 4 on a 4K
-// high-DPI display). Reducing the effective scale to fit is far better than
-// a black screen.
-const MAX_BACKING_DIM = 8192;
+// WebGPU's guaranteed `maxTextureDimension2D` is 8192; the real limit comes
+// from the device (see `max_texture_dimension_2d` on the Rust side) and is
+// copied into `_maxBackingDim` right after the renderer is created. A backing
+// store larger than the limit fails `Surface::configure` outright (the canvas
+// stays black and, on WebGPU, wgpu treats the validation error as fatal), so
+// clamping and letting the browser upscale is far better.
+const DEFAULT_MAX_BACKING_DIM = 8192;
+let _maxBackingDim = DEFAULT_MAX_BACKING_DIM;
 
 /** Physical backing-store size for the canvas: CSS size × dpr × renderScale,
  *  clamped so neither dimension exceeds the GPU's max texture size. */
@@ -91,7 +92,7 @@ function computeBackingSize(canvas: HTMLCanvasElement): { width: number; height:
   const cssH = canvas.clientHeight || window.innerHeight;
   let w = Math.max(1, Math.floor(cssW * dpr));
   let h = Math.max(1, Math.floor(cssH * dpr));
-  const over = Math.max(w, h) / MAX_BACKING_DIM;
+  const over = Math.max(w, h) / _maxBackingDim;
   if (over > 1) {
     w = Math.max(1, Math.floor(w / over));
     h = Math.max(1, Math.floor(h / over));
@@ -236,6 +237,12 @@ export async function startWeydra(): Promise<WeydraStartResult> {
     _renderCanvas = null;
     throw new Error(`Weydra não inicializou em nenhum backend: ${errors.join(' | ')}`);
   }
+
+  // The device's real texture limit is only known now: a canvas sized with the
+  // 8192 default would exceed it on adapters that report less (and the surface
+  // configure would fail). Re-apply the backing size with the actual limit.
+  _maxBackingDim = _renderer.maxTextureDimension2d || DEFAULT_MAX_BACKING_DIM;
+  aplicarTamanhoRenderizador();
 
   // Re-read DPR each call — moving the window across monitors changes it.
   // AbortController lets stopWeydra detach so re-init doesn't stack listeners.
