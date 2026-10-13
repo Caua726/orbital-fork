@@ -116,6 +116,7 @@ export function serializarMundo(
     fontesVisao: mundo.fontesVisao.map((f) => ({ x: f.x, y: f.y, raio: f.raio })),
     seedMusical: mundo.seedMusical,
     galaxySeed: mundo.galaxySeed,
+    match: { ...mundo.match },
     personalidadesIa: getPersonalidades().map((ia) => ({
       id: ia.id,
       nome: ia.nome,

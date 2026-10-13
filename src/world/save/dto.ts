@@ -1,7 +1,19 @@
 import type { Recursos, DadosPlaneta, OrbitaPlaneta, OrbitaNave, FonteVisao } from '../../types';
 import type { Dificuldade } from '../personalidade-ia';
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
+
+export type MatchObjective = 'conquista' | 'economia' | 'ciencia' | 'sobrevivencia' | 'exploracao' | 'livre';
+export type MatchStatus = 'playing' | 'victory' | 'defeat' | 'sandbox';
+
+export interface MatchStateDTO {
+  objective: MatchObjective;
+  status: MatchStatus;
+  simulationTimeMs: number;
+  survivalElapsedMs: number;
+  achievedAtMs?: number;
+  continuedAfterVictory?: boolean;
+}
 
 // Root
 
@@ -54,6 +66,8 @@ export interface MundoDTO {
   procNamesUsados?: string[];
   /** Deterministic seed for all lore generation — same seed → same history. */
   galaxySeed?: number;
+  /** Objective/result and engine-neutral clocks (v3). */
+  match?: MatchStateDTO;
 }
 
 /**
@@ -164,9 +178,7 @@ export interface NaveDTO {
   rotaCargueira: RotaCargueiraDTO | null;
   /** Combat HP — omitted = ship is at STATS_COMBATE max for its type. */
   hp?: number;
-  /** Last performance.now() at which the ship fired (cooldown gate).
-   *  NOT restored verbatim — performance.now() resets across a page reload,
-   *  so reconstruir rebases the cooldown to load time. */
+  /** Last engine-neutral simulation timestamp at which the ship fired. */
   ultimoTiroMs?: number;
   /** Colonizadora ordered to scrap itself on arrival at origin. */
   scrapAoChegar?: boolean;

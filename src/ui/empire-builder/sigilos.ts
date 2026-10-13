@@ -1492,7 +1492,7 @@ function addSatellites(svg: SVGSVGElement, count: number, radius: number): void 
 function pickMotifFor(rng: () => number, frameSim: number): MotifKind {
   const weights: Array<readonly [MotifKind, number]> = MOTIFS.map((m) => {
     const s = MOTIF_SIM[m];
-    let w = 1;
+    let w: number;
     if (frameSim === 0 || s === 0) w = 1;                // free pairing
     else if (s === frameSim) w = 5;                       // strong match
     else if (s === frameSim * 2 || s * 2 === frameSim) w = 3;  // harmonic

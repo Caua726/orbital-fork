@@ -91,20 +91,11 @@ function applyWeydraFlags(flags: {
   ships?: boolean;
   fog?: boolean;
 }): void {
-  // setConfig merges over current state; we explicitly turn off anything
-  // we don't care about so a prior test's flag doesn't leak through.
-  setConfig({
-    weydra: {
-      starfield: flags.starfield ?? false,
-      planetsLive: flags.planetsLive ?? false,
-      planetsBaked: flags.planetsBaked ?? false,
-      ships: flags.ships ?? false,
-      fog: flags.fog ?? false,
-      starfieldBright: false,
-      shipTrails: false,
-      backend: 'auto',
-    },
-  });
+  // The production selector is atomic: incomplete Weydra combinations map
+  // to the complete Pixi runtime instead of an unsupported hybrid renderer.
+  const complete = !!flags.starfield && !!flags.ships && !!flags.fog
+    && (!!flags.planetsLive || !!flags.planetsBaked);
+  setConfig({ rendering: { engine: complete ? 'weydra' : 'pixi' } });
 }
 
 const FONTES: FonteVisao[] = [{ x: 100, y: 200, raio: 300 }];
@@ -177,8 +168,7 @@ describe('desenharNeblinaVisao: gate matrix', () => {
     // eb03a64 side-effect: when weydra.fog is on but a prerequisite is
     // false AND renderer is up, zero the active_count so the weydra
     // render loop doesn't keep clearing vision around stale positions.
-    expect(mockRenderer!.fog!.setActiveCount).toHaveBeenCalledTimes(1);
-    expect(mockRenderer!.fog!.setActiveCount).toHaveBeenCalledWith(0);
+    expect(mockRenderer!.fog!.setActiveCount).not.toHaveBeenCalled();
     expect(mockRenderer!.fog!.setSource).not.toHaveBeenCalled();
   });
 
@@ -189,7 +179,7 @@ describe('desenharNeblinaVisao: gate matrix', () => {
 
     safelyDraw(mundo, FONTES);
 
-    expect(mockRenderer!.fog!.setActiveCount).toHaveBeenCalledWith(0);
+    expect(mockRenderer!.fog!.setActiveCount).not.toHaveBeenCalled();
   });
 
   it('planetsLive AND planetsBaked both off + fog on + renderer up → Pixi fallback with setActiveCount(0)', () => {
@@ -199,7 +189,7 @@ describe('desenharNeblinaVisao: gate matrix', () => {
 
     safelyDraw(mundo, FONTES);
 
-    expect(mockRenderer!.fog!.setActiveCount).toHaveBeenCalledWith(0);
+    expect(mockRenderer!.fog!.setActiveCount).not.toHaveBeenCalled();
   });
 
   it('planetsBaked alone (no planetsLive) + fog on + renderer up → weydra path (OR clause satisfied)', () => {

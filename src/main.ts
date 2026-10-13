@@ -17,9 +17,9 @@ import { setPersonalidadesParaMundoCarregado } from './world/ia-decisao';
 import { gerarLoreFaccao } from './world/lore-faccao';
 import { criarMundoMenu, atualizarMundoMenu, destruirMundoMenu, type MundoMenu } from './world/mundo-menu';
 import { configurarCamera, destruirCamera, atualizarCamera, getCamera, setCameraPos, setCameraPosAnimated, setTipoJogador, zoomIn, zoomOut, setZoom, instalarEdgeScroll, aplicarEdgeScrollAoCamera, cancelarComandoNaveSeAtivo, clearCameraFollow } from './core/player';
-import { instalarDispatcher, onAction, onActionUp } from './core/input/dispatcher';
+import { instalarDispatcher, onAction, onActionUp, setDispatcherHabilitado } from './core/input/dispatcher';
 import { criarSidebar, destruirSidebar } from './ui/sidebar';
-import { criarMobileMenuBtn } from './ui/mobile-menu-btn';
+import { criarMobileMenuBtn, destruirMobileMenuBtn } from './ui/mobile-menu-btn';
 import { criarEmpireBadge, atualizarEmpireBadge, setEmpireBadgeOnClick, destruirEmpireBadge } from './ui/empire-badge';
 import { abrirEmpireModal, atualizarEmpireModal, destruirEmpireModal } from './ui/empire-modal';
 import { criarChatLog, destruirChatLog } from './ui/chat-log';
@@ -29,7 +29,7 @@ import { criarMinimap, atualizarMinimap, onMinimapClick, onMinimapZoomIn, onMini
 import { criarDebugMenu, atualizarDebugMenu, getDebugState, getCheats, destruirDebugMenu, setGameSpeed, fecharDebugOverlays, toggleDebugFast, toggleDebugFull } from './ui/debug-menu';
 import { installRootVariables } from './ui/hud-layout';
 import { instalarUiMode } from './core/ui-mode';
-import { criarZoomControls } from './ui/zoom-controls';
+import { criarZoomControls, destruirZoomControls } from './ui/zoom-controls';
 import { injectMobileStyles } from './ui/mobile.css';
 import { injectAnimations } from './ui/animations.css';
 import { criarPlanetPanel, atualizarPlanetPanel, destruirPlanetPanel } from './ui/planet-panel';
@@ -53,20 +53,24 @@ import { criarColonyModal, atualizarColonyModal, destruirColonyModal } from './u
 import { criarConfirmDialog, destruirConfirmDialog } from './ui/confirm-dialog';
 import { criarMainMenu, esconderMainMenu, mostrarMainMenu } from './ui/main-menu';
 import { abrirPauseMenu, isPauseMenuOpen } from './ui/pause-menu';
-import { reconstruirMundo, iniciarAutosave, pararAutosave, instalarListenersCicloDeVida, acumularTempoJogado, lerEMigrarComRelatorio, recuperarEmergency, salvarAgora, getBackendAtivo, getUltimoErro } from './world/save';
-import { instalarProviderRuntimeExtras } from './world/save/serializar';
+import { reconstruirMundo, iniciarAutosave, pararAutosave, instalarListenersCicloDeVida, acumularTempoJogado, getTempoJogadoMs, lerEMigrarComRelatorio, recuperarEmergency, salvarAgora, getBackendAtivo, getUltimoErro } from './world/save';
+import { instalarProviderRuntimeExtras, serializarMundo } from './world/save/serializar';
 import { reconciliarMundo, resumirDiagnosticos } from './world/save/reconciler';
 import { abrirSaveModal } from './ui/save-modal';
 import type { MundoDTO } from './world/save';
 import { toast } from './ui/toast';
-import { getConfig, setConfigDuranteBoot, onConfigChange, isAnyWeydraSubsystemOn } from './core/config';
+import { getConfig, onConfigChange, setConfig, setGraphicsEngine, type GraphicsEngine, type PixiBackend, type WeydraBackend } from './core/config';
 import { abrirNewWorldModal } from './ui/new-world-modal';
 import { criarLoadingScreen, mostrarCarregando, esconderCarregando, setLoadingFase } from './ui/loading-screen';
 import { t } from './core/i18n/t';
 import { somVitoria, somDerrota } from './audio/som';
 import { iniciarMusicaAmbiente, pararMusicaAmbiente } from './audio/musica-ambiente';
 import { setAppReferenceForBake, precompilarShadersPlaneta } from './world/planeta-procedural';
-import { startWeydraM1, setRenderFpsCap, aplicarTamanhoRenderizador, takePaintedFrameCount } from './weydra-loader';
+import { setRenderFpsCap, aplicarTamanhoRenderizador, takePaintedFrameCount } from './weydra-loader';
+import { destroyEngineRuntime, initializeEngineRuntime, resizeEngineRuntime } from './core/engine-runtime';
+import { fecharTelaErro, instalarErrorBoundary, mostrarTelaErro } from './ui/error-screen';
+import { abrirMatchResultModal } from './ui/match-result-modal';
+import { continuarComoSandbox } from './world/match-state';
 // Top-level state shared across bootstrap, iniciarJogoNovo, and carregarMundo.
 let _app: Application | null = null;
 let _mundo: Mundo | null = null;
@@ -75,6 +79,15 @@ let _gameStarted = false;
 let _hudInstalled = false;
 let _transitioning = false;
 let _fimTocado = false;
+let _sessionMeta: { nome: string; criadoEm: number } | null = null;
+
+interface EngineSwitchRequest {
+  engine: GraphicsEngine;
+  pixiBackend?: PixiBackend;
+  weydraBackend?: WeydraBackend;
+  pixiWebglVersion?: 'auto' | '1' | '2';
+  pixiGpuPreference?: 'auto' | 'high-performance' | 'low-power';
+}
 
 // Cinematic camera state during the main menu. Accumulated seconds,
 // fed into layered sines for a non-circular, more organic drift.
@@ -100,8 +113,36 @@ const CREDITS_BAR_HABILITADO = false;
 /** Decorative globe icon inside the credits bar (only relevant if
  *  CREDITS_BAR_HABILITADO is also true). */
 const GLOBE_HABILITADO = false;
+const _guardedCanvases = new WeakSet<HTMLCanvasElement>();
+
+function instalarGuardasCanvas(canvas: HTMLCanvasElement): void {
+  if (_guardedCanvases.has(canvas)) return;
+  _guardedCanvases.add(canvas);
+  canvas.addEventListener('webglcontextlost', (event: Event) => {
+    // app.destroy() deliberately loses its context during an engine
+    // transaction. That is teardown, not a recoverable device failure.
+    if (_transitioning || !canvas.isConnected) return;
+    event.preventDefault();
+    console.warn('[renderer] WebGL context lost — requesting restore');
+    void abrirSaveModal({
+      title: 'CONTEXTO GRÁFICO PERDIDO',
+      severity: 'erro',
+      summary: 'O navegador perdeu o contexto WebGL. Recarregue pra recuperar a renderização dos planetas.',
+      actions: [
+        { label: 'Recarregar agora', value: 'reload', variant: 'primary' },
+        { label: 'Depois', value: 'cancel', variant: 'neutral' },
+      ],
+    }).then((choice) => {
+      if (choice === 'reload') window.location.reload();
+    });
+  });
+  canvas.addEventListener('webglcontextrestored', () => {
+    if (!_transitioning) console.info('[renderer] WebGL context restored');
+  });
+}
 
 async function bootstrap(): Promise<void> {
+  instalarErrorBoundary();
   installRootVariables();
   // Instrument long tasks, layout shifts, paints, event-delay,
   // listener/timer/RAF counts. Cheap — observers run on browser's
@@ -109,211 +150,11 @@ async function bootstrap(): Promise<void> {
   const { instalarInstrumentacao } = await import('./core/profiling-instr');
   instalarInstrumentacao();
 
-  // M10.1: Pixi Application removed. The `app` shim below implements
-  // just enough of Pixi's Application surface (canvas / screen /
-  // renderer / stage / ticker) for the call sites that still take
-  // `app: Application` as a parameter. The weydra canvas (from
-  // index.html) is the only canvas. The game loop in startTicker
-  // runs on `requestAnimationFrame`, not on the Pixi ticker.
-  //
-  // M10 review bug: `app.screen` and `app.renderer.resize` were
-  // frozen at boot. Update both on window resize so the camera-pan
-  // math (src/core/player.ts uses `app.screen.width`) and the
-  // weydra canvas backing store (CSS-pixels × dpr) stay correct
-  // when the user resizes the window.
-  const weydraCanvas = document.getElementById('weydra-canvas') as HTMLCanvasElement;
-  const appScreen = { width: window.innerWidth, height: window.innerHeight };
-  const app: Application = {
-    canvas: weydraCanvas,
-    screen: appScreen,
-    renderer: {
-      resize: (cssW: number, cssH: number): void => {
-        // M10 review: caller (renderScale slider + world render path)
-        // passes CSS pixels. The weydra canvas backing store is sized
-        // in physical pixels (cssW × dpr, cssH × dpr). Pre-multiply so
-        // the backing store matches what the world expects.
-        const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-        weydraCanvas.width = Math.max(1, Math.floor(cssW * dpr));
-        weydraCanvas.height = Math.max(1, Math.floor(cssH * dpr));
-      },
-      // M10.1: `render` was a Pixi method used by the shader-warmup
-      // paths (precompilarShadersPlaneta / precompilarShaderStarfield)
-      // to force a single Pixi draw so the GLSL compiles before the
-      // first real frame. The weydra renderer compiles its shaders at
-      // boot (createStarfield / createPlanetShader / createFogShader /
-      // createGraphicsShader in weydra-loader), so warmup is a no-op.
-      render: (_scene?: unknown): void => { /* no-op: weydra compiles shaders at boot */ },
-      resolution: 1,
-    } as Application['renderer'],
-    stage: {
-      addChild: (_c: unknown): void => { /* no-op: orphaned Pixi container */ },
-    } as unknown as Application['stage'],
-    ticker: {
-      add: (_cb: () => void): void => { /* no-op: replaced by rAF */ },
-      deltaMS: 16,
-      speed: 1,
-      started: true,
-      start: (): void => {},
-      stop: (): void => {},
-      maxFPS: 0,
-      update: (_now: number): void => {},
-    } as unknown as Application['ticker'],
-  } as unknown as Application;
-
+  const runtime = await initializeEngineRuntime();
+  const app = runtime.app;
+  if (runtime.engine === 'pixi') instalarGuardasCanvas(runtime.canvas);
   const gfx = getConfig().graphics;
-  // renderScale multiplies the baseline (devicePixelRatio) so users on
-  // high-DPI displays can drop below native and users on low-end GPUs
-  // can render fewer pixels without changing window layout. The CSS
-  // size of the canvas stays at window.innerWidth × innerHeight;
-  // only the backing-store resolution changes.
-  const baselineDpr = window.devicePixelRatio || 1;
   const renderScale = gfx.renderScale ?? 1;
-  // Qualquer subsistema weydra ligado → Pixi canvas transparente pra deixar
-  // o weydra canvas (z-index 0, atrás) aparecer. Senão o background preto
-  // sólido do Pixi cobre tudo que o weydra desenha.
-  const anyWeydraOn = isAnyWeydraSubsystemOn(getConfig());
-  const baseInit: any = {
-    width: window.innerWidth,
-    height: window.innerHeight,
-    backgroundColor: 0x000000,
-    backgroundAlpha: anyWeydraOn ? 0 : 1,
-    resolution: baselineDpr * renderScale,
-    autoDensity: true,
-    // MSAA desligado por default. O jogo é pixel-art com scaleMode
-    // 'nearest' em todas as texturas + dither procedural nos planetas
-    // (cria as bordas pixelizadas intencionais). MSAA não acrescenta
-    // nada visualmente mas em GPU tiled (PowerVR, Mali, Adreno) força
-    // 4× bandwidth do framebuffer — dev pool rodando em mobile
-    // reportou 3-8ms/frame de ganho.
-    antialias: false,
-  };
-  // Default to 'high-performance' when user didn't choose explicitly.
-  // Celulares com GPU discreta (Snapdragon Adreno com prime core, MediaTek
-  // Dimensity) podem ligar o perfil high-performance e dobrar FPS; em
-  // desktops Windows/Linux com GPU dedicada, força escolher a discrete GPU
-  // em vez da integrada. Zero downside — o navegador ignora se não faz
-  // sentido pro hardware.
-  baseInit.powerPreference = gfx.gpuPreference === 'auto'
-    ? 'high-performance'
-    : gfx.gpuPreference;
-
-  // Software mode: Canvas 2D renderer (no GPU), Mínimo preset
-  const effectiveRenderer = gfx.renderer === 'software' ? 'canvas' : gfx.renderer;
-  if (gfx.renderer === 'software') {
-    baseInit.antialias = false;
-    baseInit.resolution = 1;
-    baseInit.autoDensity = false;
-    // Apply Mínimo preset via boot path (no observers)
-    setConfigDuranteBoot({
-      graphics: {
-        ...gfx,
-        qualidadeEfeitos: 'minimo',
-        fogThrottle: 5,
-        maxFantasmas: 0,
-        densidadeStarfield: 0.15,
-        shaderLive: false,
-        mostrarOrbitas: false,
-      },
-    });
-  }
-
-  // Optional: WebGL version forced context injection (non-software)
-  if (gfx.renderer !== 'software' && effectiveRenderer === 'webgl' && gfx.webglVersion !== 'auto') {
-    const canvas = document.createElement('canvas');
-    const ctxOpts: WebGLContextAttributes = { antialias: false, premultipliedAlpha: true };
-    if (gfx.gpuPreference !== 'auto') {
-      ctxOpts.powerPreference = gfx.gpuPreference;
-    }
-    const gl = gfx.webglVersion === '1'
-      ? canvas.getContext('webgl', ctxOpts)
-      : canvas.getContext('webgl2', ctxOpts);
-    if (gl) {
-      baseInit.context = gl as any;
-      baseInit.canvas = canvas as any;
-    } else {
-      console.warn(`[renderer] WebGL ${gfx.webglVersion} indisponível, caindo pra auto`);
-      setConfigDuranteBoot({ graphics: { ...gfx, webglVersion: 'auto' } });
-    }
-  }
-
-  // Fallback chain: try the user's choice, then step through the
-  // remaining options. Order is intentional — WebGL is the most-
-  // polished 2D path, WebGPU is newer but widely supported on 2025
-  // browsers, Canvas2D is the last-resort software fallback.
-  const fallbackOrder: Array<'webgl' | 'webgpu' | 'canvas'> = ['webgl', 'webgpu', 'canvas'];
-  const primary = effectiveRenderer as 'webgl' | 'webgpu' | 'canvas';
-  const chain: Array<'webgl' | 'webgpu' | 'canvas'> = [
-    primary,
-    ...fallbackOrder.filter((r) => r !== primary),
-  ];
-
-  let initOk = false;
-  let lastErr: unknown = null;
-  for (let i = 0; i < chain.length; i++) {
-    const attempt = chain[i];
-    try {
-      const attemptInit: any = { ...baseInit, preference: attempt };
-      // Forced WebGL-version context only applies when we're really
-      // initializing WebGL — drop it for the other attempts.
-      if (attempt !== 'webgl') {
-        delete attemptInit.context;
-        delete attemptInit.canvas;
-      }
-      // M10.1: app.init was a Pixi method to init the renderer. With
-      // Pixi removed, the weydra canvas is already initialized by
-      // index.html + the weydra-loader's renderer construction.
-      // Skip the init call — the weydra canvas is ready to use.
-      await Promise.resolve();
-      initOk = true;
-      // If we had to fall back, sync the config so the settings
-      // panel reflects what actually got picked. Also toast the user.
-      if (attempt !== primary) {
-        const cfgRenderer = attempt === 'canvas' ? 'software' : attempt;
-        setConfigDuranteBoot({ graphics: { ...getConfig().graphics, renderer: cfgRenderer as any } });
-        const labels: Record<string, string> = { webgl: 'WebGL', webgpu: 'WebGPU', canvas: 'Canvas2D' };
-        const from = labels[primary] ?? primary;
-        const to = labels[attempt] ?? attempt;
-        window.setTimeout(
-          () => toast(`${from} indisponível — usando ${to}`, 'err'),
-          2000,
-        );
-        console.warn(`[renderer] ${from} failed, fell back to ${to}`);
-      } else if (attempt === 'webgl' && effectiveRenderer === 'webgl' && gfx.webglVersion !== 'auto') {
-        // Honored the user's choice — nothing to report.
-      }
-      break;
-    } catch (err) {
-      lastErr = err;
-      console.warn(`[renderer] ${attempt} init failed:`, err);
-      // Special case: forced WebGL version failed, retry WebGL with
-      // auto version before falling off to the next backend.
-      if (attempt === 'webgl' && gfx.webglVersion !== 'auto' && baseInit.context) {
-        setConfigDuranteBoot({ graphics: { ...getConfig().graphics, webglVersion: 'auto' } });
-        delete baseInit.context;
-        delete baseInit.canvas;
-        try {
-          // M10.1: `app` is a shim with no `init` (Pixi Application is gone).
-          // Mirror the main path (await Promise.resolve()) so this retry
-          // branch can't throw "app.init is not a function" if ever reached.
-          await Promise.resolve();
-          initOk = true;
-          window.setTimeout(() => toast(t('toast.webgl_fallback', { v: gfx.webglVersion }), 'err'), 2000);
-          break;
-        } catch (err2) {
-          lastErr = err2;
-          console.warn('[renderer] WebGL auto also failed:', err2);
-        }
-      }
-      // Continue to next backend in the chain.
-    }
-  }
-  if (!initOk) throw lastErr ?? new Error('No renderer backend succeeded');
-
-  // M10.1: Pixi renderer instrumentation removed. The profiling
-  // module's `pixiRender`, `drawCalls`, `triangles`, and
-  // `textureUploads` counters stay in the schema for back-compat
-  // with older profiling dumps but are no longer fed. The
-  // 'frameWall' metric is computed by the new rAF loop below.
   await import('./world/profiling');
 
   // ── Software-renderer detection ────────────────────────────────
@@ -379,7 +220,7 @@ async function bootstrap(): Promise<void> {
     const maxTex = r?.limits?.maxTextureSize
       ?? r?.maxTextureSize
       ?? 8192;
-    const needed = Math.max(window.innerWidth, window.innerHeight) * baselineDpr;
+    const needed = Math.max(window.innerWidth, window.innerHeight) * (window.devicePixelRatio || 1);
     return needed > 0 ? maxTex / needed : 4;
   };
 
@@ -564,34 +405,7 @@ async function bootstrap(): Promise<void> {
     // that read app.screen.{width,height} (e.g. src/core/player.ts
     // for camera-pan math) see fresh values. The weydra canvas
     // itself is already CSS-sized (100vw / 100vh in index.html).
-    appScreen.width = window.innerWidth;
-    appScreen.height = window.innerHeight;
-    void app.renderer;
-  });
-
-  // WebGL context loss recovery. Without calling preventDefault() the
-  // browser is allowed to never restore the context. With it, the
-  // browser will try to recreate the context, and we offer the user a
-  // reload since the custom planet shaders need rebuilding to work
-  // again (state they held in GPU memory is gone).
-  const canvas = app.canvas as HTMLCanvasElement;
-  canvas.addEventListener('webglcontextlost', (e: Event) => {
-    e.preventDefault();
-    console.warn('[renderer] WebGL context lost — requesting restore');
-    void abrirSaveModal({
-      title: 'CONTEXTO GRÁFICO PERDIDO',
-      severity: 'erro',
-      summary: 'O navegador perdeu o contexto WebGL. Recarregue pra recuperar a renderização dos planetas.',
-      actions: [
-        { label: 'Recarregar agora', value: 'reload', variant: 'primary' },
-        { label: 'Depois', value: 'cancel', variant: 'neutral' },
-      ],
-    }).then((choice) => {
-      if (choice === 'reload') window.location.reload();
-    });
-  });
-  canvas.addEventListener('webglcontextrestored', () => {
-    console.info('[renderer] WebGL context restored');
+    resizeEngineRuntime();
   });
 
   _app = app;
@@ -702,13 +516,13 @@ async function bootstrap(): Promise<void> {
   // is built, every menu primitive silently falls back to the Pixi path
   // (dead code post-M10) — black menu + addChild deprecation spam. Await
   // here so the renderer exists when the first world is constructed.
-  await startWeydraM1();
+  // The selected engine runtime is already initialized before world creation.
 
   // Build the menu background: a lightweight single-system world, not
   // the full 18-system game world. When the player clicks Novo Jogo we
   // destroy this and create the real one.
   const mundoMenu = await criarMundoMenu(app);
-  // M10.1: app.stage.addChild is a no-op on the shim; weydra renders directly to canvas
+  app.stage.addChild(mundoMenu.container);
   _mundoMenu = mundoMenu;
 
   // Park the camera at the center of the menu system and zoom out so
@@ -754,8 +568,12 @@ async function bootstrap(): Promise<void> {
   onAction('toggle_debug_full', () => { toggleDebugFull(); });
 
   onAction('quicksave', () => {
-    salvarAgora();
-    toast(t('toast.salvo'), 'info');
+    void salvarAgora().then((ok) => {
+      const message = ok
+        ? t('toast.salvo')
+        : t('hud.erro_salvar', { msg: getUltimoErro()?.message ?? 'erro desconhecido' });
+      toast(message, ok ? 'info' : 'err');
+    });
   });
 
   onAction('speed_pause', () => {
@@ -816,6 +634,20 @@ async function bootstrap(): Promise<void> {
 
   instalarListenersCicloDeVida();
 
+  window.addEventListener('orbital:request-engine-switch', (event: Event) => {
+    const detail = (event as CustomEvent<Partial<EngineSwitchRequest>>).detail;
+    if (detail?.engine === 'pixi' || detail?.engine === 'weydra') {
+      void trocarMotorEmRuntime(detail as EngineSwitchRequest);
+    }
+  });
+
+  window.addEventListener('orbital:renderer-fatal', (event: Event) => {
+    const detail = (event as CustomEvent<{ engine?: GraphicsEngine; error?: unknown }>).detail;
+    if (detail?.engine !== 'weydra' || _transitioning) return;
+    toast('Weydra falhou durante a renderização; recuperando a sessão no Pixi.', 'err');
+    void trocarMotorEmRuntime({ engine: 'pixi' });
+  });
+
   window.addEventListener('orbital:voltar-ao-menu', () => {
     void voltarAoMenu();
   });
@@ -837,14 +669,11 @@ async function bootstrap(): Promise<void> {
 
   // weydra-renderer was already booted earlier in bootstrap() (before
   // criarMundoMenu) so the menu world's primitives use the weydra path.
-  // Do NOT call startWeydraM1() again here — it isn't guarded against
-  // double-init and would stack a second renderer + rAF loop + resize
-  // listener.
+  // Engine initialization is centralized in engine-runtime.ts.
 }
 
 function startTicker(): void {
   if (!_app) return;
-  const app = _app;
 
   // M10.1 fix: the Pixi `app.ticker.add(...)` is now a no-op shim.
   // Convert the game loop to a real rAF loop. `_lastT` tracks the
@@ -852,6 +681,11 @@ function startTicker(): void {
   // so the existing call sites that read it see the right value.
   let _lastT = performance.now();
   function _gameTick(): void {
+    const app = _app;
+    if (!app) {
+      requestAnimationFrame(_gameTick);
+      return;
+    }
     const _now = performance.now();
     // Clamp the wall delta: after the tab is backgrounded/refocused the gap
     // can be seconds, which would feed one giant delta into the economy
@@ -862,10 +696,10 @@ function startTicker(): void {
     _lastT = _now;
     (app.ticker as { deltaMS: number }).deltaMS = _dt;
     (app.ticker as { speed: number }).speed = getDebugState().gameSpeed;
-    _gameTickBody();
+    _gameTickBody(app);
     requestAnimationFrame(_gameTick);
   }
-  function _gameTickBody(): void {
+  function _gameTickBody(app: Application): void {
 
     // ── Menu phase: cheap per-frame updates on the menu world only ──
     if (!_gameStarted) {
@@ -958,17 +792,63 @@ function startTicker(): void {
 
     const estado = getEstadoJogo();
     if (estado === 'vitoria' && !_fimTocado) {
-      somVitoria();
-      _fimTocado = true;
+      void processarFimPartida(mundo, 'victory');
     } else if (estado === 'derrota' && !_fimTocado) {
-      somDerrota();
-      _fimTocado = true;
+      void processarFimPartida(mundo, 'defeat');
     }
   }
   // M10.1: start the rAF loop. The game loop now fires on
   // requestAnimationFrame directly — `app.ticker.add` is a no-op
   // shim, so the original Pixi-ticker-driven game loop never fired.
   requestAnimationFrame(_gameTick);
+}
+
+function desmontarHud(): void {
+  if (!_hudInstalled) return;
+  destruirSidebar();
+  destruirEmpireBadge();
+  destruirEmpireModal();
+  destruirCreditsBar();
+  destruirResourceBar();
+  destruirChatLog();
+  destruirPlanetPanel();
+  destruirPlanetaDrawer();
+  destruirMobilePlanetaDrawer();
+  destruirPlanetDetailsModal();
+  destruirBuildPanel();
+  destruirShipPanel();
+  destruirMobileShipPanel();
+  destruirMobileColonizerPanel();
+  destruirColonizerPanel();
+  destruirColonyModal();
+  destruirConfirmDialog();
+  destruirMinimap();
+  destruirDebugMenu();
+  destruirZoomControls();
+  destruirMobileMenuBtn();
+  _hudInstalled = false;
+}
+
+async function processarFimPartida(mundo: Mundo, result: 'victory' | 'defeat'): Promise<void> {
+  if (_fimTocado) return;
+  _fimTocado = true;
+  const previousSpeed = getDebugState().gameSpeed || 1;
+  setGameSpeed(0);
+  if (result === 'victory') somVitoria();
+  else somDerrota();
+  // Keep the previous autosave intact on defeat so "load" really restores
+  // a playable checkpoint. Victory is persisted before sandbox is offered.
+  if (result === 'victory') await salvarAgora();
+  const sessionName = _sessionMeta?.nome ?? null;
+  const action = await abrirMatchResultModal(mundo, result);
+  if (action === 'continue' && result === 'victory') {
+    continuarComoSandbox(mundo);
+    setGameSpeed(previousSpeed);
+    await salvarAgora();
+    return;
+  }
+  await voltarAoMenu();
+  if (action === 'load' && sessionName) await carregarMundo(sessionName);
 }
 
 async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJogadoMs: number): Promise<void> {
@@ -985,7 +865,7 @@ async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJ
     _mundoMenu = null;
   }
 
-  // M10.1: app.stage.addChild is a no-op on the shim; weydra renders directly to canvas
+  app.stage.addChild(mundo.container);
   _mundo = mundo;
 
   const planetaJogador = mundo.planetas.find((p) => p.dados.dono === 'jogador');
@@ -1037,6 +917,7 @@ async function entrarNoJogo(mundo: Mundo, nome: string, criadoEm: number, tempoJ
   }
 
   _gameStarted = true;
+  _sessionMeta = { nome, criadoEm };
   iniciarAutosave({ mundo, nome, criadoEm, tempoJogadoMs });
   salvarAgora();
   iniciarMusicaAmbiente(mundo.seedMusical);
@@ -1048,17 +929,43 @@ async function iniciarJogoNovo(nome: string, tipoJogador: TipoJogador, dificulda
   _transitioning = true;
   const app = _app;
 
-  esconderMainMenu();
-  mostrarCarregando(t('loading.criando'));
-  await new Promise<void>((r) => requestAnimationFrame(() => r()));
+  try {
+    esconderMainMenu();
+    mostrarCarregando(t('loading.criando'));
+    await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
-  setTipoJogador();
-  setDificuldadeProximoMundo(dificuldade);
-  const mundo = await criarMundo(app, tipoJogador, async (label) => {
-    await setLoadingFase(label);
-  }) as unknown as Mundo;
-  if (imperio) mundo.imperioJogador = imperio;
-  await entrarNoJogo(mundo, nome, Date.now(), 0);
+    setTipoJogador();
+    setDificuldadeProximoMundo(dificuldade);
+    const mundo = await criarMundo(app, tipoJogador, async (label) => {
+      await setLoadingFase(label);
+    }) as unknown as Mundo;
+    if (imperio) {
+      if (dificuldade === 'pacifico' && imperio.objetivo === 'sobrevivencia') {
+        imperio = { ...imperio, objetivo: 'livre' };
+        toast('Sobrevivência requer adversários; objetivo convertido para Livre.', 'info');
+      }
+      mundo.imperioJogador = imperio;
+      mundo.match.objective = imperio.objetivo;
+    }
+    await entrarNoJogo(mundo, nome, Date.now(), 0);
+    _transitioning = false;
+  } catch (err) {
+    _transitioning = false;
+    await esconderCarregando();
+    mostrarMainMenu();
+    const action = await mostrarTelaErro({
+      code: 'WORLD_CREATE_FAILED',
+      title: 'NÃO FOI POSSÍVEL CRIAR A GALÁXIA',
+      summary: 'O menu foi restaurado com segurança. Você pode tentar novamente ou trocar o motor gráfico.',
+      error: err,
+      actions: [
+        { label: 'Tentar novamente', value: 'retry', primary: true },
+        { label: 'Voltar ao menu', value: 'menu' },
+      ],
+    });
+    fecharTelaErro();
+    if (action === 'retry') void iniciarJogoNovo(nome, tipoJogador, dificuldade, imperio);
+  }
 }
 
 async function mostrarModalSaveCorrompido(nome: string, err: unknown): Promise<void> {
@@ -1076,11 +983,20 @@ async function mostrarModalSaveCorrompido(nome: string, err: unknown): Promise<v
     ],
   });
   if (choice === 'APAGAR') {
-    void getBackendAtivo().apagar(nome);
-    toast(t('toast.save_apagado'), 'info');
+    try {
+      await getBackendAtivo().apagar(nome);
+      toast(t('toast.save_apagado'), 'info');
+    } catch (deleteError) {
+      void mostrarTelaErro({
+        code: 'SAVE_DELETE_FAILED',
+        title: 'NÃO FOI POSSÍVEL APAGAR O SAVE',
+        summary: 'O save foi mantido. Tente novamente ou exporte os dados antes de recarregar.',
+        error: deleteError,
+      });
+    }
   } else if (choice === 'EXPORTAR') {
     try {
-      const rawStr = localStorage.getItem(`orbital_save:${nome}`);
+      const rawStr = await getBackendAtivo().exportar(nome);
       if (!rawStr) {
         toast(t('toast.save_nada_exportar'), 'err');
         return;
@@ -1093,7 +1009,7 @@ async function mostrarModalSaveCorrompido(nome: string, err: unknown): Promise<v
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
       toast(t('toast.save_exportado'), 'info');
-    } catch (e) {
+    } catch {
       toast(t('toast.save_falha_exportar'), 'err');
     }
   }
@@ -1141,7 +1057,7 @@ async function carregarMundo(nome: string): Promise<void> {
   mostrarCarregando(t('loading.carregando', { nome }));
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
-  let dto: MundoDTO | null = null;
+  let dto: MundoDTO | null;
   let versaoOriginal: number | undefined;
   let transformsMigration: readonly string[] = [];
   try {
@@ -1245,6 +1161,7 @@ async function carregarMundo(nome: string): Promise<void> {
       setZoom(dto.camera.zoom);
     }
     if (typeof dto.gameSpeed === 'number') setGameSpeed(dto.gameSpeed);
+    _transitioning = false;
     // Don't restore the previous UI selection — re-opening a save with a
     // planet still "selected" auto-pops the build-panel on entry, which
     // is unwanted noise. Player can re-select what they need.
@@ -1300,6 +1217,183 @@ function restaurarOuReinicializarIas(mundo: Mundo, dto: MundoDTO): void {
   setPersonalidadesParaMundoCarregado(ias, cfg.tickMs);
 }
 
+async function reconstruirSnapshot(dto: MundoDTO, app: Application): Promise<Mundo> {
+  if (dto.dificuldade) setDificuldadeProximoMundo(dto.dificuldade);
+  const mundo = await reconstruirMundo(dto, app, undefined, async (label) => {
+    await setLoadingFase(label);
+  });
+  restaurarOuReinicializarIas(mundo, dto);
+  const [{ restaurarMemoriasIa }, { setIaTickState }] = await Promise.all([
+    import('./world/ia-memoria'),
+    import('./world/ia-decisao'),
+  ]);
+  if (dto.iaMemoria) restaurarMemoriasIa(dto.iaMemoria);
+  if (dto.iaTickState) setIaTickState(dto.iaTickState);
+  const diag = reconciliarMundo(mundo, dto);
+  const critical = diag.filter((d) => d.severidade === 'erro');
+  if (critical.length > 0) {
+    throw new Error(critical.map((d) => `[${d.categoria}] ${d.detalhe}`).join('; '));
+  }
+  return mundo;
+}
+
+function exportarSnapshotEmergencia(dto: MundoDTO): void {
+  const blob = new Blob([JSON.stringify(dto, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${dto.nome || 'orbital'}-engine-recovery.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+async function montarRuntimeComSnapshot(engine: GraphicsEngine, dto: MundoDTO | null): Promise<void> {
+  setGraphicsEngine(engine);
+  const runtime = await initializeEngineRuntime(engine);
+  _app = runtime.app;
+  (window as any)._app = runtime.app;
+  if (runtime.engine === 'pixi') instalarGuardasCanvas(runtime.canvas);
+  setAppReferenceForBake(runtime.app);
+  setAppReferenceForFundo(runtime.app);
+
+  if (!dto) {
+    const menu = await criarMundoMenu(runtime.app);
+    runtime.app.stage.addChild(menu.container);
+    _mundoMenu = menu;
+    setCameraPos(menu.sistema.sol.x, menu.sistema.sol.y);
+    setZoom(0.55);
+    return;
+  }
+
+  const mundo = await reconstruirSnapshot(dto, runtime.app);
+  await entrarNoJogo(mundo, dto.nome, dto.criadoEm, dto.tempoJogadoMs);
+  if (dto.camera) {
+    setCameraPos(dto.camera.x, dto.camera.y);
+    setZoom(dto.camera.zoom);
+  }
+  if (dto.selecaoUI?.planetaId) {
+    const p = mundo.planetas.find((v) => v.id === dto.selecaoUI!.planetaId);
+    if (p) p.dados.selecionado = true;
+  }
+  if (dto.selecaoUI?.naveId) {
+    const n = mundo.naves.find((v) => v.id === dto.selecaoUI!.naveId);
+    if (n) n.selecionado = true;
+  }
+  if (typeof dto.gameSpeed === 'number') setGameSpeed(dto.gameSpeed);
+}
+
+async function trocarMotorEmRuntime(request: EngineSwitchRequest): Promise<void> {
+  const target = request.engine;
+  const currentRendering = getConfig().rendering;
+  const backendChanged = request.pixiBackend !== undefined
+    || request.weydraBackend !== undefined
+    || request.pixiWebglVersion !== undefined
+    || request.pixiGpuPreference !== undefined;
+  if (_transitioning || (!backendChanged && target === currentRendering.engine) || !_app) return;
+  _transitioning = true;
+  setDispatcherHabilitado(false);
+  const previousRendering = JSON.parse(JSON.stringify(currentRendering)) as typeof currentRendering;
+  const previousEngine = previousRendering.engine;
+  if (request.pixiBackend) {
+    setConfig({ rendering: {
+      ...getConfig().rendering,
+      pixi: { ...getConfig().rendering.pixi, backend: request.pixiBackend },
+    } });
+  }
+  if (request.weydraBackend) {
+    setConfig({ rendering: {
+      ...getConfig().rendering,
+      weydra: { backend: request.weydraBackend },
+    } });
+  }
+  if (request.pixiWebglVersion || request.pixiGpuPreference) {
+    const rendering = getConfig().rendering;
+    setConfig({ rendering: {
+      ...rendering,
+      pixi: {
+        ...rendering.pixi,
+        ...(request.pixiWebglVersion ? { webglVersion: request.pixiWebglVersion } : {}),
+        ...(request.pixiGpuPreference ? { gpuPreference: request.pixiGpuPreference } : {}),
+      },
+    } });
+  }
+  const oldApp = _app;
+  const dto = _mundo && _sessionMeta
+    ? serializarMundo(_mundo, _sessionMeta.nome, {
+      criadoEm: _sessionMeta.criadoEm,
+      tempoJogadoMs: getTempoJogadoMs(),
+    })
+    : null;
+  if (dto) {
+    try { localStorage.setItem('orbital_engine_switch_recovery', JSON.stringify(dto)); } catch { /* quota */ }
+  }
+
+  mostrarCarregando(`Trocando para ${target === 'pixi' ? 'Pixi' : 'Weydra'}`);
+  try {
+    pararAutosave();
+    destruirCamera();
+    desmontarHud();
+    pararMusicaAmbiente();
+    if (_mundo) destruirMundo(_mundo, oldApp);
+    if (_mundoMenu) destruirMundoMenu(_mundoMenu, oldApp);
+    _mundo = null;
+    _mundoMenu = null;
+    _gameStarted = false;
+    _app = null;
+    (window as any)._app = null;
+    destroyEngineRuntime();
+
+    await montarRuntimeComSnapshot(target, dto);
+    localStorage.removeItem('orbital_engine_switch_recovery');
+    toast(`Motor alterado para ${target === 'pixi' ? 'Pixi' : 'Weydra'}.`, 'info');
+    window.dispatchEvent(new CustomEvent('orbital:engine-changed', {
+      detail: { ok: true, engine: target },
+    }));
+  } catch (switchError) {
+    console.error('[engine-switch] target failed, rolling back:', switchError);
+    try {
+      if (_mundo && _app) destruirMundo(_mundo, _app);
+      if (_mundoMenu && _app) destruirMundoMenu(_mundoMenu, _app);
+      _mundo = null;
+      _mundoMenu = null;
+      _gameStarted = false;
+      _app = null;
+      (window as any)._app = null;
+      destroyEngineRuntime();
+      setConfig({ rendering: previousRendering });
+      await montarRuntimeComSnapshot(previousEngine, dto);
+      window.dispatchEvent(new CustomEvent('orbital:engine-changed', {
+        detail: { ok: false, engine: previousEngine },
+      }));
+      const choice = await mostrarTelaErro({
+        code: 'ENGINE_SWITCH_ROLLBACK',
+        title: 'NÃO FOI POSSÍVEL TROCAR O MOTOR',
+        summary: 'A partida foi restaurada no motor anterior. Os backends alternativos do motor solicitado também falharam.',
+        error: switchError,
+        actions: [{ label: 'Continuar', value: 'continue', primary: true }],
+      });
+      if (choice === 'continue') fecharTelaErro();
+    } catch (rollbackError) {
+      const choice = await mostrarTelaErro({
+        code: 'ENGINE_SWITCH_FATAL',
+        title: 'FALHA AO RESTAURAR A PARTIDA',
+        summary: 'O snapshot de emergência continua disponível. Exporte-o antes de recarregar.',
+        error: rollbackError,
+        actions: [
+          ...(dto ? [{ label: 'Exportar snapshot', value: 'export', primary: true }] : []),
+          { label: 'Recarregar', value: 'reload' },
+        ],
+      });
+      if (choice === 'export' && dto) exportarSnapshotEmergencia(dto);
+      if (choice === 'reload') window.location.reload();
+    }
+  } finally {
+    _transitioning = false;
+    setDispatcherHabilitado(true);
+    await esconderCarregando();
+  }
+}
+
 async function voltarAoMenu(): Promise<void> {
   if (!_app) return;
   const app = _app;
@@ -1339,28 +1433,7 @@ async function voltarAoMenu(): Promise<void> {
   }
 
   // 4. Tear down all HUD panels
-  if (_hudInstalled) {
-    destruirSidebar();
-    destruirEmpireBadge();
-    destruirEmpireModal();
-    destruirCreditsBar();
-    destruirResourceBar();
-    destruirChatLog();
-    destruirPlanetPanel();
-    destruirPlanetaDrawer();
-    destruirMobilePlanetaDrawer();
-    destruirPlanetDetailsModal();
-    destruirBuildPanel();
-    destruirShipPanel();
-    destruirMobileShipPanel();
-    destruirMobileColonizerPanel();
-    destruirColonizerPanel();
-    destruirColonyModal();
-    destruirConfirmDialog();
-    destruirMinimap();
-    destruirDebugMenu();
-    _hudInstalled = false;
-  }
+  desmontarHud();
 
   // Remove error banner if present
   if (_bannerEl) {
@@ -1370,13 +1443,14 @@ async function voltarAoMenu(): Promise<void> {
   }
 
   _gameStarted = false;
+  _sessionMeta = null;
   _transitioning = false;
   _fimTocado = false;
   pararMusicaAmbiente();
 
   // 5. Recreate menu background world (behind the curtain)
   const mundoMenu = await criarMundoMenu(app);
-  // M10.1: app.stage.addChild is a no-op on the shim; weydra renders directly to canvas
+  app.stage.addChild(mundoMenu.container);
   _mundoMenu = mundoMenu;
   setCameraPos(mundoMenu.sistema.sol.x, mundoMenu.sistema.sol.y);
   setZoom(0.55);
@@ -1407,6 +1481,27 @@ async function maybeBootDeterminism(): Promise<boolean> {
 }
 
 void (async () => {
-  if (await maybeBootDeterminism()) return;
-  await bootstrap();
+  try {
+    if (await maybeBootDeterminism()) return;
+    await bootstrap();
+  } catch (err) {
+    const action = await mostrarTelaErro({
+      code: 'BOOT_FATAL',
+      title: 'O ORBITAL NÃO CONSEGUIU INICIAR',
+      summary: 'Nenhum backend do motor selecionado pôde ser inicializado.',
+      error: err,
+      actions: [
+        { label: 'Iniciar em Pixi Canvas', value: 'safe', primary: true },
+        { label: 'Recarregar', value: 'reload' },
+      ],
+    });
+    if (action === 'safe') {
+      setConfig({ rendering: {
+        ...getConfig().rendering,
+        engine: 'pixi',
+        pixi: { ...getConfig().rendering.pixi, backend: 'canvas' },
+      } });
+      window.location.reload();
+    } else if (action === 'reload') window.location.reload();
+  }
 })();

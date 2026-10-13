@@ -352,6 +352,12 @@ fn starPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
 }
 
 // === Main fragment ===
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let low = c / vec3<f32>(12.92);
+    let high = pow((c + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
+    return select(low, high, c > vec3<f32>(0.04045));
+}
+
 @fragment
 fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
     let uv = input.uv;
@@ -379,11 +385,13 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
     // output here lands one gamma curve brighter — pale washed-out
     // planets exactly matching the report.
     //
-    // Pre-decode (pow 2.2) so the hardware's encode round-trips back
-    // to the artist-intended bytes: pow(pow(col, 2.2), 1/2.2) = col.
+    // Pre-decode with the exact IEC 61966-2-1 transfer function so the
+    // hardware encode round-trips to the artist-intended bytes. A pow(2.2)
+    // approximation visibly matched but shifted palette channels by 1–5
+    // levels and failed the cross-engine pixel gate.
     // Premultiply happens AFTER the linearization so the alpha-edge
     // pixels keep their gradient in linear space rather than sRGB,
     // which is the technically-correct blending domain anyway.
-    let linear_rgb = pow(col.rgb, vec3<f32>(2.2));
+    let linear_rgb = srgb_to_linear(col.rgb);
     return vec4<f32>(linear_rgb * col.a, col.a);
 }

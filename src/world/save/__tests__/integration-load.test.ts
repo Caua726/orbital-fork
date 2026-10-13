@@ -251,7 +251,7 @@ describe('integration: migrate → reconstruct → reconcile preserves save fide
 
     const { dto: migrated, versaoOriginal, transforms } = migrarDtoComRelatorio(v1 as any);
     expect(versaoOriginal).toBe(1);
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
     expect(transforms.length).toBeGreaterThan(0);
 
     const mundo = await reconstruirMundo(migrated, {} as any, {

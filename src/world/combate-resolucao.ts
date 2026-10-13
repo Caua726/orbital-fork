@@ -4,11 +4,7 @@ import { saoHostis } from './constantes';
 import { getStatsCombate, podeAtacar } from './combate';
 import { somExplosao } from '../audio/som';
 import { bumpCounter } from '../core/profiling-instr';
-import { SHIP_TINT, limparPendingSprite } from './naves';
-import { destruirTrail } from './engine-trails';
-import { esquecerLastSeen } from './last-seen';
-import { getWeydraRenderer } from '../weydra-loader';
-import type { Sprite as WeydraSprite } from '@weydra/renderer';
+import { SHIP_TINT, removerNave } from './naves';
 
 // ─── Hit-flash tracking ──────────────────────────────────────────────
 // When a ship takes damage, briefly tint its sprite white then fade back.
@@ -211,7 +207,7 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
     // Initialize HP on any ship missing it
     for (const n of mundo.naves) ensureHp(n);
 
-    const now = performance.now();
+    const now = mundo.match.simulationTimeMs;
     const spatialGrid = buildSpatialHash(mundo.naves);
 
     for (const atacante of mundo.naves) {
@@ -220,7 +216,7 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
 
       const stats = getStatsCombate(atacante);
       const cooldown = stats.cooldownMs;
-      const lastShot = atacante._ultimoTiroMs ?? 0;
+      const lastShot = atacante._ultimoTiroMs ?? -Infinity;
       if (now - lastShot < cooldown) continue;
 
       // Find nearest hostile via spatial grid (cell + 8 neighbors). Inlined
@@ -358,54 +354,8 @@ export function atualizarCombate(mundo: Mundo, deltaMs: number): void {
     if ((n.hp ?? 1) <= 0) {
       // Inline removal — destroy gfx, splice from array
       somExplosao();
-      _removerNaveDoMundo(mundo, n);
+      removerNave(mundo, n);
+      bumpCounter('navesDestruidas');
     }
   }
-}
-
-function _removerNaveDoMundo(mundo: Mundo, nave: Nave): void {
-  // Mirror of removerNave from naves.ts — kept inline to avoid the
-  // naves → combate → naves circular import. Must stay in sync with
-  // removerNave; anything that needs cleaning up on normal destroy
-  // also needs cleaning up on combat-kill.
-  const idx = mundo.naves.indexOf(nave);
-  if (idx >= 0) {
-    mundo.naves.splice(idx, 1);
-    bumpCounter('navesDestruidas');
-  }
-  // Drain pending-spritesheet queue — otherwise a late-loading sheet
-  // callback writes a texture onto the destroyed Pixi Sprite.
-  limparPendingSprite(nave._sprite);
-  // Forget fog-of-war ghost entry for this ship id.
-  esquecerLastSeen(nave.id);
-  if (nave.rotaGfx) {
-    try {
-      if (nave.rotaGfx.pixi) {
-        mundo.rotasContainer.removeChild(nave.rotaGfx.pixi);
-      }
-      nave.rotaGfx.destroy();
-    } catch { /* noop */ }
-  }
-  if (nave.gfx) {
-    try {
-      mundo.navesContainer.removeChild(nave.gfx);
-      nave.gfx.destroy({ children: true });
-    } catch { /* noop */ }
-  }
-  // Combat-kill must free the weydra sprite + ring exactly like
-  // removerNave does — neither has a Pixi scene-graph parent, so
-  // gfx.destroy() doesn't touch them. Without this every kill leaves a
-  // frozen ghost ship + ring rendering at the death spot and leaks GPU
-  // resources per kill (combat is the primary ship-death path).
-  if (nave._weydraSprite) {
-    try {
-      const r = getWeydraRenderer();
-      if (r) r.destroySprite(nave._weydraSprite as WeydraSprite);
-    } catch { /* noop */ }
-    nave._weydraSprite = undefined;
-  }
-  if (nave._ring) {
-    try { nave._ring.destroy(); } catch { /* noop */ }
-  }
-  destruirTrail(nave);
 }

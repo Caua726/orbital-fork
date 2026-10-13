@@ -179,13 +179,11 @@ export function abrirPauseMenu(): void {
 
   // Save
   const btnSave = criarBotao(t('pause.salvar'), () => {
-    salvarAgora();
-    const erro = getUltimoErro();
-    if (erro) {
-      toast(t('hud.erro_salvar', { msg: erro.message }), 'err');
-    } else {
-      toast(t('toast.salvo'), 'info');
-    }
+    void salvarAgora().then((ok) => {
+      const erro = getUltimoErro();
+      if (!ok || erro) toast(t('hud.erro_salvar', { msg: erro?.message ?? 'erro desconhecido' }), 'err');
+      else toast(t('toast.salvo'), 'info');
+    });
   });
   card.appendChild(btnSave);
 

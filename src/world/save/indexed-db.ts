@@ -80,6 +80,54 @@ export async function putMany(
   });
 }
 
+/** Atomically replace one world's header and entity records. IndexedDB
+ * rolls the whole transaction back when any delete/put fails, so the last
+ * valid save remains available after quota, shutdown, or serialization
+ * errors. */
+export async function replaceMundoAtomically(
+  mundoNome: string,
+  writes: Array<{ store: StoreName; value: any }>,
+): Promise<void> {
+  const db = await abrirDb();
+  const stores = [STORES.mundos, STORES.sistemas, STORES.sois, STORES.planetas, STORES.naves];
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(stores, 'readwrite');
+    tx.objectStore(STORES.mundos).delete(mundoNome);
+    for (const s of ['sistemas', 'sois', 'planetas', 'naves'] as const) {
+      const range = IDBKeyRange.bound([mundoNome, ''], [mundoNome, '\uffff']);
+      tx.objectStore(STORES[s]).delete(range);
+    }
+    for (const write of writes) tx.objectStore(STORES[write.store]).put(write.value);
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new Error('Transação IndexedDB abortada'));
+    tx.onerror = () => reject(tx.error ?? new Error('Falha na transação IndexedDB'));
+  });
+}
+
+/** Apply an entity diff and header update in one transaction. Deletions use
+ * compound [world,id] keys, so records from other worlds are never touched. */
+export async function patchMundoAtomically(
+  writes: Array<{ store: StoreName; value: any }>,
+  deletes: Array<{ store: Exclude<StoreName, 'mundos'>; mundoNome: string; id: string }>,
+): Promise<void> {
+  if (writes.length === 0 && deletes.length === 0) return;
+  const db = await abrirDb();
+  const stores = Array.from(new Set([
+    ...writes.map((w) => STORES[w.store]),
+    ...deletes.map((d) => STORES[d.store]),
+  ]));
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(stores, 'readwrite');
+    for (const deletion of deletes) {
+      tx.objectStore(STORES[deletion.store]).delete([deletion.mundoNome, deletion.id]);
+    }
+    for (const write of writes) tx.objectStore(STORES[write.store]).put(write.value);
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new Error('Patch IndexedDB abortado'));
+    tx.onerror = () => reject(tx.error ?? new Error('Falha no patch IndexedDB'));
+  });
+}
+
 export async function deleteByMundo(mundoNome: string): Promise<void> {
   const db = await abrirDb();
   return new Promise((resolve, reject) => {

@@ -46,8 +46,26 @@ const v1ToV2: Migration = (dto, transforms) => {
   return dto;
 };
 
+const v2ToV3: Migration = (dto, transforms) => {
+  transforms.push('v2→v3: estado da partida e relógio de simulação');
+  if (!dto.match || typeof dto.match !== 'object') {
+    dto.match = {
+      objective: dto.imperioJogador?.objetivo ?? 'livre',
+      status: 'playing',
+      simulationTimeMs: 0,
+      survivalElapsedMs: 0,
+    };
+  }
+  if (Array.isArray(dto.naves)) {
+    for (const nave of dto.naves) delete nave.ultimoTiroMs;
+  }
+  dto.schemaVersion = 3;
+  return dto;
+};
+
 const migrations: Migration[] = [
   v1ToV2, // index 0: v1 → v2
+  v2ToV3, // index 1: v2 → v3
 ];
 
 /**

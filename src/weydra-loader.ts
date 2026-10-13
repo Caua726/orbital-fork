@@ -31,10 +31,12 @@ let _resizeAbort: AbortController | null = null;
 let _renderIntervalMs = 0;
 let _lastRenderT = 0;
 let _renderCanvas: HTMLCanvasElement | null = null;
+let _effectiveBackend: 'auto' | 'webgpu' | 'webgl2' | null = null;
 // Painted-frame counter for the FPS HUD. Incremented in the render loop
 // (NOT the game loop) so the HUD reflects actual painted frames — which is
 // what an fps cap throttles. Read+reset via takePaintedFrameCount.
 let _paintedFrames = 0;
+let _consecutiveRenderFailures = 0;
 
 export function getWeydraRenderer(): Renderer | null {
   return _renderer;
@@ -157,18 +159,30 @@ function resolveBackend(
   return 'auto';
 }
 
-export async function startWeydra(): Promise<void> {
-  if (!anyFlagEnabled()) return;
+export interface WeydraStartResult {
+  requestedBackend: 'auto' | 'webgpu' | 'webgl2';
+  effectiveBackend: 'auto' | 'webgpu' | 'webgl2';
+}
+
+export async function startWeydra(): Promise<WeydraStartResult> {
+  if (!anyFlagEnabled()) {
+    throw new Error('Weydra solicitado sem subsistemas ativos.');
+  }
   // Double-init guard: a second call would stack a second renderer, a
   // second rAF render loop, and a second (un-aborted) resize listener.
   // The current single caller is correct, but HMR / future callers must
   // be safe.
-  if (_renderer) return;
+  if (_renderer) {
+    return {
+      requestedBackend: getConfig().rendering.weydra.backend,
+      effectiveBackend: _effectiveBackend ?? getConfig().rendering.weydra.backend,
+    };
+  }
 
   const canvas = document.getElementById('weydra-canvas') as HTMLCanvasElement | null;
   if (!canvas) {
     console.warn('[weydra] #weydra-canvas not found in DOM — skipping init');
-    return;
+    throw new Error('[weydra] #weydra-canvas not found in DOM');
   }
   _renderCanvas = canvas;
 
@@ -177,11 +191,8 @@ export async function startWeydra(): Promise<void> {
   // Fallback to window size, then resize handler corrects it on first paint.
   // `renderScale` (graphics setting) scales the backing store below display
   // density to trade sharpness for fill-rate on weak GPUs.
-  function currentSize(): { width: number; height: number; dpr: number } {
-    const dpr = (window.devicePixelRatio || 1) * renderScaleAtual();
-    const cssW = canvas!.clientWidth || window.innerWidth;
-    const cssH = canvas!.clientHeight || window.innerHeight;
-    return { width: Math.max(1, Math.floor(cssW * dpr)), height: Math.max(1, Math.floor(cssH * dpr)), dpr };
+  function currentSize(): { width: number; height: number } {
+    return computeBackingSize(canvas!);
   }
   {
     const { width, height } = currentSize();
@@ -189,39 +200,41 @@ export async function startWeydra(): Promise<void> {
     canvas.height = height;
   }
 
-  try {
-    await initWeydra();
-    const backend = resolveBackend(getConfig().weydra.backend ?? 'auto');
-    _renderer = await Renderer.create(canvas, backend);
-    if (getConfig().weydra.starfield) {
-      _renderer.createStarfield(starfieldWgsl);
+  const requestedBackend = getConfig().rendering.weydra.backend ?? 'auto';
+  const firstBackend = resolveBackend(requestedBackend);
+  const candidates = ([firstBackend, 'webgpu', 'webgl2'] as const)
+    .filter((v, i, all) => all.indexOf(v) === i);
+  const errors: string[] = [];
+  await initWeydra();
+  for (const backend of candidates) {
+    try {
+      _renderer = await Renderer.create(canvas, backend);
+      _effectiveBackend = backend;
+      if (getConfig().weydra.starfield) {
+        _renderer.createStarfield(starfieldWgsl);
+      }
+      if (getConfig().weydra.planetsLive) {
+        _renderer.createPlanetShader(planetWgsl);
+      }
+      if (getConfig().weydra.fog) {
+        _renderer.createFogShader(fogWgsl);
+      }
+      if (getConfig().weydra.graphics || getConfig().weydra.ui) {
+        // UI overlays reuse the graphics pipeline: both are non-world-space
+        // 2D primitives with the same alpha blending contract.
+        _renderer.createGraphicsShader(graphicsWgsl);
+      }
+      console.info(`[weydra] renderer initialized (${backend}); flags:`, getConfig().weydra);
+      (window as any).__weydraRenderer = _renderer;
+      break;
+    } catch (err) {
+      _renderer = null;
+      errors.push(`${backend}: ${err instanceof Error ? err.message : String(err)}`);
     }
-    if (getConfig().weydra.planetsLive) {
-      _renderer.createPlanetShader(planetWgsl);
-    }
-    if (getConfig().weydra.fog) {
-      _renderer.createFogShader(fogWgsl);
-    }
-    if (getConfig().weydra.graphics || getConfig().weydra.ui) {
-      // UI overlays (M9) reuse the M7 graphics pipeline since both
-      // are worldSpace=false 2D primitive paths with the same
-      // ALPHA_BLENDING contract. Single shader compile covers both.
-      _renderer.createGraphicsShader(graphicsWgsl);
-    }
-    if (getConfig().weydra.text) {
-      // M8: text atlases are baked inside Renderer::create (fontdue is
-      // synchronous at boot). The text pipeline is lazy-built on the
-      // first render() call (we need surface_format). Nothing to do
-      // here — the flag just opts in to Text node creation at the
-      // game-side call sites.
-    }
-    console.info('[weydra] renderer initialized; flags:', getConfig().weydra);
-    // Expose for live console debugging — typing __weydraRenderer in
-    // DevTools gives access to setCamera/setStarfieldDensity etc.
-    (window as any).__weydraRenderer = _renderer;
-  } catch (err) {
-    console.error('[weydra] init failed:', err);
-    return;
+  }
+  if (!_renderer || !_effectiveBackend) {
+    _renderCanvas = null;
+    throw new Error(`Weydra não inicializou em nenhum backend: ${errors.join(' | ')}`);
   }
 
   // Re-read DPR each call — moving the window across monitors changes it.
@@ -256,14 +269,25 @@ export async function startWeydra(): Promise<void> {
           tickOverlays((t - _lastT) / 1000);
           _lastT = t;
           _renderer.render();
+          _consecutiveRenderFailures = 0;
         } catch (err) {
+          _consecutiveRenderFailures++;
           console.error('[weydra] render error:', err);
+          if (_consecutiveRenderFailures >= 3) {
+            const rendererError = err instanceof Error ? err : new Error(String(err));
+            stopWeydra();
+            window.dispatchEvent(new CustomEvent('orbital:renderer-fatal', {
+              detail: { engine: 'weydra', error: rendererError },
+            }));
+            return;
+          }
         }
       }
     }
     _rafHandle = requestAnimationFrame(loop);
   };
   _rafHandle = requestAnimationFrame(loop);
+  return { requestedBackend, effectiveBackend: _effectiveBackend };
 }
 
 /** Backwards-compat alias so existing bootstrap callers keep working. */
@@ -279,11 +303,13 @@ export function stopWeydra(): void {
     _resizeAbort = null;
   }
   _renderer = null;
+  _effectiveBackend = null;
   _renderCanvas = null;
   // Reset frame timing so a re-init reseeds the overlay delta cleanly
   // instead of replaying the boot-time jump.
   _firstFrame = true;
   _lastRenderT = 0;
+  _consecutiveRenderFailures = 0;
 }
 
 export const stopWeydraM1 = stopWeydra;

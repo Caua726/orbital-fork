@@ -152,7 +152,7 @@ describe('serializarMundo — header/sois/sistemas', () => {
     const mundo = mockMundo();
     const dto = serializarMundo(mundo, 'meu-save');
 
-    expect(dto.schemaVersion).toBe(2);
+    expect(dto.schemaVersion).toBe(3);
     expect(dto.nome).toBe('meu-save');
     expect(dto.sois).toHaveLength(1);
     expect(dto.sois[0]).toMatchObject({

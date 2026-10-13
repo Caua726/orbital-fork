@@ -2,6 +2,7 @@ import type { Application } from 'pixi.js';
 import { getConfig } from '../core/config';
 import { t } from '../core/i18n/t';
 import { getWeydraRenderer } from '../weydra-loader';
+import { getEngineRuntime } from '../core/engine-runtime';
 
 interface RendererInfo {
   motor: string;
@@ -195,6 +196,17 @@ function coletarInfoWebGPU(renderer: any): RendererInfo {
 }
 
 function coletarInfo(app: Application): RendererInfo {
+  const runtime = getEngineRuntime();
+  if (runtime?.engine === 'weydra') {
+    return {
+      motor: `Weydra / ${runtime.effectiveBackend.toUpperCase()}`,
+      versao: 'Weydra WASM',
+      gpu: 'gerenciado pelo backend wgpu',
+      vendor: 'consulte o diagnóstico do navegador',
+      software: runtime.effectiveBackend === 'webgl2' && /swiftshader|llvmpipe/i.test(navigator.userAgent),
+      bloqueado: false,
+    };
+  }
   const renderer = app.renderer as any;
   const nome = (renderer?.name ?? '').toLowerCase();
   if (nome.includes('webgpu')) {
@@ -249,7 +261,8 @@ export function abrirRendererInfoModal(app: Application): void {
 
   // The `backend` key is a string config; this filter keeps only the
   // boolean subsystem flags so the count matches the real subsystem list.
-  const w = getConfig().weydra as Record<string, unknown> | undefined;
+  const config = getConfig();
+  const w = config.weydra as Record<string, unknown> | undefined;
   const enabledSubs = w
     ? Object.entries(w)
         .filter(([k, v]) => k !== 'backend' && v === true)
@@ -258,12 +271,12 @@ export function abrirRendererInfoModal(app: Application): void {
   card.append(
     row(
       t('renderer_info.engine'),
-      enabledSubs.length > 0
+      config.rendering.engine === 'weydra'
         ? t('renderer_info.engine_weydra', { n: enabledSubs.length })
         : t('renderer_info.engine_pixi'),
     ),
   );
-  if (enabledSubs.length > 0) {
+  if (config.rendering.engine === 'weydra') {
     card.append(row(t('renderer_info.weydra_subs'), enabledSubs.join(', ')));
     const r = getWeydraRenderer();
     const wRow = row(
@@ -278,15 +291,16 @@ export function abrirRendererInfoModal(app: Application): void {
   }
 
   // ── Config section: what the user selected for Pixi ──
-  const cfg = getConfig().graphics;
-  const rendererLabels: Record<string, string> = { webgl: 'WebGL', webgpu: 'WebGPU', software: t('renderer_info.renderer_software') };
+  const cfg = config.graphics;
+  const pixi = config.rendering.pixi;
+  const rendererLabels: Record<string, string> = { webgl: 'WebGL', webgpu: 'WebGPU', canvas: t('renderer_info.renderer_software') };
   const gpuPrefLabels: Record<string, string> = { auto: t('renderer_info.automatico'), 'high-performance': t('renderer_info.gpu_alta'), 'low-power': t('renderer_info.gpu_economia') };
-  card.append(row(t('renderer_info.backend_pixi'), rendererLabels[cfg.renderer] ?? cfg.renderer));
-  if (cfg.renderer === 'webgl') {
-    card.append(row(t('renderer_info.versao_webgl'), cfg.webglVersion === 'auto' ? t('renderer_info.automatico') : t('renderer_info.webgl_forcado', { v: cfg.webglVersion })));
+  card.append(row(t('renderer_info.backend_pixi'), rendererLabels[pixi.backend] ?? pixi.backend));
+  if (pixi.backend === 'webgl') {
+    card.append(row(t('renderer_info.versao_webgl'), pixi.webglVersion === 'auto' ? t('renderer_info.automatico') : t('renderer_info.webgl_forcado', { v: pixi.webglVersion })));
   }
-  card.append(row(t('renderer_info.preferencia_gpu'), gpuPrefLabels[cfg.gpuPreference] ?? cfg.gpuPreference));
-  card.append(row(t('renderer_info.resolucao'), `${Math.round(window.innerWidth * (cfg.renderer === 'software' ? 1 : window.devicePixelRatio))} × ${Math.round(window.innerHeight * (cfg.renderer === 'software' ? 1 : window.devicePixelRatio))}`));
+  card.append(row(t('renderer_info.preferencia_gpu'), gpuPrefLabels[pixi.gpuPreference] ?? pixi.gpuPreference));
+  card.append(row(t('renderer_info.resolucao'), `${Math.round(window.innerWidth * (pixi.backend === 'canvas' ? 1 : window.devicePixelRatio))} × ${Math.round(window.innerHeight * (pixi.backend === 'canvas' ? 1 : window.devicePixelRatio))}`));
   card.append(row(t('renderer_info.qualidade'), cfg.qualidadeEfeitos.charAt(0).toUpperCase() + cfg.qualidadeEfeitos.slice(1)));
 
   // ── Hardware section: what the GPU reports ──
@@ -335,7 +349,7 @@ export function abrirRendererInfoModal(app: Application): void {
     card.append(row(t('renderer_info.count'), String(info.features.length)));
   }
 
-  if (cfg.renderer === 'software') {
+  if (config.rendering.engine === 'pixi' && pixi.backend === 'canvas') {
     const b = document.createElement('div');
     b.className = 'renderer-info-banner info';
     b.textContent = t('renderer_info.banner_software');

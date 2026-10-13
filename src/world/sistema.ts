@@ -8,7 +8,6 @@ import { criarEstadoPesquisas } from './pesquisa';
 import { gerarNomePlaneta } from './nomes';
 import { rngFromSeed } from './lore/seeded-rng';
 import { getWeydraRenderer } from '../weydra-loader';
-import { getConfig } from '../core/config';
 import { Z } from '../core/render-order';
 
 function sortearTipoPlaneta(): string {

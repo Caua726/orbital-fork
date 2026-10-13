@@ -1,4 +1,4 @@
-import type { Container, Graphics, AnimatedSprite, Sprite, Filter, Application, Texture } from 'pixi.js';
+import type { Container, Graphics, AnimatedSprite, Sprite, Application, Texture } from 'pixi.js';
 
 // === Recursos ===
 export interface Recursos {
@@ -214,6 +214,8 @@ export interface Mundo {
   seedMusical: number;
   /** Deterministic seed for procedural lore — same seed → same stories. */
   galaxySeed: number;
+  /** Objective/result and simulation clocks. Persisted in save schema v3. */
+  match: import('./world/save/dto').MatchStateDTO;
 }
 
 // === Tipo de Jogador ===

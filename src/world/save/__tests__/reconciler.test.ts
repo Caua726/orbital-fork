@@ -726,7 +726,7 @@ describe('migration — pathological schemaVersion', () => {
       sistemas: [], sois: [], planetas: [], naves: [], fontesVisao: [],
     });
     expect(result.versaoOriginal).toBe(1);
-    expect(result.dto.schemaVersion).toBe(2);
+    expect(result.dto.schemaVersion).toBe(3);
   });
 
   it('handles negative schemaVersion gracefully', async () => {

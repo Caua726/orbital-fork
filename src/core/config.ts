@@ -2,7 +2,25 @@ export type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
+export type GraphicsEngine = 'pixi' | 'weydra';
+export type PixiBackend = 'webgl' | 'webgpu' | 'canvas';
+export type WeydraBackend = 'auto' | 'webgpu' | 'webgl2';
+
+export interface RenderingConfig {
+  engine: GraphicsEngine;
+  pixi: {
+    backend: PixiBackend;
+    webglVersion: 'auto' | '1' | '2';
+    gpuPreference: 'auto' | 'high-performance' | 'low-power';
+  };
+  weydra: { backend: WeydraBackend };
+}
+
 export interface OrbitalConfig {
+  /** Atomic renderer selection. Legacy `weydra.*` booleans below are an
+   * internal compatibility mirror and must never be independently persisted
+   * by production UI. */
+  rendering: RenderingConfig;
   autosaveIntervalMs: number;
   saveMode: 'periodic' | 'experimental';
 
@@ -78,6 +96,15 @@ export interface OrbitalConfig {
 }
 
 export const DEFAULTS: OrbitalConfig = {
+  rendering: {
+    engine: 'weydra',
+    pixi: {
+      backend: 'webgl',
+      webglVersion: 'auto',
+      gpuPreference: 'auto',
+    },
+    weydra: { backend: 'auto' },
+  },
   autosaveIntervalMs: 60000,
   saveMode: 'periodic',
 
@@ -176,7 +203,35 @@ function mergeDeep<T>(base: T, over: any): T {
   return out;
 }
 
-function migrarChavesLegadas(cfg: OrbitalConfig): void {
+const WEYDRA_BOOLEAN_KEYS = [
+  'starfield', 'ships', 'shipTrails', 'starfieldBright', 'planetsBaked',
+  'planetsLive', 'fog', 'graphics', 'text', 'ui',
+] as const;
+
+function alinharEngineAtomico(cfg: OrbitalConfig): void {
+  const on = cfg.rendering.engine === 'weydra';
+  for (const key of WEYDRA_BOOLEAN_KEYS) cfg.weydra[key] = on;
+  cfg.weydra.backend = cfg.rendering.weydra.backend;
+  cfg.graphics.renderer = cfg.rendering.pixi.backend === 'canvas'
+    ? 'software'
+    : cfg.rendering.pixi.backend;
+  cfg.graphics.webglVersion = cfg.rendering.pixi.webglVersion;
+  cfg.graphics.gpuPreference = cfg.rendering.pixi.gpuPreference;
+}
+
+function migrarChavesLegadas(cfg: OrbitalConfig, raw?: any): void {
+  if (!raw?.rendering?.engine) {
+    const legacyWeydra = raw?.weydra;
+    const tinhaFlags = legacyWeydra && typeof legacyWeydra === 'object';
+    const algumAtivo = tinhaFlags && WEYDRA_BOOLEAN_KEYS.some((k) => legacyWeydra[k] === true);
+    cfg.rendering.engine = tinhaFlags && !algumAtivo ? 'pixi' : 'weydra';
+    const legacyPixi = raw?.graphics?.renderer;
+    if (legacyPixi === 'software') cfg.rendering.pixi.backend = 'canvas';
+    else if (legacyPixi === 'webgl' || legacyPixi === 'webgpu') cfg.rendering.pixi.backend = legacyPixi;
+    if (raw?.graphics?.webglVersion) cfg.rendering.pixi.webglVersion = raw.graphics.webglVersion;
+    if (raw?.graphics?.gpuPreference) cfg.rendering.pixi.gpuPreference = raw.graphics.gpuPreference;
+    if (legacyWeydra?.backend) cfg.rendering.weydra.backend = legacyWeydra.backend;
+  }
   const legacyRenderer = localStorage.getItem('renderer');
   if (legacyRenderer === 'webgl' || legacyRenderer === 'webgpu') {
     cfg.graphics.renderer = legacyRenderer;
@@ -203,6 +258,7 @@ function migrarChavesLegadas(cfg: OrbitalConfig): void {
   if (!VALID_FOG.includes(cfg.graphics.fogThrottle)) {
     cfg.graphics.fogThrottle = 3;
   }
+  alinharEngineAtomico(cfg);
 }
 
 function load(): OrbitalConfig {
@@ -211,7 +267,7 @@ function load(): OrbitalConfig {
     if (!raw) return deepClone(DEFAULTS);
     const parsed = JSON.parse(raw);
     const merged = mergeDeep(DEFAULTS, parsed);
-    migrarChavesLegadas(merged);
+    migrarChavesLegadas(merged, parsed);
     return merged;
   } catch {
     return deepClone(DEFAULTS);
@@ -241,6 +297,7 @@ export function setConfig(partial: DeepPartial<OrbitalConfig>): void {
     return;
   }
   _cache = mergeDeep(getConfig(), partial);
+  alinharEngineAtomico(_cache);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(_cache));
   } catch (err) {
@@ -259,11 +316,18 @@ export function setConfig(partial: DeepPartial<OrbitalConfig>): void {
 
 export function setConfigDuranteBoot(partial: DeepPartial<OrbitalConfig>): void {
   _cache = mergeDeep(getConfig(), partial);
+  alinharEngineAtomico(_cache);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(_cache));
   } catch (err) {
     console.warn('[config] boot persist failed:', err);
   }
+}
+
+/** Update the active engine atomically. Subsystem flags remain an internal
+ * compatibility mirror until renderer-specific modules stop reading them. */
+export function setGraphicsEngine(engine: GraphicsEngine): void {
+  setConfig({ rendering: { ...getConfig().rendering, engine } });
 }
 
 export function resetConfigForTest(): void {

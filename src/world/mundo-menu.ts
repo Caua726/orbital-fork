@@ -35,7 +35,7 @@ export interface MundoMenu {
   tamanho: number;
 }
 
-export async function criarMundoMenu(app: Application): Promise<MundoMenu> {
+export async function criarMundoMenu(_app: Application): Promise<MundoMenu> {
   // Reset procedural name dedupe so the real game's name pool isn't
   // polluted by the menu's throwaway system.
   resetarNomesPlanetas();

@@ -1,10 +1,9 @@
 import type { Mundo } from '../../types';
 import type { MundoDTO } from './dto';
-import type { StorageBackend, SaveMetadata } from './storage-backend';
+import type { StorageBackend } from './storage-backend';
 import { PeriodicBackend } from './periodic-save';
 import { ExperimentalBackend } from './experimental-save';
 import { serializarMundo } from './serializar';
-import { reconstruirMundo } from './reconstruir';
 import { migrarDto, migrarDtoComRelatorio, type MigrationResult } from './migrations';
 import { getConfig } from '../../core/config';
 
@@ -36,6 +35,7 @@ let _tempoJogadoMs: number = 0;
 let _timerId: number | null = null;
 let _ultimoSaveAt: number = 0;
 let _ultimoErro: Error | null = null;
+let _saveInflight: Promise<boolean> | null = null;
 
 const THROTTLE_MS = 200;
 
@@ -56,8 +56,10 @@ let _dirty: DirtyState = {
   planetas: new Set(),
   naves: new Set(),
 };
+let _dirtyRevision = 0;
 
 export function marcarTudoDirty(mundo: Mundo): void {
+  _dirtyRevision++;
   _dirty.header = true;
   for (const s of mundo.sistemas) _dirty.sistemas.add(s.id);
   for (const s of mundo.sois) _dirty.sois.add(s.id);
@@ -65,7 +67,8 @@ export function marcarTudoDirty(mundo: Mundo): void {
   for (const n of mundo.naves) _dirty.naves.add(n.id);
 }
 
-function limparDirty(): void {
+function limparDirty(expectedRevision = _dirtyRevision): void {
+  if (expectedRevision !== _dirtyRevision) return;
   _dirty.header = false;
   _dirty.sistemas.clear();
   _dirty.sois.clear();
@@ -86,7 +89,7 @@ function temDirty(): boolean {
 // --- FlushController (experimental mode) ---
 
 let _flushTimer: number | null = null;
-let _flushInflight = false;
+let _flushPromise: Promise<boolean> | null = null;
 
 export function iniciarFlushController(): void {
   if (_flushTimer !== null) return;
@@ -107,24 +110,29 @@ export function pararFlushController(): void {
 
 async function flushSeDirty(): Promise<void> {
   if (!temDirty()) return;
-  if (_flushInflight) return;
+  if (_flushPromise || _saveInflight) return;
   if (!_mundoAtivo || !_nomeAtivo) return;
-  _flushInflight = true;
-  try {
-    const dto = serializarMundo(_mundoAtivo, _nomeAtivo, {
-      criadoEm: _criadoEm,
-      tempoJogadoMs: _tempoJogadoMs,
-    });
-    await _backend.salvar(dto);
-    limparDirty();
-    _ultimoSaveAt = Date.now();
-    _ultimoErro = null;
-  } catch (err) {
-    _ultimoErro = err instanceof Error ? err : new Error(String(err));
-    console.error('[save] flush failed:', err);
-  } finally {
-    _flushInflight = false;
-  }
+  const revision = _dirtyRevision;
+  _flushPromise = (async () => {
+    try {
+      const dto = serializarMundo(_mundoAtivo!, _nomeAtivo!, {
+        criadoEm: _criadoEm,
+        tempoJogadoMs: _tempoJogadoMs,
+      });
+      await _backend.salvar(dto);
+      limparDirty(revision);
+      _ultimoSaveAt = Date.now();
+      _ultimoErro = null;
+      return true;
+    } catch (err) {
+      _ultimoErro = err instanceof Error ? err : new Error(String(err));
+      console.error('[save] flush failed:', err);
+      return false;
+    } finally {
+      _flushPromise = null;
+    }
+  })();
+  await _flushPromise;
 }
 
 export function getBackendAtivo(): StorageBackend {
@@ -141,7 +149,10 @@ export function iniciarAutosave(params: {
   _nomeAtivo = params.nome;
   _criadoEm = params.criadoEm;
   _tempoJogadoMs = params.tempoJogadoMs;
+  _ultimoSaveAt = 0;
   _ultimoErro = null;
+  _dirtyRevision++;
+  limparDirty();
   const cfg = getConfig();
   if (cfg.saveMode === 'experimental') {
     iniciarFlushController();
@@ -168,28 +179,36 @@ export function pararAutosave(): void {
   _nomeAtivo = null;
 }
 
-export function salvarAgora(): void {
-  if (!_mundoAtivo || !_nomeAtivo) return;
+export function salvarAgora(): Promise<boolean> {
+  if (!_mundoAtivo || !_nomeAtivo) return Promise.resolve(false);
+  if (_flushPromise) return _flushPromise;
+  if (_saveInflight) return _saveInflight;
   const now = Date.now();
-  if (now - _ultimoSaveAt < THROTTLE_MS) return;
+  if (now - _ultimoSaveAt < THROTTLE_MS) return Promise.resolve(true);
   try {
+    const revision = _dirtyRevision;
     const dto = serializarMundo(_mundoAtivo, _nomeAtivo, {
       criadoEm: _criadoEm,
       tempoJogadoMs: _tempoJogadoMs,
     });
-    const result = _backend.salvar(dto);
-    _ultimoSaveAt = now;
-    _ultimoErro = null;
-    // Handle async backends (ExperimentalBackend returns a Promise)
-    if (result instanceof Promise) {
-      result.catch((err) => {
+    _saveInflight = Promise.resolve(_backend.salvar(dto))
+      .then(() => {
+        _ultimoSaveAt = Date.now();
+        _ultimoErro = null;
+        limparDirty(revision);
+        return true;
+      })
+      .catch((err) => {
         _ultimoErro = err instanceof Error ? err : new Error(String(err));
         console.error('[save] autosave failed (async):', err);
-      });
-    }
+        return false;
+      })
+      .finally(() => { _saveInflight = null; });
+    return _saveInflight;
   } catch (err) {
     _ultimoErro = err instanceof Error ? err : new Error(String(err));
     console.error('[save] autosave failed:', err);
+    return Promise.resolve(false);
   }
 }
 
@@ -208,9 +227,9 @@ export function notificarMudancaConfig(): void {
   if (_mundoAtivo) reagendarTimer();
 }
 
-export function trocarModoSave(): void {
+export async function trocarModoSave(): Promise<void> {
   _ultimoSaveAt = 0; // bypass throttle for drain-save
-  salvarAgora();
+  await salvarAgora();
   // Stop both controllers before switching
   if (_timerId !== null) { clearInterval(_timerId); _timerId = null; }
   pararFlushController();
@@ -270,6 +289,7 @@ export async function recuperarEmergency(nome: string): Promise<MundoDTO | null>
     localStorage.removeItem(key);
     return null;
   }
+  dto = migrarDto(dto);
   try {
     await _backend.salvar(dto);
     localStorage.removeItem(key); // only remove after backend save succeeds

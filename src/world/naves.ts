@@ -1,4 +1,4 @@
-import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { Container, Rectangle, Sprite, Texture } from 'pixi.js';
 import { GraphicsAdapter } from '../core/graphics-adapter';
 import type { Nave, Mundo, Planeta, Sol, AlvoPonto, AcaoNaveParsed, Recursos } from '../types';
 import { VELOCIDADE_NAVE, VELOCIDADE_ORBITA_NAVE, TEMPO_SURVEY_MS, CUSTO_NAVE_COMUM, formatarId } from './constantes';
@@ -14,7 +14,6 @@ import {
 import { t } from '../core/i18n/t';
 import { instalarTrail, atualizarTrail, destruirTrail } from './engine-trails';
 import { esquecerLastSeen } from './last-seen';
-import { getConfig } from '../core/config';
 import { getWeydraRenderer } from '../weydra-loader';
 import { Z } from '../core/render-order';
 import type { Sprite as WeydraSprite } from '@weydra/renderer';
@@ -122,20 +121,6 @@ function obterPlanetaAlvo(nave: Nave): Planeta | null {
 
 export function capacidadeCargaCargueira(tier: number): number {
   return 30 * (2 ** Math.max(0, tier - 1));
-}
-
-function carregarRecursosPlaneta(planeta: Planeta, capacidade: number): Recursos {
-  const carga = criarCargaVazia();
-  let restante = capacidade;
-  for (const tipo of ['comum', 'raro', 'combustivel'] as const) {
-    if (restante <= 0) break;
-    const disponivel = Math.floor(planeta.dados.recursos[tipo]);
-    const quantidade = Math.min(disponivel, restante);
-    planeta.dados.recursos[tipo] -= quantidade;
-    carga[tipo] = quantidade;
-    restante -= quantidade;
-  }
-  return carga;
 }
 
 function descarregarRecursosPlaneta(planeta: Planeta, carga: Recursos): void {

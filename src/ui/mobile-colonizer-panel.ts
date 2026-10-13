@@ -905,7 +905,7 @@ function renderCockpit(): void {
     marcarInteracaoUi();
     state.active = true;
     state.pointerId = e.pointerId;
-    try { stick.setPointerCapture(e.pointerId); } catch {}
+    try { stick.setPointerCapture(e.pointerId); } catch { /* unsupported capture */ }
     stick.classList.add('active');
     applyFromPointer(e.clientX, e.clientY);
     if (_selectedNave) setCameraFollow(_selectedNave);
@@ -917,7 +917,7 @@ function renderCockpit(): void {
   const endDrag = (e: PointerEvent) => {
     if (!state.active || e.pointerId !== state.pointerId) return;
     state.active = false;
-    try { stick.releasePointerCapture(e.pointerId); } catch {}
+    try { stick.releasePointerCapture(e.pointerId); } catch { /* capture may already be released */ }
     stick.classList.remove('active');
     // Intentional: don't reset thrust — ship keeps cruising.
   };

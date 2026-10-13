@@ -20,7 +20,7 @@ const _fakeStorage: Record<string, string> = {};
   clear: () => { for (const k of Object.keys(_fakeStorage)) delete _fakeStorage[k]; },
 };
 
-import { isAnyWeydraSubsystemOn, resetConfigForTest, setConfig, getConfig, DEFAULTS } from '../config';
+import { isAnyWeydraSubsystemOn, resetConfigForTest, setConfig, setGraphicsEngine, getConfig, DEFAULTS } from '../config';
 import type { OrbitalConfig } from '../config';
 
 function withWeydra(overrides: Partial<OrbitalConfig['weydra']>): OrbitalConfig {
@@ -166,5 +166,39 @@ describe('getConfig: shared cached reference (perf-critical, must NOT deep-clone
     setConfig({ weydra: { ...DEFAULTS.weydra, fog: !fogBefore } });
     // The old snapshot is unchanged (setConfig built a new object).
     expect(snap.weydra.fog).toBe(fogBefore);
+  });
+});
+
+describe('atomic graphics engine selection', () => {
+  beforeEach(() => {
+    delete _fakeStorage.orbital_config;
+    resetConfigForTest();
+  });
+
+  it('turns every Weydra subsystem off when Pixi is selected', () => {
+    setGraphicsEngine('pixi');
+    const cfg = getConfig();
+    expect(cfg.rendering.engine).toBe('pixi');
+    expect(Object.entries(cfg.weydra).filter(([key]) => key !== 'backend').every(([, value]) => value === false)).toBe(true);
+  });
+
+  it('turns every Weydra subsystem on when Weydra is selected', () => {
+    setGraphicsEngine('pixi');
+    setGraphicsEngine('weydra');
+    const cfg = getConfig();
+    expect(cfg.rendering.engine).toBe('weydra');
+    expect(Object.entries(cfg.weydra).filter(([key]) => key !== 'backend').every(([, value]) => value === true)).toBe(true);
+  });
+
+  it('keeps backend choices while switching engines', () => {
+    setConfig({ rendering: {
+      ...getConfig().rendering,
+      pixi: { ...getConfig().rendering.pixi, backend: 'canvas' },
+      weydra: { backend: 'webgl2' },
+    } });
+    setGraphicsEngine('pixi');
+    setGraphicsEngine('weydra');
+    expect(getConfig().rendering.pixi.backend).toBe('canvas');
+    expect(getConfig().rendering.weydra.backend).toBe('webgl2');
   });
 });

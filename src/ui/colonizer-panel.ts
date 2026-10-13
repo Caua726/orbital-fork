@@ -976,7 +976,7 @@ function renderMovePanel(_nave: Nave): void {
   const endDrag = (e: PointerEvent) => {
     if (!joystickState.active || e.pointerId !== joystickState.pointerId) return;
     joystickState.active = false;
-    try { stick.releasePointerCapture(e.pointerId); } catch {}
+    try { stick.releasePointerCapture(e.pointerId); } catch { /* capture may already be released */ }
     stick.classList.remove('active');
     // Do NOT reset thrust — the ship keeps cruising in the current direction.
   };

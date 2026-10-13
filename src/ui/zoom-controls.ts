@@ -4,6 +4,7 @@ import { pulseElement } from './animations.css';
 
 let _container: HTMLDivElement | null = null;
 let _styleInjected = false;
+let _styleEl: HTMLStyleElement | null = null;
 
 function injectStyles(): void {
   if (_styleInjected) return;
@@ -39,6 +40,7 @@ function injectStyles(): void {
     }
   `;
   document.head.appendChild(style);
+  _styleEl = style;
 }
 
 export function criarZoomControls(): HTMLDivElement {
@@ -75,4 +77,6 @@ export function destruirZoomControls(): void {
     _container = null;
   }
   _styleInjected = false;
+  _styleEl?.remove();
+  _styleEl = null;
 }

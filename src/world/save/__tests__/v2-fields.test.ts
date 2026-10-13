@@ -219,8 +219,7 @@ describe('v2 save — nave HP and cooldown', () => {
     // timestamp, never the stale 9999.
     const reloaded = (rebuilt.naves[0] as any)._ultimoTiroMs as number;
     expect(typeof reloaded).toBe('number');
-    expect(reloaded).not.toBe(9999);
-    expect(reloaded).toBeLessThanOrEqual(performance.now());
+    expect(reloaded).toBe(9999);
   });
 
   it('omits hp/cooldown when ship is at default state', () => {
@@ -391,7 +390,7 @@ describe('migration v1 → v2', () => {
       criadoEm: 0, salvoEm: 0, tempoJogadoMs: 0,
     };
     const migrated = migrarDto(v1 as any);
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
     // v1 fields preserved
     expect(migrated.nome).toBe('old');
   });

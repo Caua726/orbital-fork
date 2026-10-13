@@ -150,7 +150,7 @@ function scoreEnviarFrota(
   // Don't attack if outclassed (force ratio < 1.3)
   if (alvoDono !== 'neutro' && defesaInimiga > meuPoder * 0.8) return -Infinity;
 
-  let base = 0;
+  let base: number;
 
   if (alvoDono === 'neutro') {
     // Expansion utility — value depends on planet type (gasoso planets are gold)

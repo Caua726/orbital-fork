@@ -15,6 +15,14 @@ export interface StorageBackend {
   salvar(dto: MundoDTO): Promise<void> | void;
   apagar(nome: string): Promise<void> | void;
   existe(nome: string): Promise<boolean> | boolean;
+  exportar(nome: string): Promise<string | null> | string | null;
+}
+
+export class SaveCorrompidoError extends Error {
+  constructor(public readonly nomeSave: string, cause?: unknown) {
+    super(`Save "${nomeSave}" contém JSON inválido.`, { cause });
+    this.name = 'SaveCorrompidoError';
+  }
 }
 
 export function extrairMetadata(dto: MundoDTO): SaveMetadata {

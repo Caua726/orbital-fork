@@ -1,6 +1,7 @@
 import type { MundoDTO } from './dto';
 import type { StorageBackend, SaveMetadata } from './storage-backend';
 import { extrairMetadata } from './storage-backend';
+import { SaveCorrompidoError } from './storage-backend';
 
 const SAVE_KEY_PREFIX = 'orbital_save:';
 const INDEX_KEY = 'orbital_saves_index';
@@ -22,22 +23,21 @@ export class PeriodicBackend implements StorageBackend {
   }
 
   carregar(nome: string): MundoDTO | null {
+    const raw = localStorage.getItem(saveKey(nome));
+    if (!raw) return null;
     try {
-      const raw = localStorage.getItem(saveKey(nome));
-      if (!raw) return null;
       return JSON.parse(raw) as MundoDTO;
-    } catch {
-      return null;
+    } catch (err) {
+      throw new SaveCorrompidoError(nome, err);
     }
   }
 
   salvar(dto: MundoDTO): void {
     const json = JSON.stringify(dto);
-    // Update index first (smaller payload, cheaper). If data write fails
-    // due to quota, a dangling index entry is less harmful than orphaned
-    // save data invisible to the listing.
-    this.atualizarIndice(dto);
+    // Publish metadata only after the recoverable payload exists. On quota
+    // failure this avoids presenting a dangling save that cannot be loaded.
     localStorage.setItem(saveKey(dto.nome), json);
+    this.atualizarIndice(dto);
   }
 
   apagar(nome: string): void {
@@ -48,6 +48,10 @@ export class PeriodicBackend implements StorageBackend {
 
   existe(nome: string): boolean {
     return localStorage.getItem(saveKey(nome)) !== null;
+  }
+
+  exportar(nome: string): string | null {
+    return localStorage.getItem(saveKey(nome));
   }
 
   private atualizarIndice(dto: MundoDTO): void {

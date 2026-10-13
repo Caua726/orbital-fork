@@ -322,6 +322,9 @@ export function destruirCamera(): void {
     comandoPreviewGfx.destroy();
     comandoPreviewGfx = null;
   }
+  // Never leave zoom helpers pointing at a Pixi Application whose renderer
+  // has been destroyed during an engine transaction.
+  _appRef = null;
 }
 
 export function configurarCamera(app: Application, mundo: Mundo): void {

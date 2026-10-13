@@ -34,6 +34,7 @@ import { atualizarFilasPlaneta, atualizarRecursosPlaneta } from './construcao';
 import { profileMark, profileAcumular, profileFlush } from './profiling';
 import { amostrarFrameProfiling, setLoggerContexto } from './profiling-logger';
 import { getConfig } from '../core/config';
+import { atualizarMatchState, criarMatchState } from './match-state';
 
 // Cached lazy import to avoid circular dep (mundo → save → reconstruir → mundo)
 // and eliminate per-frame Promise allocation from dynamic import().
@@ -274,6 +275,7 @@ export async function criarMundo(
     fontesVisao: [] as import('../types').FonteVisao[],
     seedMusical: gerarSeedMusical(),
     galaxySeed: Math.floor(Math.random() * 0xffffffff),
+    match: criarMatchState(),
   } as Mundo;
 
   // ─── Fase 4: Cartografando memória de fog-of-war ──
@@ -347,7 +349,7 @@ export async function criarMundo(
     // Build a minimal DTO stub — the reconciler only reads a handful of
     // top-level fields, and none that don't exist on a fresh world.
     const dtoStub = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       nome: '', criadoEm: 0, salvoEm: 0, tempoJogadoMs: 0,
       tamanho: mundo.tamanho,
       tipoJogador: mundo.tipoJogador,
@@ -422,6 +424,9 @@ let _lastFrameMark = 0;
 export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): void {
   const frameInicio = profileMark();
   setLoggerContexto(false);
+  if (mundo.match.status === 'victory') estadoJogo = 'vitoria';
+  else if (mundo.match.status === 'defeat') estadoJogo = 'derrota';
+  else estadoJogo = 'jogando';
   // Wall clock — how long since the PREVIOUS frame started? This
   // includes whatever happened between the previous atualizarMundo
   // return and now (Pixi render, ticker overhead, vsync wait).
@@ -673,7 +678,9 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     }
   }
 
-  verificarEstadoJogo(mundo);
+  const reached = atualizarMatchState(mundo, deltaMs, app.ticker.deltaMS);
+  if (reached === 'victory') estadoJogo = 'vitoria';
+  else if (reached === 'defeat') estadoJogo = 'derrota';
 }
 
 // === First-contact detection ===
@@ -702,25 +709,4 @@ function atualizarPrimeiroContato(mundo: Mundo): void {
 /** Reset by callers when a new world / fresh game begins. */
 export function resetPrimeiroContatoFlag(): void {
   _primeiroContatoCompleto = false;
-}
-
-// === Estado do jogo ===
-function verificarEstadoJogo(mundo: Mundo): void {
-  if (estadoJogo !== 'jogando') return;
-
-  let jogadorTemPlaneta = false;
-  let todosSaoJogador = true;
-
-  for (const planeta of mundo.planetas) {
-    if (planeta.dados.dono === 'jogador') jogadorTemPlaneta = true;
-    else todosSaoJogador = false;
-    // Early exit once both flags are decided.
-    if (jogadorTemPlaneta && !todosSaoJogador) break;
-  }
-
-  if (!jogadorTemPlaneta) {
-    estadoJogo = 'derrota';
-  } else if (todosSaoJogador) {
-    estadoJogo = 'vitoria';
-  }
 }
