@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-04-23
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: weydra-renderer
+      - uses: jetli/wasm-pack-action@v0.4.0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # `pkg/` (wasm-pack) não está no git e é um dep `file:` do ts-bridge:
+      # sem ele o `bun install` falha num checkout limpo.
+      - name: Build WASM adapter
+        run: bun run build:renderer:release
+
+      - run: bun install --frozen-lockfile --linker=hoisted
+
+      # `dist/` (tsc) também não está no git, e vitest/vite carregam o plugin
+      # como arquivo de config — precisa existir antes de `bun run test`.
+      - name: Build WGSL plugin
+        run: bun run build:plugin
+
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run test
+
+      - name: Rust format
+        working-directory: weydra-renderer
+        run: cargo fmt --all --check
+      - name: Rust tests
+        working-directory: weydra-renderer
+        run: cargo test --workspace
+      - name: Rust clippy
+        working-directory: weydra-renderer
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - run: bunx vite build
+
+      - name: Install Chromium for visual gates
+        run: bunx playwright install --with-deps chromium
+      - name: Browser renderer gates
+        run: |
+          bunx vite preview --host 127.0.0.1 &
+          server_pid=$!
+          trap 'kill $server_pid' EXIT
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:4173/orbital-fork/ >/dev/null && break
+            sleep 1
+          done
+          ORBITAL_DEV_URL=http://127.0.0.1:4173/orbital-fork/ bun run test:determinism
+          ORBITAL_DEV_URL=http://127.0.0.1:4173/orbital-fork/ bun run test:engine-switch

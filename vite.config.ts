@@ -1,15 +1,14 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import wasm from 'vite-plugin-wasm';
 import wgsl from '@weydra/vite-plugin-wgsl';
 
 // Vite 8+ suporta top-level await nativamente quando target é esnext.
 // Plugin vite-plugin-top-level-await removido (incompat com Vite 8 +
 // pulled vulnerable uuid transitively).
-export default defineConfig({
-  base: '/orbital-fork/',
-  server: {
-    allowedHosts: true,
-  },
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, '.', '');
+  return {
+  base: env.VITE_BASE_PATH || '/orbital-fork/',
   build: {
     target: 'esnext',
     rollupOptions: {
@@ -41,4 +40,5 @@ export default defineConfig({
     wasm(),
     wgsl(),
   ],
+  };
 });

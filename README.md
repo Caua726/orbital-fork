@@ -1,37 +1,58 @@
 # Orbital
 
-Space strategy game where you conquer the galaxy through expansion, tech superiority, and domination.
+Jogo de estratégia espacial single-player: explore uma galáxia procedural, desenvolva colônias, pesquise tecnologias e dispute território com impérios controlados por IA.
 
-## About
+## Estado atual
 
-Orbital is a single-player (multiplayer planned) space strategy game. You start with one planet, explore the galaxy through fog of war, expand your empire, research technologies, and eliminate all opponents to win.
+- Partidas completas com objetivos de conquista, economia, ciência, sobrevivência, exploração ou modo livre.
+- Fog of war, combate automático, colonização, pesquisa, economia e personalidades de IA.
+- Save/load versionado, migração de saves antigos, autosave em `localStorage` ou IndexedDB e exportação para recuperação.
+- Dois motores gráficos completos e mutuamente exclusivos:
+  - **Weydra**: renderer Rust/WASM com backends WebGPU e WebGL2.
+  - **Pixi**: renderer clássico com backends WebGL, WebGPU e Canvas.
+- Troca de motor e backend durante a execução. A partida é serializada, o renderer é reconstruído e, se houver falha, o motor anterior é restaurado automaticamente.
+- Telas dedicadas para erros de boot, criação/carregamento de mundo, corrupção de save e falhas de troca de renderer.
 
-- **Auto-resolve combat** — send ships, numbers decide the outcome
-- **Procedural maps** — open space with solar systems to explore and conquer
-- **Planet specialization** — each planet has innate traits (production, research, resources)
-- **Deep tech tree** — research is a major strategic axis
-- **AI personalities** — aggressive, turtle, expansionist opponents with difficulty tiers
-- **Fog of war** — scouting is essential, hidden information creates tension
-- **Pixel art** — retro aesthetic (in progress)
+## Desenvolvimento
 
-## Tech Stack
+Requisitos: Node.js 22+ e npm ou Bun. O adapter WASM do Weydra — o motor padrão — exige Rust conforme `weydra-renderer/rust-toolchain.toml` e `wasm-pack`.
 
-- TypeScript
-- Pixi.js (PixiJS)
-- Vite
-- GLSL shaders (procedural planet/star generation)
-
-## Getting Started
+`pkg/` (saída do `wasm-pack`) e `dist/` (saída do `tsc`) não estão versionados, e o `ts-bridge` depende do `pkg/` por `file:`. Num clone novo, gere o adapter antes de instalar — o `bun install` falha sem ele, o `npm install` apenas ignora o dep — e o plugin antes de rodar testes ou servidor:
 
 ```bash
+npm run build:renderer   # adapter WASM do Weydra (wasm-pack)
 npm install
+npm run build:plugin     # plugin WGSL (tsc) — carregado por vite.config e vitest.config
 npm run dev
 ```
 
-## Roadmap
+`npm run build` roda os dois passos anteriores via `prebuild` antes do bundle Vite.
 
-See [roadmap.md](roadmap.md) for the current development plan.
+Comandos principais:
 
-## License
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run test:determinism
+npm run test:engine-switch
+npm run build
+```
 
-All rights reserved.
+`npm run build` recompila o adapter WASM do Weydra e o plugin WGSL antes do bundle Vite. Para servir em outra subpasta, defina `VITE_BASE_PATH` (o padrão de deploy é `/orbital-fork/`).
+
+## Arquitetura dos motores
+
+A configuração persistida em `rendering.engine` seleciona exatamente um motor. A UI não permite misturar subsistemas Pixi e Weydra. Uma troca em runtime segue uma transação lógica:
+
+1. captura um DTO sem referências gráficas e grava um snapshot de emergência;
+2. pausa input, música, autosave e simulação;
+3. desmonta mundo, HUD e renderer atuais;
+4. inicializa o motor/backend solicitado e reconstrói a partida;
+5. em falha, repete a reconstrução com a configuração anterior.
+
+O save não contém objetos Pixi/Weydra; sprites, shaders, containers e listeners são sempre recriados. Falhas repetidas no loop Weydra acionam recuperação automática no Pixi.
+
+## Licença
+
+[MIT](LICENSE). Consulte [ROADMAP.md](ROADMAP.md) para o trabalho futuro.

@@ -26,14 +26,8 @@ bun run dev
 bun run test:determinism
 ```
 
-The runner installs nothing on its own. If Playwright is missing it
-exits with instructions:
-
-```
-bun add -d playwright
-# or
-npm i -D playwright
-```
+Playwright, `pngjs` and `pixelmatch` are project dev dependencies. The
+runner uses `/usr/bin/chromium` when present or Playwright's managed Chromium.
 
 ## Reference scene
 
@@ -67,26 +61,17 @@ weydra pool and draws via the WGSL shader.
 
 ## Pass / fail criteria
 
-In order of strictness:
-
 1. **BIT-EXACT** — SHA-256 of the two PNG screenshots is identical.
-2. **PNG-byte equal** — same byte length and 0 differing bytes (still
-   strong evidence of pixel equivalence; PNGs of identical pixels can
-   differ at the byte level due to deflate non-determinism, so this is
-   a tighter-than-hash check).
-3. **Documented divergence** — hashes diverge. Runner exits 0 and prints
-   both screenshot paths so a human can inspect, or so a future
-   `pngjs` + `pixelmatch` step can apply the spec's `<1%` of pixels
-   differing by `>3` RGB units tolerance.
-
-The runner currently does **not** fail CI on hash mismatch. M5 Status
-documents the divergence; tightening the gate to a real pixel-diff with
-the spec tolerance is a follow-up.
+2. **Tolerated compiler drift** — fewer than 1% of decoded pixels differ
+   by 3 or more levels in any RGB channel.
+3. **Failure** — the threshold is reached; the runner exits non-zero and
+   preserves a visual diff for diagnosis.
 
 ## Output artefacts
 
 - `/tmp/determinism-pixi.png`
 - `/tmp/determinism-weydra.png`
+- `/tmp/determinism-diff.png`
 
 Open both in an image diff tool (Krita, Beyond Compare, `compare` from
 ImageMagick) to spot regressions.
@@ -95,6 +80,7 @@ ImageMagick) to spot regressions.
 
 - `ORBITAL_DEV_URL` — base URL of the Vite dev server. Default
   `http://localhost:5173/orbital-fork/`.
+- `PLAYWRIGHT_CHROMIUM_PATH` — optional Chromium executable override.
 
 ## Files
 
@@ -109,10 +95,8 @@ ImageMagick) to spot regressions.
 - **WebGL2 vs. wgpu compiler drift** — different shader stacks compile
   the same source to different SPIR-V / GLSL ASM. Even an identical
   algorithm can produce 1–2 LSB drift on isolated pixels.
-- **Deflate non-determinism** — Chromium's PNG encoder may not produce
-  byte-identical files for byte-identical pixel buffers across versions.
-  The runner falls back from SHA-256 equality to byte-stream comparison;
-  if both fail, screenshots are still saved for visual diff.
+- **Deflate non-determinism** — PNG byte streams may differ even for equal
+  pixels, so the fallback always compares decoded RGBA data.
 - **First-paint timing** — the harness stops the ticker after one render,
   but shader compile + first paint can take a few hundred ms. The runner
   uses a 10s readiness sentinel + 3s settle delay; raise `SETTLE_MS` in

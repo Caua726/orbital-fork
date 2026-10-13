@@ -9,9 +9,8 @@
  *
  * Pass criteria (in order of strictness):
  *   1. SHA-256 of the two PNG screenshots is identical → BIT-EXACT.
- *   2. Otherwise: PNG byte-streams of equal length, 0 differing bytes.
- *   3. Otherwise: hashes diverge — runner exits 0 but logs paths so a
- *      human (or future pixelmatch-based gate) can inspect.
+ *   2. Otherwise: decoded RGB drift must affect fewer than 1% of pixels,
+ *      counting a pixel when any channel differs by at least 3 levels.
  *
  * Bit-exact across WebGL2 (Pixi-compiled GLSL) and wgpu (naga-translated
  * WGSL) is rarely achievable across different shader compilers; the
@@ -27,15 +26,16 @@
  *                     http://localhost:5173/orbital-fork/).
  *
  * Exit codes:
- *   0 — ran to completion (whether bit-exact or not — divergence is
- *       documented, not gated).
- *   1 — Playwright missing, dev server unreachable, or harness threw.
+ *   0 — bit-exact or within the pixel tolerance.
+ *   1 — visual drift, missing browser, unreachable server, or harness error.
  */
 
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { PNG } from 'pngjs';
+import pixelmatch from 'pixelmatch';
 
 const BASE_URL = process.env.ORBITAL_DEV_URL ?? 'http://localhost:5173/orbital-fork/';
 const URL_PIXI = `${BASE_URL}?weydra_determinism_test=1&engine=pixi`;
@@ -68,7 +68,13 @@ async function loadPlaywright() {
 }
 
 async function captureScene(playwright, url, label) {
-  const browser = await playwright.chromium.launch({ headless: true });
+  const systemChromium = process.env.PLAYWRIGHT_CHROMIUM_PATH
+    ?? (fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
+  const browser = await playwright.chromium.launch({
+    headless: true,
+    ...(systemChromium ? { executablePath: systemChromium } : {}),
+    args: ['--enable-webgl', '--ignore-gpu-blocklist'],
+  });
   const ctx = await browser.newContext({
     viewport: VIEWPORT,
     deviceScaleFactor: 1,
@@ -113,18 +119,25 @@ function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
 }
 
-function pngStreamCompare(bufferA, bufferB) {
-  // Without `pngjs` we can't decode pixel data — fall back to a byte-
-  // stream comparison. PNGs of identical pixels still need not byte-
-  // match (deflate is non-deterministic across encoders), so this is
-  // a tighter-than-hash but looser-than-pixelmatch check. If the team
-  // wants the spec's "<1% Δ≥3 RGB" tolerance, fold pngjs + pixelmatch
-  // in here as a follow-up — both are pure JS and trivial to add.
-  const lenEq = bufferA.length === bufferB.length;
-  if (!lenEq) return { equal: false, byteDiff: Math.abs(bufferA.length - bufferB.length), reason: 'length-mismatch' };
-  let diff = 0;
-  for (let i = 0; i < bufferA.length; i++) if (bufferA[i] !== bufferB[i]) diff++;
-  return { equal: diff === 0, byteDiff: diff, reason: diff === 0 ? 'identical' : 'bytes-differ' };
+function comparePixels(bufferA, bufferB) {
+  const a = PNG.sync.read(bufferA);
+  const b = PNG.sync.read(bufferB);
+  if (a.width !== b.width || a.height !== b.height) {
+    return { passed: false, differentPixels: Infinity, ratio: 1, reason: 'dimension-mismatch' };
+  }
+  let differentPixels = 0;
+  for (let i = 0; i < a.data.length; i += 4) {
+    if (
+      Math.abs(a.data[i] - b.data[i]) >= 3
+      || Math.abs(a.data[i + 1] - b.data[i + 1]) >= 3
+      || Math.abs(a.data[i + 2] - b.data[i + 2]) >= 3
+    ) differentPixels++;
+  }
+  const diff = new PNG({ width: a.width, height: a.height });
+  pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.01, includeAA: true });
+  fs.writeFileSync(path.join(OUT_DIR, 'determinism-diff.png'), PNG.sync.write(diff));
+  const ratio = differentPixels / (a.width * a.height);
+  return { passed: ratio < 0.01, differentPixels, ratio, reason: ratio < 0.01 ? 'within-tolerance' : 'pixel-drift' };
 }
 
 async function main() {
@@ -149,24 +162,19 @@ async function main() {
     process.exit(0);
   }
 
-  console.log('Hashes differ — running PNG byte-stream compare…');
-  const cmp = pngStreamCompare(pixi.buffer, weydra.buffer);
-  console.log(`  byte-stream equal: ${cmp.equal}`);
-  console.log(`  differing bytes:   ${cmp.byteDiff}`);
+  console.log('Hashes differ — running decoded pixel comparison…');
+  const cmp = comparePixels(pixi.buffer, weydra.buffer);
+  console.log(`  differing pixels:  ${cmp.differentPixels}`);
+  console.log(`  differing ratio:   ${(cmp.ratio * 100).toFixed(4)}%`);
   console.log(`  reason:            ${cmp.reason}`);
   console.log('');
   console.log('Outputs (open in an image diff tool to inspect):');
   console.log(`  pixi   → ${pixi.outPath}`);
   console.log(`  weydra → ${weydra.outPath}`);
+  console.log(`  diff   → ${path.join(OUT_DIR, 'determinism-diff.png')}`);
   console.log('');
-  console.log('NOTE: bit-exact across WebGL2 and wgpu is aspirational.');
-  console.log('See README for the spec\'s <1% Δ≥3 RGB tolerance gate (pending pngjs+pixelmatch wiring).');
-  // TODO(determinism-gate): exit non-zero on real shader regressions.
-  // Currently the runner exits 0 even on hash mismatch because bit-exact
-  // across the WebGL2 and wgpu compilers is aspirational. Before wiring
-  // this into CI, swap the exit code for a pngjs+pixelmatch comparison
-  // bound by the spec's <1% Δ≥3 RGB tolerance.
-  process.exit(0);
+  console.log('Gate: fewer than 1% of pixels may differ by 3 or more in any RGB channel.');
+  process.exit(cmp.passed ? 0 : 1);
 }
 
 // ESM-safe "is this the entry?" check.

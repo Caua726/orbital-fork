@@ -3,7 +3,24 @@ import tsPlugin from '@typescript-eslint/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
 
 export default [
+  {
+    ignores: ['**/node_modules/**', '**/dist/**', '**/pkg/**', '**/coverage/**'],
+  },
   js.configs.recommended,
+  {
+    files: ['**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        window: 'readonly',
+        document: 'readonly',
+        localStorage: 'readonly',
+        CustomEvent: 'readonly',
+        getComputedStyle: 'readonly',
+      },
+    },
+  },
   {
     files: ['src/**/*.ts'],
     languageOptions: {
