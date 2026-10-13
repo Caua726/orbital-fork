@@ -37,6 +37,14 @@ navegador não oferece adapter — veja `ORBITAL_WEBGPU_ARGS`).
 - **Perda de contexto.** Weydra não recria buffers/pipelines/texturas de um contexto
   perdido, então o jogo trata `webglcontextlost` como fatal e troca a sessão para o
   Pixi (`src/main.ts` + `src/weydra-loader.ts`), em vez de deixar um quadro congelado.
+- **Névoa e espaço de cor.** A névoa do Weydra é um passe que mistura em espaço LINEAR
+  (a surface é uma view sRGB), enquanto o canvas-2D do Pixi compõe em espaço sRGB. Para
+  as duas engines mostrarem a mesma cor, `src/shaders/fog.wgsl` pré-multiplica o navy
+  pela curva inversa (`srgb_to_linear(navy * alpha) / alpha`); o canvas do Pixi, por sua
+  vez, precisa de `clearRect` a cada redraw — sem ele o alpha acumula até 1,0 e a névoa
+  esconde tudo fora da visão. O gate `bun run test:fog-parity` cobre os dois casos.
+  Onde a névoa cobre conteúdo BRILHANTE (um sol) a diferença de espaço de cor continua:
+  medido (55,46,44) no Pixi contra ~(120,108,94) no Weydra com `fogAlpha` 0,75.
 
 ## Build
 

@@ -11,6 +11,7 @@
     "test:ui": "vitest --ui",
     "test:determinism": "node weydra-renderer/tests/determinism/runner.mjs",
     "test:engine-switch": "node tests/engine-switch-smoke.mjs",
+    "test:fog-parity": "node tests/fog-parity-smoke.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint && npm test",

@@ -178,7 +178,7 @@ async function bootstrap(): Promise<void> {
   // and toast the user with a clear explanation. The flag we save
   // to config stops the auto-apply from running on every boot.
   try {
-    const { detectarRendererSoftware } = await import('./core/benchmark');
+    const { detectarRendererSoftware } = await import('./core/software-gpu');
     const sw = detectarRendererSoftware(app);
     if (sw.isSoftware) {
       // Aviso ao usuário MAS sem mexer nas configurações gráficas. A
@@ -488,7 +488,7 @@ async function bootstrap(): Promise<void> {
         visualVisible: mem.visual.visible,
         memX: mem.dados ? Math.round(mem.dados.x) : null,
         memY: mem.dados ? Math.round(mem.dados.y) : null,
-        hasFantasma: !!mem.visual.fantasma,
+        hasFantasma: !!mem.visual.fantasma || !!mem.visual.fantasmaPixi,
       };
     },
     // Rasterize a planet/sun portrait (the CPU path used by all 5 drawer/

@@ -119,8 +119,10 @@ describe('shader source parity: fog', () => {
   //     would make the shader read past the declared array length.)
   //   - smoothstep(radius * 0.75, radius, d) — swapping edge0/edge1
   //     silently inverts the mask (fog opaque inside, clear outside).
-  //   - pow(vec3(0.008, 0.02, 0.0627), vec3(2.2)) — the 258b5dc sRGB
-  //     pre-decode for the navy color.
+  //   - srgb_to_linear(navy * alpha) / alpha — the compensation that makes the
+  //     linear-space pass land on the same colour the canvas-2D path composites
+  //     in sRGB space (see fog.wgsl; the plain pre-decode it replaced was ~2.5x
+  //     darker than the canvas).
   //   - the loop bounded by active_count, not array length.
   //   - non-premultiplied output (would break ALPHA_BLENDING contract).
   const wgsl = carregar('fog.wgsl');
@@ -140,12 +142,17 @@ describe('shader source parity: fog', () => {
     expect(wgsl).toContain('smoothstep(src.radius * 0.94, src.radius, d)');
   });
 
-  it('pre-decodes the navy color with pow(..., 2.2) to cancel the sRGB swap chain', () => {
+  it('composes the navy through the sRGB transfer curve (canvas parity)', () => {
     // The exact 0.008/0.02/0.0627 numbers are 8-bit sRGB bytes 2/5/16
     // re-interpreted as f32 — drifting any of these would shift the
     // navy one LSB and break visual parity with the Pixi canvas path.
     expect(wgsl).toContain('vec3<f32>(0.008, 0.02, 0.0627)');
-    expect(wgsl).toMatch(/pow\(.+,\s*vec3<f32>\(2\.2\)\)/);
+    // The canvas composites `navy * alpha` in sRGB space; this pass blends in
+    // linear space, so it must decode the premultiplied target and divide the
+    // alpha back out. Replacing this with a plain `pow(navy, 2.2)` (the old
+    // code) made the whole fogged area ~2.5x darker than the canvas.
+    expect(wgsl).toContain('srgb_to_linear(navy * alpha) / max(alpha, 1e-5)');
+    expect(wgsl).toMatch(/fn srgb_to_linear\(/);
   });
 
   it('loop bound is fog.active_count (not the array length)', () => {

@@ -3,6 +3,7 @@ import { Container as PxContainer } from 'pixi.js';
 import { criarPlanetaProceduralSprite, criarEstrelaProcedural } from '../world/planeta-procedural';
 import { TIPO_PLANETA } from '../world/planeta';
 import type { OrbitalConfig } from './config';
+import { coletarInfoRenderer, detectarRendererSoftware, type SoftwareDetection } from './software-gpu';
 
 /**
  * On-screen stress benchmark.
@@ -104,72 +105,6 @@ function classificarGpu(avgMs: number): GpuInfo {
     plainSummary: 'Sem aceleração de vídeo — performance será limitada',
     techLabel: 'avg frame > 25 ms',
   };
-}
-
-function coletarInfoRenderer(app: Application): { name: string; vendor: string; renderer: string } {
-  const r = app.renderer as any;
-  const name = String(r?.name ?? r?.type ?? 'desconhecido');
-  let vendor = 'desconhecido';
-  let renderer = 'desconhecido';
-  const gl = r?.gl as WebGLRenderingContext | WebGL2RenderingContext | undefined;
-  if (gl) {
-    const ext = gl.getExtension('WEBGL_debug_renderer_info');
-    if (ext) {
-      vendor = (gl.getParameter((ext as any).UNMASKED_VENDOR_WEBGL) as string) ?? vendor;
-      renderer = (gl.getParameter((ext as any).UNMASKED_RENDERER_WEBGL) as string) ?? renderer;
-    }
-  }
-  const adapter = r?.gpu?.adapter as GPUAdapter | undefined;
-  if (adapter?.info) {
-    vendor = adapter.info.vendor || vendor;
-    renderer = adapter.info.description || adapter.info.device || adapter.info.architecture || renderer;
-  }
-  return { name, vendor, renderer };
-}
-
-/**
- * Detect whether the active renderer is CPU-based software rasterization
- * (WARP on Windows, SwiftShader on Chromium, LLVMpipe on Linux Mesa,
- * or the Canvas2D fallback). These cases can't reach gameplay-viable
- * framerates on anything except extreme-low-res — the caller may want
- * to apply the most aggressive preset and show a toast explaining
- * why the game will look pixelated.
- */
-export interface SoftwareDetection {
-  isSoftware: boolean;
-  kind: 'warp' | 'swiftshader' | 'llvmpipe' | 'canvas2d' | 'outro' | 'nenhum';
-  /** Friendly name to show in the report / toast. */
-  friendlyName: string;
-}
-
-export function detectarRendererSoftware(app: Application): SoftwareDetection {
-  const info = coletarInfoRenderer(app);
-  const name = info.name.toLowerCase();
-  const renderer = info.renderer.toLowerCase();
-  const vendor = info.vendor.toLowerCase();
-
-  if (name.includes('canvas')) {
-    return { isSoftware: true, kind: 'canvas2d', friendlyName: 'Canvas2D (CPU)' };
-  }
-  // Microsoft WARP — what Chrome on Windows falls back to when GPU
-  // acceleration is disabled or the driver is blacklisted. The
-  // string always contains 'Basic Render Driver'.
-  if (renderer.includes('basic render driver') || renderer.includes('warp')) {
-    return { isSoftware: true, kind: 'warp', friendlyName: 'Microsoft WARP' };
-  }
-  // Chromium's own software backend.
-  if (renderer.includes('swiftshader') || vendor.includes('swiftshader') || vendor.includes('google swiftshader')) {
-    return { isSoftware: true, kind: 'swiftshader', friendlyName: 'Google SwiftShader' };
-  }
-  // Linux Mesa software path.
-  if (renderer.includes('llvmpipe') || renderer.includes('softpipe')) {
-    return { isSoftware: true, kind: 'llvmpipe', friendlyName: 'Mesa LLVMpipe' };
-  }
-  // Generic "software" hint — rare but covers corner cases.
-  if (renderer.includes('software') || vendor.includes('software')) {
-    return { isSoftware: true, kind: 'outro', friendlyName: 'renderizador por software' };
-  }
-  return { isSoftware: false, kind: 'nenhum', friendlyName: '' };
 }
 
 const DURATION_MS = 10000;

@@ -79,3 +79,4 @@ jobs:
           done
           bun run test:determinism
           bun run test:engine-switch
+          bun run test:fog-parity

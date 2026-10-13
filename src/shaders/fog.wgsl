@@ -74,6 +74,14 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
     return out;
 }
 
+/// sRGB → linear (IEC 61966-2-1). Inverse of what the sRGB surface does on
+/// write, which is what lets this pass predict the *displayed* value.
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let lo = c / 12.92;
+    let hi = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    return select(hi, lo, c <= vec3<f32>(0.04045));
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Engine viewport is in world units (camera.ts writes screen / zoom),
@@ -105,15 +113,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         alpha = alpha * coverage;
     }
 
-    // Same RGB as the Pixi canvas path (`rgba(2, 5, 16, alpha)`). 8-bit
-    // round-trip: 0.008→2, 0.02→5, 0.0627→16. Plain 0.06 would land on
-    // 15 (15.3 rounds to 15) and shift the blue channel one LSB darker
-    // than Pixi.
+    // Same RGB as the Pixi canvas path (`rgba(2, 5, 16, alpha)`).
     //
-    // Pre-decode the navy with pow 2.2 to cancel the swap chain's
-    // automatic linear→sRGB encode (same reason as the planet shader's
-    // matching block). Without this the fog renders bright cyan-blue
-    // instead of the dark navy the canvas-2D path produces.
-    let navy_linear = pow(vec3<f32>(0.008, 0.02, 0.0627), vec3<f32>(2.2));
-    return vec4<f32>(navy_linear, alpha);
+    // The canvas-2D path composites the fog in sRGB space, so over the black of
+    // space it lands on exactly `navy * alpha` (measured: (1,5,16) at alpha
+    // 0.749 → (0,3,10) on screen). This pass blends in LINEAR space (the
+    // surface is an sRGB view), so writing decoded navy would come out ~2.5x
+    // darker than the canvas — the two engines disagreed on the whole fogged
+    // area. Pre-multiplying by the inverse transfer curve reproduces the canvas
+    // result over black, and stays well behaved as alpha→0 (the curve is linear
+    // near zero, so the rim of the vision circle still fades to nothing).
+    //
+    // Residual, by construction: where the fog overlaps *bright* content the two
+    // paths still differ, because sRGB-space compositing (canvas) and linear
+    // compositing (this pipeline) are different operations — e.g. a sun behind
+    // 75% fog reads (55,46,44) on Pixi and ~(120,108,94) here. Matching that
+    // exactly would require blending the whole weydra pipeline in sRGB space.
+    let navy = vec3<f32>(0.008, 0.02, 0.0627);
+    let premult = srgb_to_linear(navy * alpha) / max(alpha, 1e-5);
+    return vec4<f32>(premult, alpha);
 }

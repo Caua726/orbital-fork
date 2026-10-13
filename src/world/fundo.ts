@@ -16,7 +16,7 @@ import {
 import {
   criarFundoEstatico, atualizarFundoEstatico, getStarfieldEstaticoMemoryBytes,
 } from './fundo-estatico';
-import { detectarRendererSoftware } from '../core/benchmark';
+import { detectarRendererSoftware } from '../core/software-gpu';
 
 /**
  * Starfield renderer — one fullscreen Mesh running a procedural

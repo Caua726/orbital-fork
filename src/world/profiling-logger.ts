@@ -10,7 +10,7 @@ import {
   type NavTiming, type ResourceAgg, type GameplayCounters,
   type SlowFrameContext, type DomSnapshot,
 } from '../core/profiling-instr';
-import { detectarRendererSoftware } from '../core/benchmark';
+import { detectarRendererSoftware } from '../core/software-gpu';
 import { getPersonalidades } from './ia-decisao';
 
 /**
@@ -407,8 +407,8 @@ function montarSessao(
   } catch { /* best-effort */ }
 
   // ── Software detection (uses same probe as boot-time auto-preset) ──
-  if (app && (app as any).renderer) {
-    const sw = detectarRendererSoftware(app as any);
+  if (app?.renderer) {
+    const sw = detectarRendererSoftware(app);
     softwareDetected = sw.isSoftware;
     softwareDetectionKind = sw.kind || '';
   }

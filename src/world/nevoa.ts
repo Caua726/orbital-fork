@@ -1,4 +1,4 @@
-import { Container } from 'pixi.js';
+import { Container, Sprite, Texture } from 'pixi.js';
 import { criarText, type TextLike } from '../ui/_text-helper';
 import { GraphicsAdapter } from '../core/graphics-adapter';
 import { Z } from '../core/render-order';
@@ -95,17 +95,43 @@ class MemoriaVisual {
      *  when the weydra renderer/palette wasn't available at creation. */
     public readonly fantasma: WeydraSprite | null,
     private readonly fantasmaTex: bigint | null,
+    /** Same silhouette on the Pixi engine (the weydra sprite path above only
+     *  exists when a weydra renderer is up). Lives in
+     *  `memoriaPlanetasContainer`, which is above the fog layer. */
+    public readonly fantasmaPixi: Sprite | null = null,
+    /** Texture/canvas behind `fantasmaPixi`, held separately so teardown can
+     *  free it even after the container destroyed the sprite. */
+    private readonly fantasmaPixiTex: Texture | null = null,
   ) {
     this.aplicarTintFantasma();
   }
 
   /** Silhouette opacity = ALPHA_FANTASMA × container alpha (baseline:
    *  child 0.32 × container 0.47 ≈ 0.15 effective), carried in the
-   *  sprite tint's alpha byte (white RGB = texture colours unchanged). */
+   *  sprite tint's alpha byte (white RGB = texture colours unchanged).
+   *  On Pixi the same factor goes into `sprite.alpha`. */
   private aplicarTintFantasma(): void {
-    if (!this.fantasma) return;
-    const a8 = Math.max(0, Math.min(255, Math.round(ALPHA_FANTASMA * this._alpha * 255)));
-    this.fantasma.tint = (((0xffffff << 8) | a8) >>> 0);
+    if (!this.fantasma && !this.fantasmaPixi) return;
+    const efetivo = ALPHA_FANTASMA * this._alpha;
+    if (this.fantasma) {
+      const a8 = Math.max(0, Math.min(255, Math.round(efetivo * 255)));
+      this.fantasma.tint = (((0xffffff << 8) | a8) >>> 0);
+    }
+    if (this.fantasmaPixi) this.fantasmaPixi.alpha = efetivo;
+  }
+
+  /** Silhouette size follows the remembered planet (`tamanho` world units).
+   *  Weydra sprites carry display size as a scale; Pixi sprites scale their
+   *  SILHUETA_PX texture the same way. */
+  escalarFantasma(tamanho: number): void {
+    const escala = tamanho / SILHUETA_PX;
+    if (this.fantasma) {
+      this.fantasma.scaleX = escala;
+      this.fantasma.scaleY = escala;
+    }
+    if (this.fantasmaPixi) {
+      this.fantasmaPixi.scale.set(escala);
+    }
   }
 
   /** Cached half-widths for anchor(0.5) horizontal centring. Refreshed
@@ -126,6 +152,7 @@ class MemoriaVisual {
     this.info.visible = v;
     this.tempoLabel.visible = v;
     if (this.fantasma) this.fantasma.visible = v;
+    if (this.fantasmaPixi) this.fantasmaPixi.visible = v;
   }
 
   // x/y setters skip work when the value is unchanged — a fog ghost sits at
@@ -190,6 +217,10 @@ class MemoriaVisual {
       this.fantasma.x = this._x;
       this.fantasma.y = this._y;
     }
+    if (this.fantasmaPixi) {
+      this.fantasmaPixi.x = this._x;
+      this.fantasmaPixi.y = this._y;
+    }
     this.info.x = this._x - this._infoHalfW;
     this.info.y = this._y + this.infoOffsetY;
     this.tempoLabel.x = this._x - this._tempoHalfW;
@@ -208,6 +239,12 @@ class MemoriaVisual {
     }
     this.info._pixi?.destroy();
     this.tempoLabel._pixi?.destroy();
+    // `destruirMundo` destroys `mundo.container` (and with it this sprite, which
+    // is parented to memoriaPlanetasContainer) BEFORE calling
+    // liberarMemoriasVisuais — so the sprite is already gone here and a second
+    // destroy() would read a null texture. Free only what we own: the
+    // rasterized canvas texture, which the container destroy leaves behind.
+    try { this.fantasmaPixiTex?.destroy(true); } catch { /* já liberada */ }
   }
 }
 
@@ -255,37 +292,47 @@ export function criarCamadaMemoria(): Container {
 }
 
 export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void {
-  void mundo; // memoriaPlanetasContainer (Pixi) no longer parents the ghost
-
   // Ghost planet silhouette (baseline's `fantasma`): CPU-rasterize the
-  // planet's seeded image once, upload as a weydra texture, and show it as
-  // a translucent post-fog sprite (Z.FOG_MEMORY ≥ Z.FOG → drawn after the
-  // fog pass, so the memory shows THROUGH the fog like the old Pixi
-  // container did). Static snapshot — matches the baseline, whose clone
-  // never advanced its uniforms either.
+  // planet's seeded image once and show it as a translucent post-fog sprite
+  // (Z.FOG_MEMORY ≥ Z.FOG → drawn after the fog pass, so the memory shows
+  // THROUGH the fog like the old Pixi container did). Static snapshot —
+  // matches the baseline, whose clone never advanced its uniforms either.
+  //
+  // Both engines get it: the weydra sprite when a renderer is up, otherwise a
+  // Pixi sprite in `memoriaPlanetasContainer` (which sits above the fog layer).
+  // Before this, only the weydra path had a silhouette — the Pixi engine showed
+  // the ring and the labels over an invisible planet.
   let fantasma: WeydraSprite | null = null;
   let fantasmaTex: bigint | null = null;
-  {
+  let fantasmaPixi: Sprite | null = null;
+  let fantasmaPixiTex: Texture | null = null;
+  try {
+    const canvas = renderPlanetaParaCanvas(planeta, SILHUETA_PX);
     const r = getWeydraRenderer();
     if (r) {
-      try {
-        const canvas = renderPlanetaParaCanvas(planeta, SILHUETA_PX);
-        const ctx = canvas?.getContext('2d');
-        const img = ctx?.getImageData(0, 0, SILHUETA_PX, SILHUETA_PX);
-        if (img) {
-          fantasmaTex = r.uploadTexture(
-            new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength),
-            SILHUETA_PX,
-            SILHUETA_PX,
-          );
-          fantasma = r.createSprite(fantasmaTex, SILHUETA_PX, SILHUETA_PX);
-          fantasma.zOrder = Z.FOG_MEMORY;
-          fantasma.visible = false;
-        }
-      } catch (err) {
-        console.warn('[nevoa] fantasma rasterization failed:', err);
+      const ctx = canvas?.getContext('2d');
+      const img = ctx?.getImageData(0, 0, SILHUETA_PX, SILHUETA_PX);
+      if (img) {
+        fantasmaTex = r.uploadTexture(
+          new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength),
+          SILHUETA_PX,
+          SILHUETA_PX,
+        );
+        fantasma = r.createSprite(fantasmaTex, SILHUETA_PX, SILHUETA_PX);
+        fantasma.zOrder = Z.FOG_MEMORY;
+        fantasma.visible = false;
       }
+    } else if (canvas) {
+      fantasmaPixiTex = Texture.from(canvas);
+      fantasmaPixi = new Sprite(fantasmaPixiTex);
+      // Weydra sprites are centre-anchored (unit quad around the origin) and
+      // MemoriaVisual positions the silhouette at the planet centre — match it.
+      fantasmaPixi.anchor.set(0.5);
+      fantasmaPixi.visible = false;
+      mundo.memoriaPlanetasContainer.addChild(fantasmaPixi);
     }
+  } catch (err) {
+    console.warn('[nevoa] fantasma rasterization failed:', err);
   }
 
   // Dim ring marking the remembered planet — worldSpace so it tracks the
@@ -312,7 +359,7 @@ export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void 
 
   const memoria: MemoriaPlaneta = {
     conhecida: false,
-    visual: new MemoriaVisual(anel, infoBg, info, tempoLabel, fantasma, fantasmaTex),
+    visual: new MemoriaVisual(anel, infoBg, info, tempoLabel, fantasma, fantasmaTex, fantasmaPixi, fantasmaPixiTex),
     anel,
     info,
     tempoLabel,
@@ -341,11 +388,7 @@ function redesenharVisualMemoria(memoria: MemoriaPlaneta): void {
   // Silhouette sized to the remembered planet (baseline: fantasma.width/
   // height = tamanho). Sprite display is SILHUETA_PX; scale bridges to
   // world units.
-  const fantasma = memoria.visual.fantasma;
-  if (fantasma) {
-    fantasma.scaleX = tamanho / SILHUETA_PX;
-    fantasma.scaleY = tamanho / SILHUETA_PX;
-  }
+  memoria.visual.escalarFantasma(tamanho);
 
   const novoTexto =
     `${nomeDonoCurto(dados.dados.dono)} | ${nomeTipoPlaneta(dados.dados.tipoPlaneta)}\n` +
@@ -596,7 +639,7 @@ export function liberarMemoriasVisuais(planetas: Planeta[]): void {
   }
 }
 
-import { Sprite, Texture, ImageSource } from 'pixi.js';
+import { ImageSource } from 'pixi.js';
 import { config } from '../ui/debug';
 import { profileMark, profileAcumular } from './profiling';
 
@@ -752,6 +795,14 @@ export function desenharNeblinaVisao(mundo: Mundo, fontesVisao: FonteVisao[], ca
     const tCanvas0 = profileMark();
     const ctx = _fogCtx!;
 
+    // Clear first: without this, each redraw composites `fogAlpha` over the
+    // previous frame's result (source-over) and the canvas converges to
+    // fully-opaque navy after a handful of frames — the configured alpha
+    // (and the debug slider) would never apply, and the fog would hide
+    // stars/suns/planets outside vision while the weydra shader keeps them
+    // faintly visible. Measured before the fix: alpha 0.996→1.000 with
+    // `fogAlpha = 0.75`.
+    ctx.clearRect(0, 0, canvasW, canvasH);
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = `rgba(2, 5, 16, ${config.fogAlpha})`;
     ctx.fillRect(0, 0, canvasW, canvasH);

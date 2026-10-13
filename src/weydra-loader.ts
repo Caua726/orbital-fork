@@ -16,6 +16,7 @@ import planetWgsl from './shaders/planeta-weydra.wgsl';
 import fogWgsl from './shaders/fog.wgsl';
 import graphicsWgsl from './shaders/graphics.wgsl';
 import { getConfig, isAnyWeydraSubsystemOn } from './core/config';
+import { detectarRendererSoftware } from './core/software-gpu';
 import { tickOverlays } from './ui/overlay-registry';
 
 let _renderer: Renderer | null = null;
@@ -206,12 +207,21 @@ export async function startWeydra(): Promise<WeydraStartResult> {
   const candidates = ([firstBackend, 'webgpu', 'webgl2'] as const)
     .filter((v, i, all) => all.indexOf(v) === i);
   const errors: string[] = [];
+  // Software rasterizers (SwiftShader/WARP/LLVMpipe) can't afford the 3-layer
+  // procedural starfield: the Pixi path already swaps to a static tile in that
+  // case (fundo.ts). Keep the bright-tile layer (starfieldBright) so the sky
+  // isn't empty, skip the fullscreen shader. Detection is engine-agnostic
+  // (software-gpu.ts) — before this, the weydra engine never noticed.
+  const software = detectarRendererSoftware(null).isSoftware;
+  if (software) {
+    console.info('[weydra] GPU por software detectada — starfield procedural desligado (tiles estáticos).');
+  }
   await initWeydra();
   for (const backend of candidates) {
     try {
       _renderer = await Renderer.create(canvas, backend);
       _effectiveBackend = backend;
-      if (getConfig().weydra.starfield) {
+      if (getConfig().weydra.starfield && !software) {
         _renderer.createStarfield(starfieldWgsl);
       }
       if (getConfig().weydra.planetsLive) {
