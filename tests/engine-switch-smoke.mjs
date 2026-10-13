@@ -2,6 +2,7 @@
 
 import * as fs from 'node:fs';
 import { chromium } from 'playwright';
+import { PNG } from 'pngjs';
 
 const baseUrl = process.env.ORBITAL_DEV_URL ?? 'http://localhost:4173/orbital-fork/';
 const systemChromium = process.env.PLAYWRIGHT_CHROMIUM_PATH
@@ -113,7 +114,78 @@ try {
   if (fatalScreen > 0 || pageErrors.length > 0) {
     throw new Error(`runtime switch smoke failed: errors=${pageErrors.join(' | ') || 'none'}, errorScreen=${fatalScreen}`);
   }
+
+  // ── Backing store acima de 2048 px (WebGL2) ───────────────────────────
+  // O device nascia com `Limits::downlevel_webgl2_defaults()`, cujo
+  // max_texture_dimension_2d é 2048: qualquer tela 1440p/4K (ou renderScale
+  // > 1 numa janela larga) fazia `Surface::configure` falhar e a página morria
+  // na tela de erro, sem fallback. Este bloco renderiza num viewport maior que
+  // o limite antigo e exige pixels no canvas.
+  const bigContext = await browser.newContext({ viewport: { width: 2560, height: 1440 }, deviceScaleFactor: 1 });
+  await bigContext.addInitScript(() => {
+    localStorage.setItem('orbital_config', JSON.stringify({
+      rendering: {
+        engine: 'weydra',
+        pixi: { backend: 'webgl', webglVersion: 'auto', gpuPreference: 'high-performance' },
+        weydra: { backend: 'webgl2' },
+      },
+    }));
+  });
+  const bigPage = await bigContext.newPage();
+  const bigErrors = [];
+  bigPage.on('pageerror', (error) => bigErrors.push(error.message));
+  bigPage.on('console', (message) => {
+    if (message.type() === 'error') bigErrors.push(`console: ${message.text()}`);
+  });
+  await bigPage.goto(baseUrl, { waitUntil: 'networkidle' });
+  await bigPage.waitForFunction(
+    () => Boolean(window.__weydraRenderer && document.querySelector('#weydra-canvas')),
+    null,
+    { timeout: 30_000 },
+  );
+  await bigPage.waitForTimeout(1500);
+  const bigCanvas = await bigPage.evaluate(() => {
+    const canvas = document.querySelector('#weydra-canvas');
+    return {
+      width: canvas.width,
+      height: canvas.height,
+      limit: window.__weydraRenderer.maxTextureDimension2d,
+      errorScreen: document.querySelector('.orbital-error-screen')?.textContent?.slice(0, 120) ?? null,
+    };
+  });
+  if (bigCanvas.errorScreen) throw new Error(`viewport grande caiu em tela de erro: ${bigCanvas.errorScreen}`);
+  if (Math.max(bigCanvas.width, bigCanvas.height) <= 2048) {
+    throw new Error(`backing store não passou de 2048: ${bigCanvas.width}x${bigCanvas.height} (limite do device: ${bigCanvas.limit})`);
+  }
+  const bigShot = PNG.sync.read(await bigPage.screenshot());
+  let bigPainted = 0;
+  for (let i = 0; i < bigShot.data.length; i += 4) {
+    if (bigShot.data[i] > 6 || bigShot.data[i + 1] > 6 || bigShot.data[i + 2] > 6) bigPainted++;
+  }
+  if (bigPainted / (bigShot.width * bigShot.height) < 0.02) {
+    throw new Error(`canvas do weydra ficou (quase) preto em ${bigCanvas.width}x${bigCanvas.height}`);
+  }
+
+  // ── Perda de contexto: Weydra não sabe reconstruir recursos GL ─────────
+  // O guard tem que trocar a sessão para o Pixi em vez de deixar um quadro
+  // congelado (o caminho antigo não fazia nada: nenhum aviso, nenhum erro).
+  await bigPage.evaluate(() => {
+    const canvas = document.querySelector('#weydra-canvas');
+    const gl = canvas.getContext('webgl2');
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  });
+  await bigPage.waitForFunction(() => Boolean(window._app && document.querySelector('#pixi-canvas')), null, { timeout: 60_000 });
+  const afterLoss = await bigPage.evaluate(() => ({
+    errorScreen: document.querySelector('.orbital-error-screen')?.textContent?.slice(0, 120) ?? null,
+    pixiCanvas: Boolean(document.querySelector('#pixi-canvas')),
+  }));
+  if (!afterLoss.pixiCanvas) throw new Error('perda de contexto não recuperou no Pixi');
+  if (afterLoss.errorScreen) throw new Error(`recuperação de contexto terminou em tela de erro: ${afterLoss.errorScreen}`);
+  if (bigErrors.length > 0) throw new Error(`erros durante a recuperação de contexto: ${bigErrors.join(' | ')}`);
+  await bigContext.close();
+
   console.log('PASS — menu and live-match Pixi → Weydra → Pixi switches preserved world identity without reload.');
+  console.log(`PASS — Weydra/WebGL2 renderizou em ${bigCanvas.width}x${bigCanvas.height} (limite ${bigCanvas.limit}) e recuperou a sessão no Pixi após context loss.`);
 } finally {
   await browser.close();
 }

@@ -63,6 +63,12 @@ jobs:
       - name: Install Chromium for visual gates
         run: bunx playwright install --with-deps chromium
       - name: Browser renderer gates
+        env:
+          ORBITAL_DEV_URL: http://127.0.0.1:4173/orbital-fork/
+          # No Chrome real o Weydra costuma rodar em WebGPU; num runner sem GPU
+          # isso exige um adapter por software. Sem nenhum adapter o passe de
+          # WebGPU do determinism runner é pulado (SKIP, não falha).
+          ORBITAL_WEBGPU_ARGS: --use-webgpu-adapter=swiftshader
         run: |
           bunx vite preview --host 127.0.0.1 &
           server_pid=$!
@@ -71,5 +77,5 @@ jobs:
             curl --fail --silent http://127.0.0.1:4173/orbital-fork/ >/dev/null && break
             sleep 1
           done
-          ORBITAL_DEV_URL=http://127.0.0.1:4173/orbital-fork/ bun run test:determinism
-          ORBITAL_DEV_URL=http://127.0.0.1:4173/orbital-fork/ bun run test:engine-switch
+          bun run test:determinism
+          bun run test:engine-switch

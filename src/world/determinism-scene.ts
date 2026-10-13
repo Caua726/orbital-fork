@@ -43,6 +43,17 @@ export function determinismEngine(): 'pixi' | 'weydra' {
   return v === 'weydra' ? 'weydra' : 'pixi';
 }
 
+/**
+ * Backend requested for the weydra side of the reference scene:
+ * `?weydra_backend=webgpu|webgl2`, default `auto` (WebGPU when the browser
+ * offers an adapter). The runner pins it so a WebGL2 fallback can't be
+ * mistaken for a passing WebGPU capture.
+ */
+export function determinismWeydraBackend(): 'auto' | 'webgpu' | 'webgl2' {
+  const v = new URLSearchParams(window.location.search).get('weydra_backend');
+  return v === 'webgpu' || v === 'webgl2' ? v : 'auto';
+}
+
 /** Tiny mulberry32 PRNG so the palette draws are byte-identical between
  *  runs regardless of Math.random state. The shader path consumes ~10
  *  RNG calls (jitter, color variation, rotation, etc.) — feeding it a
@@ -121,6 +132,10 @@ export async function rodarCenaDeterminismo(): Promise<void> {
   // alone. setConfigDuranteBoot is observer-free, so this won't trigger
   // a Pixi resize or a weydra subsystem (re)init mid-flight.
   setConfigDuranteBoot({
+    // `rendering` is the source of truth: `alinharEngineAtomico` mirrors it into
+    // the legacy `weydra.*` booleans and `weydra.backend`, so setting the legacy
+    // mirror here would be overwritten.
+    rendering: { weydra: { backend: determinismWeydraBackend() } },
     graphics: {
       qualidadeEfeitos: 'alto',
       shaderLive: true,
@@ -144,7 +159,6 @@ export async function rodarCenaDeterminismo(): Promise<void> {
       // Live planet path on ONLY when engine=weydra. The pixi path keeps
       // it off so criarPlanetaProceduralSprite picks the GLSL Mesh path.
       planetsLive: engine === 'weydra',
-      backend: 'auto',
     } as any,
   });
 
@@ -179,7 +193,10 @@ export async function rodarCenaDeterminismo(): Promise<void> {
   // is a no-op when no weydra subsystem flag is on, so the pixi path
   // doesn't pay this cost.
   if (engine === 'weydra') {
-    await startWeydra();
+    const started = await startWeydra();
+    // The runner asserts this: a WebGPU capture that silently fell back to
+    // WebGL2 would compare equal for the wrong reason.
+    Object.assign(window, { __weydraDeterminismBackend: started.effectiveBackend });
   }
 
   // Camera: world (0, 0), zoom 1. Build a parent container that maps

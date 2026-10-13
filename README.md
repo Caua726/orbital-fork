@@ -39,6 +39,8 @@ npm run test:engine-switch
 npm run build
 ```
 
+`npm run test:determinism` compara Pixi/WebGL contra Weydra/WebGL2 e, quando o navegador oferece adapter, também Weydra/WebGPU (passe pulado, não falhado, sem adapter; ajuste as flags do Chromium com `ORBITAL_WEBGPU_ARGS`). `npm run test:engine-switch` troca de motor numa partida ao vivo, cobre um viewport maior que 2048 px e a recuperação após perda de contexto.
+
 `npm run build` recompila o adapter WASM do Weydra e o plugin WGSL antes do bundle Vite. Para servir em outra subpasta, defina `VITE_BASE_PATH` (o padrão de deploy é `/orbital-fork/`).
 
 ## Arquitetura dos motores

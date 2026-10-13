@@ -14,12 +14,11 @@ Este arquivo descreve apenas trabalho futuro. O histórico detalhado das etapas 
 
 ## Próximas prioridades
 
-- Testes visuais automatizados das quatro combinações principais: Pixi/WebGL, Pixi/WebGPU, Weydra/WebGL2 e Weydra/WebGPU.
 - Instrumentar dirty tracking por entidade para reduzir serialização no modo IndexedDB.
 - Balancear numericamente os objetivos de economia, ciência e sobrevivência com telemetria de partidas reais.
 - Completar onboarding e descrição de progresso de objetivo no HUD.
 - Consolidar o estilo pixel-art e melhorar feedback visual de combate e rotas.
-- Ampliar a matriz manual para GPUs/drivers móveis e context-loss real.
+- Fechar a matriz visual automatizada: os gates cobrem Pixi/WebGL, Weydra/WebGL2 (determinismo + troca de engine), Weydra/WebGPU e perda de contexto; falta Pixi/WebGPU e a matriz manual de GPUs/drivers móveis.
 
 ## Longo prazo
 
