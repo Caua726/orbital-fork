@@ -33,18 +33,22 @@ const ALPHA_NOMINAL = 0.75;
 const ALPHA_TOLERANCIA = 0.05;
 const systemChromium = process.env.PLAYWRIGHT_CHROMIUM_PATH
   ?? (fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
+// Permite rodar o mesmo gate em outro driver (ex.: ORBITAL_CHROME_ARGS="--use-angle=vulkan").
+const EXTRA_ARGS = (process.env.ORBITAL_CHROME_ARGS ?? '').split(' ').filter(Boolean);
+// Backend do Weydra sob teste: webgl2 (padrão) ou webgpu (com as flags do Chromium).
+const WEYDRA_BACKEND = process.env.ORBITAL_WEYDRA_BACKEND === 'webgpu' ? 'webgpu' : 'webgl2';
 
 const browser = await chromium.launch({
   headless: true,
   ...(systemChromium ? { executablePath: systemChromium } : {}),
-  args: ['--enable-webgl', '--ignore-gpu-blocklist'],
+  args: ['--enable-webgl', '--ignore-gpu-blocklist', ...EXTRA_ARGS],
 });
 
 const amostras = {};
 
 async function medir(engine) {
   const context = await browser.newContext({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 });
-  await context.addInitScript(({ eng, seed }) => {
+  await context.addInitScript(({ eng, seed, backend }) => {
     // Mesmo mundo nas duas engines: worldgen consome Math.random.
     let s = seed >>> 0;
     Math.random = () => {
@@ -55,13 +59,15 @@ async function medir(engine) {
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
     localStorage.setItem('orbital_config', JSON.stringify({
-      rendering: { engine: eng, pixi: { backend: 'webgl' }, weydra: { backend: 'webgl2' } },
+      rendering: { engine: eng, pixi: { backend: 'webgl' }, weydra: { backend } },
     }));
-  }, { eng: engine, seed: SEED });
+  }, { eng: engine, seed: SEED, backend: WEYDRA_BACKEND });
 
   const page = await context.newPage();
   const erros = [];
+  const logs = [];
   page.on('pageerror', (e) => erros.push(e.message));
+  page.on('console', (m) => logs.push(m.text()));
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.waitForFunction(
     () => Boolean(window._app && (document.querySelector('#pixi-canvas') || document.querySelector('#weydra-canvas'))),
@@ -108,7 +114,7 @@ async function medir(engine) {
   });
 
   await context.close();
-  return { nevoa, sol, canvasAlpha, erros };
+  return { nevoa, sol, canvasAlpha, erros, logs };
 }
 
 try {
@@ -119,6 +125,16 @@ try {
 
   for (const engine of ['pixi', 'weydra']) {
     if (amostras[engine].erros.length) falhas.push(`${engine}: erros de página: ${amostras[engine].erros.join(' | ')}`);
+  }
+
+  // Quando o backend do Weydra é pedido explicitamente, exigir que ele tenha
+  // sido o efetivo — um fallback silencioso para WebGL2 faria o gate passar
+  // medindo o backend errado.
+  if (WEYDRA_BACKEND !== 'auto') {
+    const inicializou = weydra.logs.find((l) => l.includes('renderer initialized'));
+    if (!inicializou?.includes(`(${WEYDRA_BACKEND})`)) {
+      falhas.push(`pediu weydra backend=${WEYDRA_BACKEND} mas o loader reportou: ${inicializou ?? 'nenhum log de init'}`);
+    }
   }
 
   // 1. Cor da névoa fora da visão igual nas duas engines.
@@ -149,6 +165,7 @@ try {
     }
   }
 
+  console.log(`weydra backend: ${WEYDRA_BACKEND}`);
   console.log(`pixi   : névoa=${pixi.nevoa.centro} sol=${pixi.sol.centro} canvasAlpha=${pixi.canvasAlpha}`);
   console.log(`weydra : névoa=${weydra.nevoa.centro} sol=${weydra.sol.centro} canvasAlpha=${weydra.canvasAlpha}`);
   console.log(`delta da névoa entre engines: ${maiorDelta} (limite ${TOLERANCIA_CANAL})`);
