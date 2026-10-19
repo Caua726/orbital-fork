@@ -1,4 +1,4 @@
-import { Mesh, Shader, GlProgram, GpuProgram, UniformGroup, Geometry, Buffer, State, Sprite, Container, Rectangle, RenderTexture, Texture } from 'pixi.js';
+import { Mesh, Shader, GlProgram, GpuProgram, UniformGroup, Geometry, Buffer, State, Sprite, Container, Rectangle, RenderTexture, Texture, AlphaFilter } from 'pixi.js';
 import { renderPlanetParaImageData, type PlanetRenderState } from './planeta-canvas';
 import type { Application } from 'pixi.js';
 import vertexSrc from '../shaders/planeta.vert?raw';
@@ -29,8 +29,18 @@ export function setAppReferenceForBake(app: Application): void {
  * Safe to call multiple times — the GPU driver caches the linked program.
  */
 export async function precompilarShadersPlaneta(app: Application): Promise<void> {
-  // Canvas2D mode has no GLSL/WGSL program to compile.
-  if (isCanvas2dRenderer()) return;
+  // Canvas2D mode has no GLSL/WGSL program to compile — but the warm-up
+  // bodies below draw palettes from the global RNG, and skipping them shifted
+  // the whole Math.random sequence: the canvas backend generated a different
+  // galaxy from the same seed. Create and drop the same bodies (CPU path, same
+  // RNG order) so every backend consumes identically.
+  if (isCanvas2dRenderer()) {
+    for (const tipo of Object.values(TIPO_PLANETA)) {
+      (criarPlanetaProceduralSprite(0, 0, 8, tipo, 1.0) as unknown as Container).destroy();
+    }
+    (criarEstrelaProcedural(0, 0, 8) as unknown as Container).destroy();
+    return;
+  }
   let warmup: Container | null = null;
   let target: RenderTexture | null = null;
   try {
@@ -243,6 +253,14 @@ function criarQuadGeometry(): Geometry {
 
 const quadGeometry = criarQuadGeometry();
 
+// Half-res passthrough filter on every live planet/star mesh (restored from
+// the pre-weydra baseline d51623e, dropped by accident in d713ff2). The
+// fragment shader runs at ½ × ½ resolution and Pixi composites it back with
+// a bilinear upscale — that softened, 2-px-block look IS the reference art.
+// Baked sprites skip it (already static). Weydra reproduces the same pass
+// with its half-res planet target (Renderer planet pass).
+const _halfResFilter = new AlphaFilter({ alpha: 1.0, resolution: 0.5 });
+
 // Shared programs — created once, reused by all planets/stars
 const sharedGlProgram = GlProgram.from({
   vertex: vertexSrc,
@@ -291,11 +309,14 @@ function criarShaderPlaneta(tipoPlaneta: string, seed: number, rng: Rng = Math.r
   const paleta = gerarPaletaAleatoria(tipoPlaneta, rng);
   const planetUniforms = criarUniformsPlaneta(paleta, seed, 64.0, 0.0, rng);
 
-  return new Shader({
+  const shader = new Shader({
     gpuProgram: sharedGpuProgram,
     glProgram: sharedGlProgram,
     resources: { planetUniforms },
   });
+  // Kept for the CPU rasterizer (see rasterizarPlanetaCpu).
+  (shader as any)._paleta = paleta;
+  return shader;
 }
 
 // Canvas2D planet state stashed on the display object when running
@@ -314,13 +335,20 @@ export interface CanvasPlanetState {
   // when light source moves). Cheap micro-optim; setting this to
   // false on static frames skips the ImageData loop.
   dirty: boolean;
+  /** Pose of the last raster — redraw only when it moved visibly. */
+  ultimaPose?: { time: number; rot: number; lx: number; ly: number };
 }
+
+/** Initial clock/rotation of a body. Callers draw these from the RNG in the
+ *  exact order their GPU-path twin does, so every backend consumes the same
+ *  number of RNG values and generates the same world. */
+interface PoseInicial { uTime: number; uRotation: number; rotSpeed: number }
 
 function criarPlanetaCanvasSprite(
   x: number, y: number, tamanho: number,
   paleta: PaletaPlaneta, seed: number,
-  uPixelsArg: number = 64,
-  rng: Rng = Math.random,
+  uPixelsArg: number,
+  pose: PoseInicial,
 ): Sprite {
   // Internal resolution matches the pixelization grid the shader uses.
   // Default uPixels=64 for planets, callers pass 128 for stars (same
@@ -336,8 +364,8 @@ function criarPlanetaCanvasSprite(
   const imageData = ctx2d.createImageData(W, H);
 
   const renderState: PlanetRenderState = {
-    uTime: 0,
-    uRotation: rng() * 6.28,
+    uTime: pose.uTime,
+    uRotation: pose.uRotation,
     uLightOriginX: 0.39,
     uLightOriginY: 0.39,
   };
@@ -357,7 +385,7 @@ function criarPlanetaCanvasSprite(
   sprite.scale.set(tamanho / W);
   sprite.eventMode = 'none';
 
-  const rotSpeed = (0.02 + rng() * 0.06) * (rng() > 0.5 ? 1 : -1);
+  const rotSpeed = pose.rotSpeed;
   const canvasState: CanvasPlanetState = {
     paleta, seed, uPixels, canvas, ctx: ctx2d, imageData,
     state: renderState, dirty: true,
@@ -395,7 +423,10 @@ export function criarPlanetaProceduralSprite(
 
   if (isCanvas2dRenderer()) {
     const paleta = gerarPaletaAleatoria(tipoPlaneta, rng);
-    return criarPlanetaCanvasSprite(x, y, tamanho, paleta, planetSeed, 64, rng) as unknown as Mesh<Geometry, Shader>;
+    // Same RNG order as criarShaderPlaneta → criarUniformsPlaneta + rotSpeed.
+    const uRotation = rng() * 6.28;
+    const rotSpeed = (0.02 + rng() * 0.06) * (rng() > 0.5 ? 1 : -1);
+    return criarPlanetaCanvasSprite(x, y, tamanho, paleta, planetSeed, 64, { uTime: 0, uRotation, rotSpeed }) as unknown as Mesh<Geometry, Shader>;
   }
 
   // M5 — weydra live shader path. When planetsLive is on AND the
@@ -485,6 +516,11 @@ export function criarPlanetaProceduralSprite(
   mesh.scale.set(tamanho);
   mesh.x = x;
   mesh.y = y;
+  mesh.filters = [_halfResFilter];
+  // Palette + seed for the CPU rasterizer (portrait/ghost fallback when the
+  // GPU readback isn't available, e.g. Pixi on WebGPU).
+  (mesh as any)._planetPaleta = (shader as any)._paleta;
+  (mesh as any)._planetSeed = planetSeed;
 
   // Store shader reference and rotation speed for time/light updates
   const rotSpeed = (0.02 + rng() * 0.06) * (rng() > 0.5 ? 1 : -1);
@@ -609,6 +645,51 @@ function destroyPortraitCache(): void {
   _portraitCache = null;
 }
 
+/**
+ * CPU thumbnail of a planet/star from the palette+seed stashed on it (same
+ * procedural renderer the Canvas2D planet path uses) — independent of Pixi
+ * and weydra. Used where no GPU readback exists.
+ */
+export function rasterizarPlanetaCpu(planeta: any, tamanho: number): HTMLCanvasElement | null {
+  {
+    const paleta = (planeta as any)._planetPaleta as PaletaPlaneta | undefined;
+    const seed = (planeta as any)._planetSeed as number | undefined;
+    if (paleta && seed !== undefined) {
+      // Internal pixelization grid matches the live shader: 64 for planets,
+      // 128 for stars (planetType 4).
+      const uPixels = paleta.planetType === 4 ? 128 : 64;
+      const src = document.createElement('canvas');
+      src.width = uPixels;
+      src.height = uPixels;
+      const sctx = src.getContext('2d', { alpha: true });
+      if (!sctx) return null;
+      const img = sctx.createImageData(uPixels, uPixels);
+      // Same clock and light the live body is drawn with (Pixi uniforms, or
+      // the weydra stub's mirrors) — not a fixed pose, or the portrait and
+      // the fog ghost show a different planet than the map.
+      const u = (planeta as any)._planetShader?.resources?.planetUniforms?.uniforms;
+      const rs: PlanetRenderState = {
+        uTime: u?.uTime ?? (planeta as any)._uTime ?? 0,
+        uRotation: u?.uRotation ?? (planeta as any)._uRotation ?? 0,
+        uLightOriginX: u?.uLightOrigin?.[0] ?? (planeta as any)._luzX ?? 0.39,
+        uLightOriginY: u?.uLightOrigin?.[1] ?? (planeta as any)._luzY ?? 0.39,
+      };
+      renderPlanetParaImageData(img.data, uPixels, uPixels, paleta, rs, uPixels, seed);
+      sctx.putImageData(img, 0, 0);
+      const out = document.createElement('canvas');
+      out.width = tamanho;
+      out.height = tamanho;
+      const octx = out.getContext('2d');
+      if (!octx) return null;
+      octx.imageSmoothingEnabled = false;
+      octx.drawImage(src, 0, 0, tamanho, tamanho);
+      return out;
+    }
+  }
+
+  return null;
+}
+
 export function renderPlanetaParaCanvas(planeta: any, tamanho = 96): HTMLCanvasElement | null {
   // Canvas2D mode: the planet already owns an HTMLCanvasElement with
   // the current frame. Return an upscaled copy so the drawer portrait
@@ -626,42 +707,12 @@ export function renderPlanetaParaCanvas(planeta: any, tamanho = 96): HTMLCanvasE
     return out;
   }
 
-  // Weydra planet/star: it's a Container stub with no Pixi mesh/shader, and
-  // the M10 Pixi-free shim has no renderer.extract/generateTexture — so the
-  // old Mesh-clone readback below returns null and every portrait went blank.
-  // Rasterize the thumbnail on the CPU from the palette+seed stashed on the
-  // stub (same procedural renderer the Canvas2D planet path uses), fully
-  // independent of Pixi/weydra.
-  {
-    const paleta = (planeta as any)._planetPaleta as PaletaPlaneta | undefined;
-    const seed = (planeta as any)._planetSeed as number | undefined;
-    if (paleta && seed !== undefined) {
-      // Internal pixelization grid matches the live shader: 64 for planets,
-      // 128 for stars (planetType 4).
-      const uPixels = paleta.planetType === 4 ? 128 : 64;
-      const src = document.createElement('canvas');
-      src.width = uPixels;
-      src.height = uPixels;
-      const sctx = src.getContext('2d', { alpha: true });
-      if (!sctx) return null;
-      const img = sctx.createImageData(uPixels, uPixels);
-      const rs: PlanetRenderState = {
-        uTime: (planeta as any)._uTime ?? 0,
-        uRotation: (planeta as any)._uRotation ?? 0,
-        uLightOriginX: 0.39,
-        uLightOriginY: 0.39,
-      };
-      renderPlanetParaImageData(img.data, uPixels, uPixels, paleta, rs, uPixels, seed);
-      sctx.putImageData(img, 0, 0);
-      const out = document.createElement('canvas');
-      out.width = tamanho;
-      out.height = tamanho;
-      const octx = out.getContext('2d');
-      if (!octx) return null;
-      octx.imageSmoothingEnabled = false;
-      octx.drawImage(src, 0, 0, tamanho, tamanho);
-      return out;
-    }
+  // Weydra planet/star: a Container stub with no Pixi mesh/shader, so no GPU
+  // readback exists — rasterize on the CPU from the stashed palette+seed.
+  if (!(planeta as any)._planetShader) return rasterizarPlanetaCpu(planeta, tamanho);
+  // Pixi on WebGPU: the mesh-clone readback below comes back blank there.
+  if ((_appRef?.renderer as { name?: string } | undefined)?.name === 'webgpu') {
+    return rasterizarPlanetaCpu(planeta, tamanho);
   }
 
   if (!_appRef) return null;
@@ -986,6 +1037,16 @@ export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
     cs.state.uTime += deltaSec;
     const rotSpeed = (planeta as any)._rotSpeed ?? 0;
     cs.state.uRotation += rotSpeed * deltaSec;
+    // A CPU sun raster costs tens of ms and the surface drifts far less than
+    // a pixel of its grid per frame: redraw only when the pose moved visibly
+    // (same rule as the weydra software backend).
+    const st = cs.state;
+    const pose = cs.ultimaPose;
+    if (pose && Math.abs(st.uTime - pose.time) < 0.1 && Math.abs(st.uRotation - pose.rot) < 0.002
+      && Math.abs(st.uLightOriginX - pose.lx) < 0.002 && Math.abs(st.uLightOriginY - pose.ly) < 0.002) {
+      continue;
+    }
+    cs.ultimaPose = { time: st.uTime, rot: st.uRotation, lx: st.uLightOriginX, ly: st.uLightOriginY };
     renderPlanetParaImageData(
       cs.imageData.data,
       cs.canvas.width, cs.canvas.height,
@@ -1174,8 +1235,13 @@ export function criarEstrelaProcedural(
 
   // Canvas2D mode: JS-port path. uPixels=128 matches the shader.
   if (isCanvas2dRenderer()) {
-    const sprite = criarPlanetaCanvasSprite(x, y, tamanho, paleta, seed, 128, rng);
-    (sprite as any)._rotSpeed = 0.005 + rng() * 0.01;
+    // Same RNG order as the shader/weydra star: timeOffset, rotation,
+    // rotSpeed. The old path drew an extra value (planet-style rotSpeed),
+    // so the canvas backend generated a different world from the same seed.
+    const uTime = rng() * 100;
+    const uRotation = rng() * 6.28;
+    const rotSpeed = 0.005 + rng() * 0.01;
+    const sprite = criarPlanetaCanvasSprite(x, y, tamanho, paleta, seed, 128, { uTime, uRotation, rotSpeed });
     return sprite as unknown as Mesh<Geometry, Shader>;
   }
 
@@ -1264,11 +1330,25 @@ export function criarEstrelaProcedural(
   mesh.scale.set(tamanho);
   mesh.x = x;
   mesh.y = y;
+  mesh.filters = [_halfResFilter];
+  (mesh as any)._planetPaleta = paleta;
+  (mesh as any)._planetSeed = seed;
   (mesh as any)._planetShader = shader;
   (mesh as any)._rotSpeed = 0.005 + rng() * 0.01;
 
 
   return mesh;
+}
+
+/**
+ * Mirrors a body's Pixi-side `visible`/`alpha` (set every frame by the world
+ * update: off-screen or undiscovered = hidden, discovered sun out of vision =
+ * 0.28) onto its weydra PlanetInstance, which has no scene graph to inherit
+ * them from. alpha 0 skips the draw.
+ */
+export function sincronizarVisibilidadeWeydra(corpo: any): void {
+  const w = corpo._weydraPlanet as PlanetInstance | null | undefined;
+  if (w) w.alpha = corpo.visible ? (corpo.alpha ?? 1) : 0;
 }
 
 export function atualizarLuzPlaneta(planeta: any, solX: number, solY: number): void {
@@ -1280,6 +1360,9 @@ export function atualizarLuzPlaneta(planeta: any, solX: number, solY: number): v
   const dist = Math.sqrt(dx * dx + dy * dy) || 1;
   const lx = 0.5 + (dx / dist) * 0.25;
   const ly = 0.5 + (dy / dist) * 0.25;
+  // Mirrored on the body for the CPU rasterizer (portraits, fog ghost).
+  (planeta as any)._luzX = lx;
+  (planeta as any)._luzY = ly;
 
   if ((planeta as any)._isCanvasPlanet) {
     const cs = (planeta as any)._canvasRender as CanvasPlanetState | undefined;

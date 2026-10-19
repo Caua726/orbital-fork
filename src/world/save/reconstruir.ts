@@ -1,3 +1,4 @@
+import { agoraMs } from '../../core/relogio';
 import type { Application } from 'pixi.js';
 import type { Mundo, Sol, Planeta, Sistema, Nave, FonteVisao } from '../../types';
 import type { MundoDTO, SolDTO, PlanetaDTO, NaveDTO, AlvoDTO } from './dto';
@@ -184,9 +185,9 @@ export async function reconstruirMundo(
         conhecida: m.conhecida,
         x: m.snapshotX,
         y: m.snapshotY,
-        // Rebase the absolute save-time timestamp onto the current
-        // performance.now() clock so "X minutes ago" labels stay correct.
-        timestamp: performance.now() - m.idadeMs,
+        // Rebase the absolute save-time timestamp onto the current fog-memory
+        // clock (agoraMs) so "X minutes ago" labels stay correct.
+        timestamp: agoraMs() - m.idadeMs,
         dados: { ...m.dados },
       });
     }

@@ -66,12 +66,34 @@ fn vs_main(in: VsIn) -> VsOut {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let sample = textureSample(atlas_tex, atlas_samp, in.uv);
     // Atlas pixels are (255, 255, 255, glyph_alpha). Use the alpha as
-    // coverage, RGB from the per-vertex tint. The pipeline blends with
-    // straight ALPHA_BLENDING (src.rgb*src.a + dst*(1-src.a)), so the
-    // fragment must emit STRAIGHT (non-premultiplied) rgb. Emitting
-    // rgb*a here was double-applying alpha (rgb*a² + dst*(1-a)), which
-    // darkened every anti-aliased glyph edge (coverage 0.5 → 0.25) and
-    // made text render thinner/harsher than authored.
+    // coverage, RGB from the per-vertex tint; srgb_over premultiplies once
+    // (PREMULTIPLIED_ALPHA_BLENDING pipeline).
     let a = in.color.a * sample.a;
-    return vec4<f32>(in.color.rgb, a);
+    return srgb_over(in.color.rgb, a);
+}
+
+// ── Colour space (shared by the 2D shaders) ─────────────────────────────
+// The surface is an sRGB view, so the GPU blends in LINEAR space and encodes
+// on store; the Pixi reference blended raw sRGB bytes. Game colours (hex
+// tints, strokes, text) are sRGB values. `srgb_over` returns the PREMULTIPLIED
+// fragment that, with PREMULTIPLIED_ALPHA_BLENDING, reproduces Pixi's
+// sRGB-space `c * a + dst * (1 - a)`: the source term decode(c * a) is exact,
+// and alpha' = 1 - (1 - a)^2.2 darkens the destination by the linear-space
+// equivalent of (1 - a) in encoded space. For a = 1 it is a plain decode.
+// Same compensation as fog.wgsl.
+fn srgb_to_linear3(c: vec3<f32>) -> vec3<f32> {
+    let low = c / vec3<f32>(12.92);
+    let high = pow((c + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
+    return select(low, high, c > vec3<f32>(0.04045));
+}
+
+fn linear_to_srgb3(c: vec3<f32>) -> vec3<f32> {
+    let low = c * 12.92;
+    let high = 1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
+    return select(low, high, c > vec3<f32>(0.0031308));
+}
+
+fn srgb_over(c_srgb: vec3<f32>, a_in: f32) -> vec4<f32> {
+    let a = clamp(a_in, 0.0, 1.0);
+    return vec4<f32>(srgb_to_linear3(c_srgb * a), 1.0 - pow(1.0 - a, 2.2));
 }

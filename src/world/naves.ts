@@ -16,6 +16,7 @@ import { instalarTrail, atualizarTrail, destruirTrail } from './engine-trails';
 import { esquecerLastSeen } from './last-seen';
 import { getWeydraRenderer } from '../weydra-loader';
 import { Z } from '../core/render-order';
+import { agoraMs } from '../core/relogio';
 import type { Sprite as WeydraSprite } from '@weydra/renderer';
 
 // ─── Spritesheet loading ────────────────────────────────────────────────────
@@ -203,7 +204,7 @@ function desenharNaveGfx(nave: Nave): void {
   if (!ring) return;
   ring.clear();
   const baseRadius = (SHIP_DISPLAY_SIZE[nave.tipo] ?? 32) * 0.55;
-  const now = performance.now();
+  const now = agoraMs();
 
   if (nave.estado === 'fazendo_survey' && nave.surveyTempoTotalMs) {
     const total = nave.surveyTempoTotalMs;

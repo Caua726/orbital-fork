@@ -1,4 +1,5 @@
 import { Application } from 'pixi.js';
+import { instalarRenderMatrixHooks, passoFixoRenderMatrix } from './world/render-matrix';
 import type { Mundo, TipoJogador } from './types';
 import { criarMundo, atualizarMundo, getEstadoJogo, destruirMundo, setDificuldadeProximoMundo, getDificuldadeAtual } from './world/mundo';
 import { criarNave as criarNaveTest, enviarNaveParaPosicao as enviarNaveParaPosicaoTest, enviarNaveParaAlvo as enviarNaveParaAlvoTest, removerNave as removerNaveTest } from './world/naves';
@@ -59,16 +60,17 @@ import { reconciliarMundo, resumirDiagnosticos } from './world/save/reconciler';
 import { abrirSaveModal } from './ui/save-modal';
 import type { MundoDTO } from './world/save';
 import { toast } from './ui/toast';
-import { getConfig, onConfigChange, setConfig, setGraphicsEngine, type GraphicsEngine, type PixiBackend, type WeydraBackend } from './core/config';
+import { getConfig, isConfigEfemera, onConfigChange, setConfig, setGraphicsEngine, type GraphicsEngine, type PixiBackend, type WeydraBackend } from './core/config';
 import { abrirNewWorldModal } from './ui/new-world-modal';
 import { criarLoadingScreen, mostrarCarregando, esconderCarregando, setLoadingFase } from './ui/loading-screen';
 import { t } from './core/i18n/t';
 import { somVitoria, somDerrota } from './audio/som';
 import { iniciarMusicaAmbiente, pararMusicaAmbiente } from './audio/musica-ambiente';
 import { setAppReferenceForBake, precompilarShadersPlaneta } from './world/planeta-procedural';
-import { setRenderFpsCap, aplicarTamanhoRenderizador, takePaintedFrameCount } from './weydra-loader';
-import { destroyEngineRuntime, initializeEngineRuntime, resizeEngineRuntime } from './core/engine-runtime';
-import { fecharTelaErro, instalarErrorBoundary, mostrarTelaErro } from './ui/error-screen';
+import { aplicarTamanhoRenderizador } from './weydra-loader';
+import { setLimiteFps, fpsAtual, devePintar, registrarQuadroPintado } from './core/frame-pacer';
+import { destroyEngineRuntime, getEngineRuntime, initializeEngineRuntime, resizeEngineRuntime } from './core/engine-runtime';
+import { fecharTelaErro, instalarErrorBoundary, mostrarTelaErro, registrarRecuperacaoDeErro } from './ui/error-screen';
 import { abrirMatchResultModal } from './ui/match-result-modal';
 import { continuarComoSandbox } from './world/match-state';
 // Top-level state shared across bootstrap, iniciarJogoNovo, and carregarMundo.
@@ -196,27 +198,13 @@ async function bootstrap(): Promise<void> {
     console.warn('[renderer] software detection failed:', err);
   }
 
-  // ── Vsync + FPS cap wiring ──────────────────────────────────────
-  // vsync=true  → rAF-driven ticker. fpsCap via ticker.maxFPS.
-  // vsync=false → stop the rAF ticker, drive updates from a
-  //               setTimeout loop. fpsCap enforces a minimum delay
-  //               when > 0. With cap=0 the browser's ~4ms minimum
-  //               setTimeout clamp caps us at roughly 250 FPS — but
-  //               that's the price of staying responsive. The
-  //               MessageChannel trick that bypasses the clamp
-  //               saturated the ticker and froze the tab, so we
-  //               live with the ~250 ceiling.
-  // FPS mode now drives the REAL weydra render loop (the Pixi ticker is a
-  // dead no-op shim post-M10.1). vsync on → uncapped, rAF paces to the
-  // display refresh. vsync off + cap → throttle the render loop to `cap`
-  // fps. The previous implementation drove `app.ticker` (no-op) and, in
-  // the vsync-off branch, spawned a perpetual ~250 Hz setTimeout loop that
-  // called a no-op forever — a CPU leak that never stopped.
-  const aplicarModoFps = (vsync: boolean, cap: number): void => {
-    setRenderFpsCap(vsync ? 0 : cap);
-  };
-  aplicarModoFps(gfx.vsync, gfx.fpsCap);
-  onConfigChange((cfg) => aplicarModoFps(cfg.graphics.vsync, cfg.graphics.fpsCap));
+  // ── FPS cap ─────────────────────────────────────────────────────
+  // Both engines paint from requestAnimationFrame (weydra's render loop;
+  // Pixi after each game tick) and the cap gates those paints
+  // (core/frame-pacer.ts). It applies with vsync on as well — it used to be
+  // honoured only with vsync off, so the default setup ignored it.
+  setLimiteFps(gfx.fpsCap);
+  onConfigChange((cfg) => setLimiteFps(cfg.graphics.fpsCap));
 
   // Live render-scale updates: change Pixi's backing-store resolution
   // and force a resize so every Mesh/Sprite gets the new projection.
@@ -362,11 +350,8 @@ async function bootstrap(): Promise<void> {
   // 500ms setInterval. The original 60 Hz FPS sampling is overkill
   // for a HUD; the sampling is now decoupled from the game loop.
   setInterval(() => {
-    // Painted frames over the last 500 ms (from the weydra render loop, so
-    // an active fps cap is reflected). The previous version zeroed a counter
-    // BEFORE reading it (always 0 FPS) and nothing incremented it.
-    const frames = takePaintedFrameCount();
-    fpsEl.textContent = `${Math.round(frames / 0.5)} FPS`;
+    // Painted frames (either engine, cap-aware) — core/frame-pacer.ts.
+    fpsEl.textContent = `${Math.round(fpsAtual())} FPS`;
     if (ramEl.style.display !== 'none') {
       sampleRam();
     }
@@ -511,6 +496,7 @@ async function bootstrap(): Promise<void> {
       return { ok: true, w: c.width, h: c.height, nonBlankPct: Math.round((nonBlank / (c.width * c.height)) * 100) };
     },
   };
+  instalarRenderMatrixHooks(() => _mundo, setGameSpeed);
   setAppReferenceForBake(app);
 
   // Pre-compile the planet/star shader programs NOW so the driver link
@@ -654,6 +640,25 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  // Pixi on WebGPU: some implementations (Chromium's SwiftShader adapter)
+  // start rejecting buffer creation mid-session. The error escapes Pixi's
+  // render loop uncaught; recover by rebuilding the session on Pixi/WebGL
+  // instead of the fatal screen.
+  let _recuperandoWebgpu = false;
+  registrarRecuperacaoDeErro((erro) => {
+    const rt = getEngineRuntime();
+    if (rt?.engine !== 'pixi' || rt.effectiveBackend !== 'webgpu' || _transitioning) return false;
+    const msg = erro instanceof Error ? erro.message : String(erro);
+    if (!/GPUDevice|GPUBuffer|GPUQueue|WebGPU/i.test(msg)) return false;
+    if (!_recuperandoWebgpu) {
+      _recuperandoWebgpu = true;
+      toast('WebGPU falhou durante a renderização; recuperando a sessão no Pixi/WebGL.', 'err');
+      void trocarMotorEmRuntime({ engine: 'pixi', pixiBackend: 'webgl' })
+        .finally(() => { _recuperandoWebgpu = false; });
+    }
+    return true;
+  });
+
   window.addEventListener('orbital:renderer-fatal', (event: Event) => {
     const detail = (event as CustomEvent<{ engine?: GraphicsEngine; error?: unknown }>).detail;
     if (detail?.engine !== 'weydra' || _transitioning) return;
@@ -693,7 +698,7 @@ function startTicker(): void {
   // wall-clock delta, written to `app.ticker.deltaMS` each frame
   // so the existing call sites that read it see the right value.
   let _lastT = performance.now();
-  function _gameTick(): void {
+  function _gameTick(rafTs?: number): void {
     const app = _app;
     if (!app) {
       requestAnimationFrame(_gameTick);
@@ -707,9 +712,19 @@ function startTicker(): void {
     // simulation advances per hitch exactly like the original Pixi-driven loop.
     const _dt = Math.min(_now - _lastT, 100);
     _lastT = _now;
-    (app.ticker as { deltaMS: number }).deltaMS = _dt;
-    (app.ticker as { speed: number }).speed = getDebugState().gameSpeed;
+    // Render-matrix harness: fixed simulation steps instead of wall time.
+    const _passo = passoFixoRenderMatrix();
+    (app.ticker as { deltaMS: number }).deltaMS = _passo?.dt ?? _dt;
+    (app.ticker as { speed: number }).speed = _passo?.speed ?? getDebugState().gameSpeed;
     _gameTickBody(app);
+    // Pixi engine paints here, after the update (its own ticker is stopped in
+    // engine-runtime.ts), so the FPS cap and frame count behave exactly like
+    // weydra's render loop.
+    // rAF timestamp (vsync-aligned) for the cap, like weydra's render loop.
+    if (getEngineRuntime()?.engine === 'pixi' && devePintar(rafTs ?? _now)) {
+      app.render();
+      registrarQuadroPintado();
+    }
     requestAnimationFrame(_gameTick);
   }
   function _gameTickBody(app: Application): void {
@@ -1337,7 +1352,8 @@ async function trocarMotorEmRuntime(request: EngineSwitchRequest): Promise<void>
       tempoJogadoMs: getTempoJogadoMs(),
     })
     : null;
-  if (dto) {
+  // Render-lab iframes persist nothing (shared storage, throwaway matches).
+  if (dto && !isConfigEfemera()) {
     try { localStorage.setItem('orbital_engine_switch_recovery', JSON.stringify(dto)); } catch { /* quota */ }
   }
 

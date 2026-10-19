@@ -5,7 +5,7 @@ import { PeriodicBackend } from './periodic-save';
 import { ExperimentalBackend } from './experimental-save';
 import { serializarMundo } from './serializar';
 import { migrarDto, migrarDtoComRelatorio, type MigrationResult } from './migrations';
-import { getConfig } from '../../core/config';
+import { getConfig, isConfigEfemera } from '../../core/config';
 
 export type { SaveMetadata } from './storage-backend';
 export type { MundoDTO } from './dto';
@@ -145,6 +145,9 @@ export function iniciarAutosave(params: {
   criadoEm: number;
   tempoJogadoMs: number;
 }): void {
+  // Render-lab iframes play throwaway matches: never write them to the
+  // player's saved worlds.
+  if (isConfigEfemera()) return;
   _mundoAtivo = params.mundo;
   _nomeAtivo = params.nome;
   _criadoEm = params.criadoEm;

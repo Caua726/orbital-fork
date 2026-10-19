@@ -4,7 +4,7 @@ export type DeepPartial<T> = {
 
 export type GraphicsEngine = 'pixi' | 'weydra';
 export type PixiBackend = 'webgl' | 'webgpu' | 'canvas';
-export type WeydraBackend = 'auto' | 'webgpu' | 'webgl2';
+export type WeydraBackend = 'auto' | 'webgpu' | 'webgl2' | 'software';
 
 export interface RenderingConfig {
   engine: GraphicsEngine;
@@ -89,7 +89,7 @@ export interface OrbitalConfig {
     text: boolean;          // M8 — text labels via fontdue bitmap font atlas
     ui: boolean;            // M9 — UI overlays (minimap, tutorial, painel, selecao) via weydra Graphics+Text
     /** Backend selection inside the weydra renderer. */
-    backend: 'auto' | 'webgpu' | 'webgl2';
+    backend: WeydraBackend;
   };
 
   language: 'pt' | 'en';
@@ -261,17 +261,65 @@ function migrarChavesLegadas(cfg: OrbitalConfig, raw?: any): void {
   alinharEngineAtomico(cfg);
 }
 
+/**
+ * Render-lab iframes (`public/render-lab/`) pick their engine/backend from
+ * the URL: `?lab=1&engine=pixi|weydra&backend=…`. Two of them run side by side
+ * on the same origin, so the override lives only in memory and nothing they
+ * do is persisted to the shared `orbital_config`.
+ */
+function overrideLab(): DeepPartial<OrbitalConfig> | null {
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('lab') !== '1') return null;
+    const engine = sp.get('engine') === 'pixi' ? 'pixi' : 'weydra';
+    const backend = sp.get('backend') ?? '';
+    const pixiBackends: PixiBackend[] = ['webgl', 'webgpu', 'canvas'];
+    const weydraBackends: WeydraBackend[] = ['auto', 'webgpu', 'webgl2', 'software'];
+    return {
+      rendering: engine === 'pixi'
+        ? { engine, pixi: { backend: pixiBackends.includes(backend as PixiBackend) ? backend as PixiBackend : 'webgl' } }
+        : { engine, weydra: { backend: weydraBackends.includes(backend as WeydraBackend) ? backend as WeydraBackend : 'auto' } },
+      graphics: { scanlines: false, mostrarFps: false, mostrarRam: false },
+    };
+  } catch {
+    return null;
+  }
+}
+
+let _efemera = false;
+
+/** True in render-lab iframes: nothing may be persisted (config, saves). */
+export function isConfigEfemera(): boolean {
+  getConfig();
+  return _efemera;
+}
+
+function persistir(cfg: OrbitalConfig): void {
+  if (_efemera) return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+}
+
 function load(): OrbitalConfig {
+  let cfg: OrbitalConfig;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return deepClone(DEFAULTS);
-    const parsed = JSON.parse(raw);
-    const merged = mergeDeep(DEFAULTS, parsed);
-    migrarChavesLegadas(merged, parsed);
-    return merged;
+    if (!raw) {
+      cfg = deepClone(DEFAULTS);
+    } else {
+      const parsed = JSON.parse(raw);
+      cfg = mergeDeep(DEFAULTS, parsed);
+      migrarChavesLegadas(cfg, parsed);
+    }
   } catch {
-    return deepClone(DEFAULTS);
+    cfg = deepClone(DEFAULTS);
   }
+  const lab = overrideLab();
+  if (lab) {
+    _efemera = true;
+    cfg = mergeDeep(cfg, lab);
+    alinharEngineAtomico(cfg);
+  }
+  return cfg;
 }
 
 export function getConfig(): OrbitalConfig {
@@ -299,7 +347,7 @@ export function setConfig(partial: DeepPartial<OrbitalConfig>): void {
   _cache = mergeDeep(getConfig(), partial);
   alinharEngineAtomico(_cache);
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(_cache));
+    persistir(_cache);
   } catch (err) {
     console.warn('[config] persist failed:', err);
   }
@@ -318,7 +366,7 @@ export function setConfigDuranteBoot(partial: DeepPartial<OrbitalConfig>): void 
   _cache = mergeDeep(getConfig(), partial);
   alinharEngineAtomico(_cache);
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(_cache));
+    persistir(_cache);
   } catch (err) {
     console.warn('[config] boot persist failed:', err);
   }
@@ -332,6 +380,7 @@ export function setGraphicsEngine(engine: GraphicsEngine): void {
 
 export function resetConfigForTest(): void {
   _cache = null;
+  _efemera = false;
   _listeners.clear();
   _notifying = false;
 }

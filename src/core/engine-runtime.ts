@@ -1,4 +1,4 @@
-import { Application } from 'pixi.js';
+import { Application, Graphics } from 'pixi.js';
 import type { GraphicsEngine, PixiBackend } from './config';
 import { getConfig, setConfigDuranteBoot } from './config';
 import { startWeydra, stopWeydra } from '../weydra-loader';
@@ -88,6 +88,20 @@ async function initializePixi(): Promise<EngineRuntime> {
         init.preferWebGLVersion = Number(cfg.rendering.pixi.webglVersion);
       }
       await app.init(init as any);
+      // Painting is driven by main.ts's frame loop (FPS cap + frame count in
+      // core/frame-pacer.ts); Pixi's own ticker would render uncapped and
+      // overwrite the sim delta the loop writes into it.
+      app.ticker.stop();
+      // Pixi silently falls back to WebGL when WebGPU isn't usable: report
+      // the renderer it really built, not the one we asked for.
+      const efetivo = (app.renderer as { name?: string }).name;
+      const effective: PixiBackend = efetivo === 'webgpu' || efetivo === 'canvas' ? efetivo : 'webgl';
+      if (effective !== backend) throw new Error(`Pixi criou ${efetivo} em vez de ${backend}`);
+      // Exercise the buffer path once: some WebGPU implementations accept the
+      // device and then reject the first geometry upload mid-frame, which
+      // used to kill the page instead of falling back to the next backend.
+      const teste = new Graphics().rect(0, 0, 4, 4).fill(0xffffff);
+      try { app.renderer.render({ container: teste }); } finally { teste.destroy(); }
       app.canvas.id = 'pixi-canvas';
       styleCanvas(app.canvas, true);
       document.body.appendChild(app.canvas);
@@ -118,12 +132,15 @@ async function initializeWeydra(): Promise<EngineRuntime> {
   stalePixi?.remove();
   styleCanvas(canvas, true);
   const result = await startWeydra();
+  // The software backend may have swapped in a fresh canvas element (a canvas
+  // already bound to WebGL/WebGPU can't take a 2D context) — use the live one.
+  const live = (document.getElementById('weydra-canvas') as HTMLCanvasElement | null) ?? canvas;
   return {
     engine: 'weydra',
-    app: createWeydraAppShim(canvas),
+    app: createWeydraAppShim(live),
     requestedBackend: result.requestedBackend,
     effectiveBackend: result.effectiveBackend,
-    canvas,
+    canvas: live,
   };
 }
 

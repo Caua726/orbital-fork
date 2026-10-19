@@ -17,7 +17,28 @@ export default [
         document: 'readonly',
         localStorage: 'readonly',
         CustomEvent: 'readonly',
+        Event: 'readonly',
+        navigator: 'readonly',
+        performance: 'readonly',
+        setTimeout: 'readonly',
+        requestAnimationFrame: 'readonly',
         getComputedStyle: 'readonly',
+      },
+    },
+  },
+  {
+    // Render lab page (plain browser modules served from public/).
+    files: ['public/render-lab/*.mjs'],
+    languageOptions: {
+      globals: {
+        Image: 'readonly',
+        Option: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+        location: 'readonly',
+        ResizeObserver: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
       },
     },
   },

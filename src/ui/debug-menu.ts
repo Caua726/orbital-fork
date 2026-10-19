@@ -1,6 +1,7 @@
 import type { Application } from 'pixi.js';
 import type { Mundo, CheatsState, ProfilingData } from '../types';
 import { getCamera } from '../core/player';
+import { fpsAtual } from '../core/frame-pacer';
 // Reuse the state objects that the existing game systems already read from.
 // Flipping these here affects the game live, no wiring needed.
 import { cheats, config } from './debug';
@@ -48,7 +49,6 @@ interface ProfRow {
 const _profRows: Partial<Record<keyof ProfilingData, ProfRow>> = {};
 
 // FPS tracking
-let _frameCount = 0;
 let _lastFpsUpdate = performance.now();
 let _fpsValue = 0;
 
@@ -969,12 +969,12 @@ function setValueClass(el: HTMLElement | null, cls: string): void {
 export function atualizarDebugMenu(): void {
   if (!_popupVisible || !_app || !_mundo) return;
 
-  // FPS (moving average, update every ~250ms)
-  _frameCount++;
+  // FPS = painted frames (core/frame-pacer.ts). This function runs from the
+  // HUD refresh, throttled to ~30 Hz — counting its own calls pinned the
+  // readout at ~30 whatever the real frame rate was.
   const now = performance.now();
   if (now - _lastFpsUpdate >= 250) {
-    _fpsValue = Math.round((_frameCount * 1000) / (now - _lastFpsUpdate));
-    _frameCount = 0;
+    _fpsValue = Math.round(fpsAtual());
     _lastFpsUpdate = now;
     if (_fpsEl) {
       _fpsEl.textContent = String(_fpsValue);

@@ -1,3 +1,4 @@
+import { agoraMs } from '../../core/relogio';
 import type { Mundo, Sol, Planeta, Nave } from '../../types';
 import type {
   MundoDTO,
@@ -72,7 +73,7 @@ export function serializarMundo(
       planetaIds: sis.planetas.map((p) => p.id),
     }));
 
-  const agora = performance.now();
+  const agora = agoraMs();
   const planetas: PlanetaDTO[] = mundo.planetas
     .slice()
     .sort((a, b) => a.id.localeCompare(b.id))

@@ -4,7 +4,7 @@ import type { Mundo, Planeta, Sol, Nave, Camera, TipoJogador } from '../types';
 import { criarFundo, atualizarFundo } from './fundo';
 import { TIPO_PLANETA } from './planeta';
 import { destruirWeidraGraphicsGlobais } from './sistema';
-import { atualizarTempoPlanetas, atualizarLuzPlaneta, precompilarBakesPlanetas, processBakeQueueWeydra, resetBakeQueueWeydra, destroyAllWeydraBakedSprites } from './planeta-procedural';
+import { atualizarTempoPlanetas, atualizarLuzPlaneta, precompilarBakesPlanetas, processBakeQueueWeydra, resetBakeQueueWeydra, destroyAllWeydraBakedSprites, sincronizarVisibilidadeWeydra } from './planeta-procedural';
 import { criarCamadaMemoria, criarMemoriaVisualPlaneta, registrarMemoriaPlaneta, atualizarVisibilidadeMemoria, atualizarEscalaLabelMemoria, aplicarLimiteFantasmas, destruirFog, liberarMemoriasVisuais } from './nevoa';
 import { criarSistemaSolar } from './sistema';
 import { calcularBoundsViewport, type ViewportBounds } from './viewport-bounds';
@@ -552,6 +552,7 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     } else {
       planeta.visible = vis;
     }
+    sincronizarVisibilidadeWeydra(planeta);
 
     const raioOrbita = planeta._orbita.raio;
     const orbitaNaTela =
@@ -591,7 +592,13 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
         const largura = selecionado ? 2.5 : 1.25;
         const raioBase = tamanho * 0.42;
         const raio = Math.max(10, raioBase - largura * 0.5);
-        anel.circle(0, 0, raio).stroke({ color: COR_ANEL_PLANETA, width: largura, alpha: 0.72 });
+        // On Pixi the ring is a child of the planet display object, whose
+        // scale is the planet size (mesh) or size/texture (canvas sprite):
+        // draw in its local units or it inherits that scale (it used to land
+        // tamanho× too big — off-screen, so the ring never showed). Weydra
+        // rings have no parent transform.
+        const escala = anel.weydra ? 1 : (planeta.scale?.x || 1);
+        anel.circle(0, 0, raio / escala).stroke({ color: COR_ANEL_PLANETA, width: largura / escala, alpha: 0.72 });
         anelAny._anelSelecionadoCache = selecionado;
         anelAny._anelTamanhoCache = tamanho;
         tAnel += performance.now() - tA0;
@@ -628,6 +635,7 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
       sol.visible = solVis;
       sol.alpha = sol._visivelAoJogador ? 1 : 0.28;
     }
+    sincronizarVisibilidadeWeydra(sol);
   }
   profileAcumular('render_sois', tSois0);
 

@@ -88,6 +88,35 @@ fn vs_main(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    // Texel is linear (sRGB texture, decoded on sample); the tint is an sRGB
+    // hex colour. Tint in sRGB space like Pixi, then blend-compensate.
     let texel = textureSample(tex, samp, in.uv);
-    return texel * in.color;
+    let c_srgb = linear_to_srgb3(texel.rgb) * in.color.rgb;
+    return srgb_over(c_srgb, texel.a * in.color.a);
+}
+
+// ── Colour space (shared by the 2D shaders) ─────────────────────────────
+// The surface is an sRGB view, so the GPU blends in LINEAR space and encodes
+// on store; the Pixi reference blended raw sRGB bytes. Game colours (hex
+// tints, strokes, text) are sRGB values. `srgb_over` returns the PREMULTIPLIED
+// fragment that, with PREMULTIPLIED_ALPHA_BLENDING, reproduces Pixi's
+// sRGB-space `c * a + dst * (1 - a)`: the source term decode(c * a) is exact,
+// and alpha' = 1 - (1 - a)^2.2 darkens the destination by the linear-space
+// equivalent of (1 - a) in encoded space. For a = 1 it is a plain decode.
+// Same compensation as fog.wgsl.
+fn srgb_to_linear3(c: vec3<f32>) -> vec3<f32> {
+    let low = c / vec3<f32>(12.92);
+    let high = pow((c + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
+    return select(low, high, c > vec3<f32>(0.04045));
+}
+
+fn linear_to_srgb3(c: vec3<f32>) -> vec3<f32> {
+    let low = c * 12.92;
+    let high = 1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
+    return select(low, high, c > vec3<f32>(0.0031308));
+}
+
+fn srgb_over(c_srgb: vec3<f32>, a_in: f32) -> vec4<f32> {
+    let a = clamp(a_in, 0.0, 1.0);
+    return vec4<f32>(srgb_to_linear3(c_srgb * a), 1.0 - pow(1.0 - a, 2.2));
 }

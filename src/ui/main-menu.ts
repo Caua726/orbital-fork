@@ -50,9 +50,10 @@ function injectStyles(): void {
       align-items: center;
       justify-content: center;
       opacity: 1;
+      /* No full-screen backdrop-filter: re-blurring the animated canvas
+         under the whole viewport every frame held the menu at ~38 FPS on a
+         desktop GPU (60 without it). The dimming alone keeps text contrast. */
       background: rgba(0, 0, 0, 0.3);
-      backdrop-filter: blur(2px);
-      -webkit-backdrop-filter: blur(2px);
       transition: opacity 400ms ease-out, visibility 0s linear 0s;
     }
 

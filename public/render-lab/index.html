@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbital — laboratório de render</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d0f14; --panel:#161a22; --line:#262c38; --txt:#d7dce5; --mut:#8a93a6;
+          --ok:#2f9e5b; --near:#b8962e; --bad:#c0392b; --acc:#5aa9ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:13px/1.45 system-ui, sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:15px; margin:0; font-weight:600; }
+  .tabs button { background:none; border:0; color:var(--mut); padding:6px 10px; border-radius:6px; cursor:pointer; font:inherit; }
+  .tabs button.on { color:var(--txt); background:var(--line); }
+  main { padding:14px 16px; }
+  section[hidden] { display:none; }
+  .bar { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:end; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:12px; }
+  label { display:flex; flex-direction:column; gap:3px; color:var(--mut); font-size:11px; }
+  select, input, button.b { font:inherit; color:var(--txt); background:#0f1218; border:1px solid var(--line); border-radius:6px; padding:5px 8px; }
+  button.b { cursor:pointer; background:#1d2532; }
+  button.b.pri { background:#1f4d84; border-color:#2d68ad; }
+  button.b:disabled { opacity:.5; cursor:default; }
+  .layers { display:flex; flex-wrap:wrap; gap:4px 10px; }
+  .layers label { flex-direction:row; align-items:center; gap:4px; color:var(--txt); font-size:12px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .grid3 { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px; min-width:0; }
+  .card h3 { margin:0 0 6px; font-size:12px; font-weight:600; display:flex; justify-content:space-between; gap:8px; }
+  .card h3 small { color:var(--mut); font-weight:400; }
+  .frame { position:relative; width:100%; aspect-ratio:16/9; background:#000; overflow:hidden; border-radius:4px; }
+  .frame iframe { position:absolute; left:0; top:0; border:0; transform-origin:0 0; }
+  .frame img, .frame canvas { position:absolute; inset:0; width:100%; height:100%; image-rendering:pixelated; }
+  .status { color:var(--mut); font-size:12px; min-height:18px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; font-weight:600; }
+  .igual { background:var(--ok); } .próximo { background:var(--near); } .diverge { background:var(--bad); } .na { background:var(--line); }
+  table { border-collapse:collapse; font-size:11px; }
+  td, th { border:1px solid var(--line); padding:3px 6px; text-align:center; white-space:nowrap; }
+  th { background:#12161d; position:sticky; top:0; }
+  td.clk { cursor:pointer; }
+  td.sel { outline:2px solid var(--acc); outline-offset:-2px; }
+  .swipe { position:absolute; inset:0; overflow:hidden; }
+  .swipe img { width:100%; }
+  .muted { color:var(--mut); }
+  .scroll { overflow:auto; max-height:46vh; }
+  code { background:#0f1218; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Orbital · laboratório de render</h1>
+  <nav class="tabs">
+    <button data-tab="vivo" class="on">Ao vivo</button>
+    <button data-tab="matriz">Matriz de prints</button>
+  </nav>
+  <span class="muted" style="margin-left:auto">mesma cena, mesmo mundo semeado, duas engines lado a lado</span>
+</header>
+<main>
+  <!-- ─── Ao vivo ─────────────────────────────────────────────────── -->
+  <section id="tab-vivo">
+    <div class="bar">
+      <label>Engine A <select id="a"></select></label>
+      <label>Engine B <select id="b"></select></label>
+      <label>Seed <input id="seed" type="number" value="20261018" style="width:110px"></label>
+      <label>Tamanho <select id="tam">
+        <option value="960x540">960×540</option><option value="1280x720" selected>1280×720</option><option value="640x360">640×360</option>
+      </select></label>
+      <button class="b pri" id="iniciar">Iniciar partidas</button>
+      <span class="status" id="st"></span>
+    </div>
+    <div class="bar">
+      <label>Cena <select id="cena" disabled></select></label>
+      <button class="b" id="mostrar" disabled>Mostrar cena</button>
+      <label>Zoom <input id="zoom" type="range" min="0.3" max="2" step="0.05" value="1" disabled></label>
+      <label>Passos <input id="passos" type="number" value="30" min="1" max="600" style="width:70px" disabled></label>
+      <button class="b" id="avancar" disabled>Avançar</button>
+      <label style="flex-direction:row;align-items:center;gap:5px;color:var(--txt)"><input type="checkbox" id="hud" checked> esconder HUD</label>
+      <button class="b pri" id="comparar" disabled>Capturar e comparar</button>
+    </div>
+    <div class="bar"><span class="muted">Camadas:</span><div class="layers" id="camadas"></div></div>
+    <div class="grid2">
+      <div class="card"><h3><span id="ta">A</span><small id="ia"></small></h3><div class="frame" id="fa"></div></div>
+      <div class="card"><h3><span id="tb">B</span><small id="ib"></small></h3><div class="frame" id="fb"></div></div>
+    </div>
+    <div class="card" style="margin-top:12px" id="resultado" hidden>
+      <h3><span>Comparação capturada <span id="veredito"></span></span><small id="metricas"></small></h3>
+      <div class="grid3">
+        <div><div class="muted">A</div><div class="frame"><img id="ca" alt=""></div></div>
+        <div><div class="muted">B</div><div class="frame"><img id="cb" alt=""></div></div>
+        <div><div class="muted">Diferença (vermelho Δ≥16, verde Δ≥3)</div><div class="frame"><canvas id="cd"></canvas></div></div>
+      </div>
+    </div>
+    <p class="muted">Cada lado roda o jogo de verdade num iframe (<code>?lab=1&amp;engine=…&amp;backend=…&amp;seed=…</code>), com a mesma seed e a simulação congelada em passos fixos, na sua GPU. Nada é salvo: config e partidas desse modo vivem só na memória.</p>
+  </section>
+
+  <!-- ─── Matriz ──────────────────────────────────────────────────── -->
+  <section id="tab-matriz" hidden>
+    <div class="bar">
+      <label>report.json <input id="url" style="width:420px" value="../test-results/render-matrix/report.json"></label>
+      <button class="b pri" id="carregar">Carregar</button>
+      <span class="status" id="mst"></span>
+    </div>
+    <div id="mconteudo" hidden>
+      <div class="bar">
+        <label>Cena <select id="mcena"></select></label>
+        <label>A <select id="ma"></select></label>
+        <label>B <select id="mb"></select></label>
+        <label>Modo <select id="modo">
+          <option value="lado">lado a lado</option><option value="swipe">deslizar</option>
+          <option value="piscar">piscar</option><option value="diff">diferença</option>
+        </select></label>
+        <label id="swipel">Divisória <input id="swipe" type="range" min="0" max="100" value="50"></label>
+        <span id="mmet" class="muted"></span>
+      </div>
+      <div class="card" id="mview"></div>
+      <div class="card" style="margin-top:12px">
+        <h3><span>Resumo — Δ≥16 contra <span id="mref"></span></span><small>clique numa célula para abrir a cena com aquela variante em B</small></h3>
+        <div class="scroll"><table id="mtab"></table></div>
+      </div>
+    </div>
+    <p class="muted">Gere os prints com <code>bun run test:render-matrix</code> (com a baseline: <code>node tests/baseline/prepare-baseline.mjs</code> e <code>ORBITAL_BASELINE_URL</code>) e abra esta página pelo <code>bun run dev</code>, que serve <code>test-results/</code>.</p>
+  </section>
+</main>
+<script type="module" src="./lab.mjs"></script>
+</body>
+</html>

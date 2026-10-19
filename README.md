@@ -37,10 +37,13 @@ npm test
 npm run test:determinism
 npm run test:engine-switch
 npm run test:fog-parity
+npm run test:render-matrix   # local, precisa de GPU real
 npm run build
 ```
 
 `npm run test:determinism` compara Pixi/WebGL contra Weydra/WebGL2 e, quando o navegador oferece adapter, também Weydra/WebGPU (passe pulado, não falhado, sem adapter; ajuste as flags do Chromium com `ORBITAL_WEBGPU_ARGS`). `npm run test:engine-switch` troca de motor numa partida ao vivo, cobre um viewport maior que 2048 px e a recuperação após perda de contexto. `npm run test:fog-parity` exige que a névoa tenha a mesma cor nas duas engines, que o canvas do Pixi respeite `fogAlpha` e que um sol atrás da névoa continue visível.
+
+`npm run test:render-matrix` renderiza cada elemento do mundo isolado por camada (starfield, estrelas brilhantes, planetas, sol, órbitas, anéis, naves, rotas, trilhas, combate, névoa, fantasma e cenas completas) em Pixi WebGL/WebGPU/Canvas e Weydra WebGL2/WebGPU, sobre a GPU real (ANGLE/Vulkan, ANGLE/GL, Dawn/Vulkan) e por software (SwiftShader, llvmpipe). A simulação avança em passos fixos com relógio virtual, então toda cena é comparada só por pixels contra Pixi/WebGL na GPU real. Uma variante cujo driver ou backend efetivo não é o pedido é marcada como inválida. Duas variantes repetidas medem o ruído do próprio harness. O relatório fica em `test-results/render-matrix/report.html`.
 
 `npm run build` recompila o adapter WASM do Weydra e o plugin WGSL antes do bundle Vite. Para servir em outra subpasta, defina `VITE_BASE_PATH` (o padrão de deploy é `/orbital-fork/`).
 

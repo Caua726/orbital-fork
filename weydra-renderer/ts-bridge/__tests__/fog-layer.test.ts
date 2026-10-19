@@ -37,9 +37,10 @@ function makeRenderer(): Renderer {
   // Reach into the private `inner` field via `as any` — the alternative
   // would be a real WASM init which is heavy and out of scope for
   // these unit tests. The FogLayer only touches `_fogUniformsPtr()` and
-  // the global `_wasm.memory.buffer`, both of which we stub here.
+  // the renderer's backing buffer (`_memoryBuffer()`), both stubbed here.
   const r = Object.create(Renderer.prototype) as any;
   r._fogUniformsPtr = vi.fn(() => FOG_PTR);
+  r._memoryBuffer = vi.fn(() => _wasmMemory.buffer);
   // Provide a fog_max_sources / fog_uniforms_size stub for createFogShader
   // symmetry (the constructor accepts these directly so we don't need them).
   return r as Renderer;

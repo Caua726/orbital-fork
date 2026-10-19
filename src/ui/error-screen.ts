@@ -73,9 +73,21 @@ export function mostrarTelaErro(opts: ErrorScreenOptions): Promise<string> {
   });
 }
 
+let _recuperar: ((erro: unknown) => boolean) | null = null;
+
+/**
+ * Lets the engine runtime claim an uncaught error it can recover from (e.g.
+ * a WebGPU device that starts rejecting buffers mid-session) instead of the
+ * fatal screen. Return true when handled.
+ */
+export function registrarRecuperacaoDeErro(fn: (erro: unknown) => boolean): void {
+  _recuperar = fn;
+}
+
 export function instalarErrorBoundary(): void {
   window.addEventListener('error', (event) => {
     if (_screen) return;
+    if (_recuperar?.(event.error ?? event.message)) return;
     void mostrarTelaErro({
       code: 'UNHANDLED_ERROR',
       title: 'O ORBITAL ENCONTROU UM ERRO',

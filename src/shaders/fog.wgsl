@@ -15,11 +15,9 @@
 // here is the only knob if the soft edge ever drifts vs. the Pixi look.
 //
 // Blend-mode contract (read before wiring the pipeline): the fragment
-// returns STRAIGHT alpha — `vec4(rgb, alpha)`, NOT `vec4(rgb*alpha, alpha)`.
-// The pipeline must therefore be configured with
-// `wgpu::BlendState::ALPHA_BLENDING`, not `PREMULTIPLIED_ALPHA_BLENDING`
-// (which would darken the fog by alpha) and not `REPLACE` (which would
-// erase the layers behind it).
+// returns PREMULTIPLIED colour with an sRGB-emulating alpha (see fs_main), so
+// the pipeline must use `wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING`
+// (not REPLACE, which would erase the layers behind it).
 
 // CameraUniforms layout: 32 bytes total. vec3 in std140 is forbidden
 // (16-byte align trap) — use 3 scalar pads instead, matching the Rust
@@ -70,7 +68,10 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
     let c = corners[idx];
     var out: VsOut;
     out.clip_pos = vec4<f32>(c * 2.0 - 1.0, 0.0, 1.0);
-    out.uv = c;
+    // Clip y points up, world y points down (planeta-weydra.wgsl negates
+    // ndc.y the same way): flip so uv.y = 0 is the TOP of the screen.
+    // Without it every vision source was mirrored about the screen centre.
+    out.uv = vec2<f32>(c.x, 1.0 - c.y);
     return out;
 }
 
@@ -124,12 +125,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // result over black, and stays well behaved as alpha→0 (the curve is linear
     // near zero, so the rim of the vision circle still fades to nothing).
     //
-    // Residual, by construction: where the fog overlaps *bright* content the two
-    // paths still differ, because sRGB-space compositing (canvas) and linear
-    // compositing (this pipeline) are different operations — e.g. a sun behind
-    // 75% fog reads (55,46,44) on Pixi and ~(120,108,94) here. Matching that
-    // exactly would require blending the whole weydra pipeline in sRGB space.
+    // Over *bright* content, sRGB-space compositing darkens the destination
+    // by (1 - a) in encoded space, i.e. ~(1 - a)^2.2 in linear space — far more
+    // than the linear blend's (1 - a) (a sun behind 75% fog read (55,46,44) on
+    // Pixi and ~(120,108,94) here, and stars stayed visible through the fog).
+    // Emitting alpha' = 1 - (1 - a)^2.2 with PREMULTIPLIED blending applies
+    // that factor to the destination; the navy term stays exact over black.
     let navy = vec3<f32>(0.008, 0.02, 0.0627);
-    let premult = srgb_to_linear(navy * alpha) / max(alpha, 1e-5);
-    return vec4<f32>(premult, alpha);
+    let keep = pow(1.0 - alpha, 2.2);
+    return vec4<f32>(srgb_to_linear(navy * alpha), 1.0 - keep);
 }

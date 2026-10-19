@@ -1,4 +1,4 @@
-import { getConfig, setConfig, DEFAULTS } from '../core/config';
+import { getConfig, setConfig, DEFAULTS, type WeydraBackend } from '../core/config';
 import { aplicarPreset, presetBateComFlagsDerivadas } from '../core/graphics-preset';
 import { rodarBenchmark } from '../core/benchmark';
 import { comHelp } from './tooltip';
@@ -912,22 +912,11 @@ function renderGraphicsTab(body: HTMLDivElement): void {
     body.appendChild(row);
   }
 
-  // Vsync — its own checkbox. Off drives the game loop via setTimeout
-  // so the FPS counter reads the raw processing rate (past the monitor
-  // refresh lock).
-  {
-    const [row] = rowWithLabel(t('settings.row.vsync'), 'vsync');
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = gfx.vsync;
-    cb.addEventListener('change', () => {
-      setConfig({ graphics: { ...getConfig().graphics, vsync: cb.checked } });
-    });
-    row.appendChild(cb);
-    body.appendChild(row);
-  }
+  // No vsync toggle: both engines paint from requestAnimationFrame, which the
+  // browser always syncs to the display — the old "off" setTimeout loop
+  // no longer existed, so the checkbox did nothing.
 
-  // FPS cap — plain numeric cap, 0 = no cap. Applies on top of vsync.
+  // FPS cap — plain numeric cap, 0 = no cap (core/frame-pacer.ts).
   {
     const [row] = rowWithLabel(t('settings.row.limite_fps'), 'fpsCap');
     const select = criarSelect([
@@ -1055,9 +1044,10 @@ function renderWeydraOptOuts(host: HTMLDivElement): void {
       ['auto', t('settings.opt.auto')],
       ['webgpu', t('settings.opt.weydra_webgpu')],
       ['webgl2', t('settings.opt.weydra_webgl2')],
+      ['software', t('settings.opt.weydra_software')],
     ], cur);
     select.addEventListener('change', () => {
-      const v = select.dataset.value as 'auto' | 'webgpu' | 'webgl2';
+      const v = select.dataset.value as WeydraBackend;
       window.dispatchEvent(new CustomEvent('orbital:request-engine-switch', {
         detail: { engine: 'weydra', weydraBackend: v },
       }));

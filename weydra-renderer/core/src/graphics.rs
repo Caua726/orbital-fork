@@ -30,8 +30,8 @@ use lyon::tessellation::{
 };
 
 /// Single vertex. 24 B total — `vec2 position` (world units or screen pixels
-/// depending on `world_space`) + `vec4 color` (straight RGBA). The shader
-/// does NOT premultiply; this matches `wgpu::BlendState::ALPHA_BLENDING`.
+/// depending on `world_space`) + `vec4 color` (straight sRGB RGBA). The
+/// shader premultiplies on output (`srgb_over` in graphics.wgsl).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct GraphicsVertex {
@@ -647,14 +647,25 @@ fn upload_or_reuse(
         ctx.queue.write_buffer(buf, 0, data);
         return;
     }
-    use wgpu::util::DeviceExt;
-    let buf = ctx
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: data,
-            usage: usage | wgpu::BufferUsages::COPY_DST,
-        });
+    // create_buffer + write_buffer instead of create_buffer_init: the latter
+    // uses `mappedAtCreation`, which some WebGPU implementations (Chromium's
+    // SwiftShader adapter) reject mid-session — the panic poisoned the wasm
+    // renderer and killed the page. COPY_ALIGNMENT padding: write_buffer
+    // needs a 4-byte multiple.
+    let padded = size.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
+    let buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: padded,
+        usage: usage | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    if padded == size {
+        ctx.queue.write_buffer(&buf, 0, data);
+    } else {
+        let mut tmp = data.to_vec();
+        tmp.resize(padded as usize, 0);
+        ctx.queue.write_buffer(&buf, 0, &tmp);
+    }
     *capacity = size;
     *buffer = Some(buf);
 }

@@ -13,9 +13,6 @@ import type { Sprite as WeydraSprite } from '@weydra/renderer';
 import {
   criarFundoCanvas, atualizarFundoCanvas, getStarfieldCanvasMemoryBytes,
 } from './fundo-canvas';
-import {
-  criarFundoEstatico, atualizarFundoEstatico, getStarfieldEstaticoMemoryBytes,
-} from './fundo-estatico';
 import { detectarRendererSoftware } from '../core/software-gpu';
 
 /**
@@ -47,7 +44,6 @@ interface FundoContainer extends Container {
  */
 export function getStarfieldMemoryBytes(fundo: Container): number {
   if ((fundo as any)._isCanvasFundo) return getStarfieldCanvasMemoryBytes(fundo);
-  if ((fundo as any)._isStaticFundo) return getStarfieldEstaticoMemoryBytes(fundo);
   return 10 * 1024;
 }
 
@@ -252,19 +248,29 @@ export async function precompilarShaderStarfield(
   }
 }
 
+// Render-matrix harness: pins the starfield clock (which advances per FRAME,
+// not per sim time, so speed(0) doesn't freeze it). null = normal play.
+let _tempoFixoMs: number | null = null;
+export function fixarTempoFundo(ms: number | null): void {
+  _tempoFixoMs = ms;
+}
+
 export function criarFundo(tamanhoMundo: number): FundoContainer {
   // Software (WARP / SwiftShader / LLVMpipe) → static tiling sprite.
   // No per-frame shader, no per-pixel compute; just a pre-baked
   // canvas tile that pans with the camera. Expect ~20 ms/frame back
   // compared to the procedural shader on CPU-rasterized WebGL.
-  if (isSoftwareRenderer() && !isCanvas2dRenderer()) {
-    const staticFundo = criarFundoEstatico(tamanhoMundo) as unknown as FundoContainer;
-    (staticFundo as any)._isStaticFundo = true;
-    return staticFundo;
-  }
-  if (isCanvas2dRenderer()) {
+  // Software rasterizers (WARP / SwiftShader / LLVMpipe) and the canvas
+  // backend draw the per-star CPU starfield (starfield-cpu.ts): the same
+  // stars as the shader, at a few hundred cells per frame instead of a
+  // fullscreen fragment pass. (The old static tile was different art, so
+  // software GPUs showed another sky than Weydra or hardware Pixi.)
+  if (isCanvas2dRenderer() || isSoftwareRenderer()) {
     const canvasFundo = criarFundoCanvas(tamanhoMundo) as unknown as FundoContainer;
     (canvasFundo as any)._isCanvasFundo = true;
+    // Same bright-star tile as the TilingSprite / weydra sprite, drawn into
+    // the CPU canvas (fundo-canvas.ts) so this sky has all three layers.
+    (canvasFundo as any)._brightCanvas = gerarBrightTile().source.resource as HTMLCanvasElement;
     return canvasFundo;
   }
   const container = new Container() as FundoContainer;
@@ -325,16 +331,13 @@ export function atualizarFundo(
   // doesn't desync between branches.
   const r = getWeydraRenderer();
   if (r !== null) {
-    fundo._tempoAcumMs += 16.67;
+    fundo._tempoAcumMs = _tempoFixoMs ?? fundo._tempoAcumMs + 16.67;
     r.setCamera(jogadorX, jogadorY, telaW, telaH, fundo._tempoAcumMs / 1000);
   }
 
-  if ((fundo as any)._isStaticFundo) {
-    atualizarFundoEstatico(fundo as any, jogadorX, jogadorY, telaW, telaH);
-    return;
-  }
   if ((fundo as any)._isCanvasFundo) {
-    atualizarFundoCanvas(fundo as any, jogadorX, jogadorY, telaW, telaH);
+    if (r === null) fundo._tempoAcumMs = _tempoFixoMs ?? fundo._tempoAcumMs + 16.67;
+    atualizarFundoCanvas(fundo as any, jogadorX, jogadorY, telaW, telaH, fundo._tempoAcumMs / 1000);
     return;
   }
   const mesh = fundo._mesh;
@@ -346,7 +349,7 @@ export function atualizarFundo(
   // keep weydra's `uTime` continuous across fundo paths. When weydra
   // is off, advance it here so the Pixi shader path keeps its tick.
   if (r === null) {
-    fundo._tempoAcumMs += 16.67;
+    fundo._tempoAcumMs = _tempoFixoMs ?? fundo._tempoAcumMs + 16.67;
   }
   // Hide the Pixi starfield mesh ONLY when weydra is actually rendering
   // it. If the player flipped `weydra.starfield` on but the renderer
@@ -403,8 +406,12 @@ export function atualizarFundo(
       // wraps UVs past 1 so the texture tiles seamlessly.
       const tilesX = telaW / BRIGHT_TILE_SIZE;
       const tilesY = telaH / BRIGHT_TILE_SIZE;
-      const offsetX = -jogadorX * (1 - parallax) / BRIGHT_TILE_SIZE;
-      const offsetY = -jogadorY * (1 - parallax) / BRIGHT_TILE_SIZE;
+      // A TilingSprite samples at (local - tilePosition) and Pixi sets
+      // tilePosition = -camera·(1-parallax); the UV offset is that sample
+      // shift in tile units, so it carries the opposite sign (it used to be
+      // negative too, scrolling the layer the wrong way against Pixi).
+      const offsetX = jogadorX * (1 - parallax) / BRIGHT_TILE_SIZE;
+      const offsetY = jogadorY * (1 - parallax) / BRIGHT_TILE_SIZE;
       sp.setUv(offsetX, offsetY, tilesX, tilesY);
     }
   } else {

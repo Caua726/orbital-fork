@@ -26,6 +26,31 @@ use weydra_renderer::{
 const SILKSCREEN_TTF: &[u8] = include_bytes!("../../../core/src/fonts/silkscreen.ttf");
 const VT323_TTF: &[u8] = include_bytes!("../../../core/src/fonts/vt323.ttf");
 const TEXT_WGSL: &str = include_str!("../../../core/shaders/text.wgsl");
+const PLANET_COMPOSITE_WGSL: &str = include_str!("../../../core/shaders/planet_composite.wgsl");
+
+/// Planets render into a half-resolution target first (see `PlanetTarget`).
+/// Plain UNORM: the planet shader writes sRGB-space premultiplied colour,
+/// like the render texture of the Pixi half-res filter.
+const PLANET_TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// Half-resolution offscreen target for the live planet pass — the weydra
+/// equivalent of the Pixi `AlphaFilter({ resolution: 0.5 })` the reference
+/// game puts on every live planet/star: the shader runs at ½ × ½ and the
+/// result is upscaled bilinearly onto the frame (planet_composite.wgsl).
+struct PlanetTarget {
+    _texture: wgpu::Texture,
+    _frame_size: wgpu::Buffer,
+    /// Frame size this target (and its frame_size uniform) was built for.
+    frame: (u32, u32),
+    view: wgpu::TextureView,
+    bind_group: wgpu::BindGroup,
+}
+
+struct PlanetComposite {
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+}
 
 /// Max sprites across all textures. Backing SoA Vecs are sized once at boot
 /// and never reallocated — growth would detach the TS-side typed-array views
@@ -97,6 +122,8 @@ pub struct Renderer {
     // M5 planets (live shader)
     planet_pool: Option<PlanetPool>,
     planet_mesh: Option<Mesh>,
+    planet_target: Option<PlanetTarget>,
+    planet_composite: Option<PlanetComposite>,
 
     // M6 fog-of-war (singleton)
     fog_pool: Option<FogPool>,
@@ -126,6 +153,11 @@ pub struct Renderer {
     /// (texture upload, lazy bind-group construction, etc.). TS pairs this
     /// with `_wasm.memory.buffer` identity to decide when to rebuild views.
     mem_version: u32,
+
+    /// Diagnostic layer mask (bit per `LAYER_*`). All bits set in normal
+    /// play; the render-matrix harness clears bits to render one layer at a
+    /// time. Purely a draw filter — nothing is destroyed or re-uploaded.
+    layer_mask: u32,
 }
 
 #[wasm_bindgen]
@@ -249,6 +281,8 @@ impl Renderer {
             starfield_mesh: None,
             planet_pool: None,
             planet_mesh: None,
+            planet_target: None,
+            planet_composite: None,
             fog_pool: None,
             fog_mesh: None,
             textures: TextureRegistry::new(),
@@ -260,6 +294,7 @@ impl Renderer {
             graphics_pool: None,
             graphics_pipeline: None,
             text_registry,
+            layer_mask: u32::MAX,
             mem_version: 0,
         })
     }
@@ -314,7 +349,7 @@ impl Renderer {
             &self.ctx,
             &self.shader_registry,
             shader,
-            self.surface.format,
+            PLANET_TARGET_FORMAT,
             &self.engine.layout,
             // Planet shader emits premultiplied-alpha output; the disc-edge
             // pixels with alpha < 1 must blend over whatever's behind (the
@@ -325,6 +360,7 @@ impl Renderer {
         );
         self.planet_pool = Some(pool);
         self.planet_mesh = Some(mesh);
+        self.planet_composite = Some(self.build_planet_composite());
         self.mem_version = self.mem_version.wrapping_add(1);
     }
 
@@ -393,12 +429,10 @@ impl Renderer {
             shader,
             self.surface.format,
             &self.engine.layout,
-            // fog.wgsl returns straight alpha (`vec4(rgb, alpha)`) and is
-            // explicit about the contract in its header. ALPHA_BLENDING is
-            // the only correct choice — PREMULTIPLIED_ALPHA_BLENDING would
-            // darken the fog by alpha and REPLACE would erase whatever the
-            // fog should overlay (starfield, planets, ships).
-            wgpu::BlendState::ALPHA_BLENDING,
+            // fog.wgsl returns premultiplied colour with an sRGB-emulating
+            // alpha (contract in its header); REPLACE would erase whatever
+            // the fog should overlay (starfield, planets, ships).
+            wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
             Some(&pool.bind_group_layout),
             "fog",
         );
@@ -512,10 +546,9 @@ impl Renderer {
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: self.surface.format,
-                        // Pixi Graphics defaults to ALPHA_BLENDING;
-                        // match exactly (graphics.wgsl header comment
-                        // documents the contract).
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        // graphics.wgsl emits premultiplied colour with an
+                        // sRGB-emulating alpha (contract in its header).
+                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                     compilation_options: Default::default(),
@@ -704,6 +737,12 @@ impl Renderer {
         }
     }
 
+    /// Diagnostic draw filter: one bit per layer (`LAYER_*`, mirrored in
+    /// `src/core/render-order.ts` as `LAYER_BIT`). `u32::MAX` = draw all.
+    pub fn set_layer_mask(&mut self, mask: u32) {
+        self.layer_mask = mask;
+    }
+
     /// Toggle a Graphics' visibility (mirrors Pixi `visible`). O(1) — the
     /// render loop skips invisible Graphics without dropping their
     /// tessellation, so re-showing is free (no re-tessellation).
@@ -872,10 +911,24 @@ impl Renderer {
             .as_ref()
             .expect("create_planet_shader must be called before bake_planet");
 
-        // RenderTarget with the same color format the swap chain uses so
-        // the in-pass pipeline (compiled against surface.format) is valid
-        // for this attachment.
-        let rt = RenderTarget::new(&self.ctx, size, size, self.surface.format);
+        // The planet pipeline targets PLANET_TARGET_FORMAT (sRGB-space bytes
+        // in a UNORM texture). Render there, then copy into an sRGB texture
+        // so sprites sample linear colour like every uploaded texture.
+        let rt = RenderTarget::new(&self.ctx, size, size, PLANET_TARGET_FORMAT);
+        let baked = self.ctx.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("planet bake"),
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: PLANET_TARGET_FORMAT.add_srgb_suffix(),
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
 
         // Push the latest pool state to GPU before drawing — same upload
         // path the per-frame render uses.
@@ -909,7 +962,17 @@ impl Renderer {
             pass.set_bind_group(1, &pool.bind_group, &[pool.offset_for(h.slot)]);
             pass.draw(0..6, 0..1);
         }
+        encoder.copy_texture_to_texture(
+            rt.texture.as_image_copy(),
+            baked.as_image_copy(),
+            wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+        );
         self.ctx.queue.submit(Some(encoder.finish()));
+        let baked_view = baked.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Wrap the freshly-rendered texture in a Texture struct and hand
         // it to TextureRegistry. The sampler is created locally because
@@ -923,8 +986,8 @@ impl Renderer {
             ..Default::default()
         });
         let tex = Texture {
-            texture: rt.texture,
-            view: rt.view,
+            texture: baked,
+            view: baked_view,
             sampler,
             width: size,
             height: size,
@@ -1096,6 +1159,55 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("weydra frame"),
             });
+
+        // Planets (M5) — into the half-res target first. One draw call per
+        // live instance, dynamic offset selects the slot in the shared
+        // uniform buffer. Composited below, after the starfield and before
+        // sprites — matches PLANET_LIVE = 11 in src/core/render-order.ts.
+        let draw_planets = self.layer_mask & LAYER_PLANETS != 0
+            && self
+                .planet_pool
+                .as_ref()
+                .is_some_and(|p| !p.slotmap.is_empty())
+            && self.planet_mesh.is_some();
+        if draw_planets {
+            let (w, h) = (self.surface.config.width, self.surface.config.height);
+            self.ensure_planet_target(w, h);
+        }
+        if let (true, Some(pool), Some(mesh), Some(target)) = (
+            draw_planets,
+            &self.planet_pool,
+            &self.planet_mesh,
+            &self.planet_target,
+        ) {
+            pool.upload(&self.ctx);
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("weydra planet half-res pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&mesh.pipeline);
+            pass.set_bind_group(0, &self.engine.bind_group, &[]);
+            for (h, _) in pool.slotmap.iter() {
+                if pool.alpha_of(h.slot) <= 0.0 {
+                    continue;
+                }
+                pass.set_bind_group(1, &pool.bind_group, &[pool.offset_for(h.slot)]);
+                pass.draw(0..6, 0..1);
+            }
+        }
+
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("weydra frame pass"),
@@ -1115,123 +1227,72 @@ impl Renderer {
             });
             pass.set_bind_group(0, &self.engine.bind_group, &[]);
 
-            if let (Some(mesh), Some(pool)) = (&self.starfield_mesh, &self.starfield_pool) {
+            let mask = self.layer_mask;
+            if let (Some(mesh), Some(pool), true) = (
+                &self.starfield_mesh,
+                &self.starfield_pool,
+                mask & LAYER_STARFIELD != 0,
+            ) {
                 mesh.draw(&mut pass, Some(&pool.bind_group));
             }
 
-            // Planets (M5): one draw call per live instance, dynamic offset
-            // selects the slot in the shared uniform buffer. Drawn after
-            // starfield + bright tile, before sprites — matches z-layer order
-            // in src/core/render-order.ts (PLANET_LIVE = 11).
-            if let (Some(pool), Some(mesh)) = (&self.planet_pool, &self.planet_mesh) {
-                pool.upload(&self.ctx);
-                pass.set_pipeline(&mesh.pipeline);
+            // Planets: composite the half-res target (bilinear upscale).
+            if let (true, Some(comp), Some(target)) =
+                (draw_planets, &self.planet_composite, &self.planet_target)
+            {
+                pass.set_pipeline(&comp.pipeline);
+                pass.set_bind_group(0, &target.bind_group, &[]);
+                pass.draw(0..3, 0..1);
                 pass.set_bind_group(0, &self.engine.bind_group, &[]);
-                for (h, _) in pool.slotmap.iter() {
-                    pass.set_bind_group(1, &pool.bind_group, &[pool.offset_for(h.slot)]);
-                    pass.draw(0..6, 0..1);
-                }
             }
 
-            // Sprite batcher — one draw call per texture run. Only runs
-            // BELOW the fog layer here; post-fog runs (Z >= FOG_Z, e.g.
-            // fog-memory ghost silhouettes) draw after the fog pass below.
-            if runs.iter().any(|r| !r.post_fog) {
-                if let Some(path) = &self.sprite_path {
-                    pass.set_pipeline(match path {
-                        SpritePath::Storage { pipeline, .. } => pipeline,
-                        SpritePath::Instanced { pipeline, .. } => pipeline,
-                    });
-                    match path {
-                        SpritePath::Storage {
-                            sprite_bind_group, ..
-                        } => {
-                            pass.set_bind_group(1, sprite_bind_group, &[]);
-                        }
-                        SpritePath::Instanced {
-                            instance_buffer, ..
-                        } => {
-                            pass.set_vertex_buffer(0, instance_buffer.slice(..));
-                        }
-                    }
-                    for run in runs.iter().filter(|r| !r.post_fog) {
-                        if let Some(bg) = self.texture_bind_groups.get(&run.texture_key) {
-                            pass.set_bind_group(2, bg, &[]);
-                            pass.draw(0..6, run.start..run.end);
-                        }
-                    }
-                }
+            // Graphics (M7) in draw order, split at the fog like sprites:
+            // orbits, routes, ship rings and beams sit UNDER the fog (as their
+            // Pixi containers sit under `visaoContainer`); fog-memory ghosts and
+            // UI (z >= FOG_Z) draw over it.
+            let mut graphics_order: Vec<(f32, Handle)> = Vec::new();
+            if let Some(pool) = self.graphics_pool.as_ref() {
+                graphics_order = pool
+                    .draw_order()
+                    .into_iter()
+                    .filter(|(z, h)| {
+                        layer_bit(*z) & mask != 0
+                            && pool.get(*h).is_some_and(|g| {
+                                g.visible && (g.fill_index_count > 0 || g.stroke_index_count > 0)
+                            })
+                    })
+                    .collect();
+                graphics_order
+                    .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
             }
+            let split = graphics_order.partition_point(|(z, _)| *z < FOG_Z);
 
-            // Fog (M6): single fullscreen draw on top of every previous
-            // weydra layer (Z.FOG = 40 — above SHIPS=30, below the Pixi
-            // UI canvas which composites over this surface). Skipped when
-            // the shader hasn't been registered (fog flag off) and when
-            // no vision sources are active — without that second guard,
-            // the menu (where `desenharNeblinaVisao` never runs and
-            // active_count stays 0) gets a fullscreen 75%-alpha navy
-            // overlay covering the procedural planets, washing them out
-            // into a uniform grey/blue cast that reads as "broken".
+            // Pre-fog sprites + Graphics, interleaved by z.
+            self.draw_sprites_and_graphics(
+                &mut pass,
+                runs.iter().filter(|r| !r.post_fog),
+                &graphics_order[..split],
+            );
+
+            // Fog (M6): single fullscreen draw over every pre-fog layer.
+            // Skipped when the shader hasn't been registered (fog flag off)
+            // and when no vision sources are active — without that second
+            // guard, the menu (where `desenharNeblinaVisao` never runs and
+            // active_count stays 0) gets a fullscreen 75%-alpha navy overlay
+            // covering the procedural planets.
             if let (Some(mesh), Some(pool)) = (&self.fog_mesh, &self.fog_pool) {
-                if pool.instances[0].active_count > 0 {
+                if pool.instances[0].active_count > 0 && mask & LAYER_FOG != 0 {
                     mesh.draw(&mut pass, Some(&pool.bind_group));
                 }
             }
 
-            // Post-fog sprites (Z >= FOG_Z): fog-memory ghost silhouettes
-            // and any other sprite that must show THROUGH the fog. Same
-            // pipeline + packed buffer as the pre-fog batch; only the run
-            // filter differs.
-            if runs.iter().any(|r| r.post_fog) {
-                if let Some(path) = &self.sprite_path {
-                    pass.set_pipeline(match path {
-                        SpritePath::Storage { pipeline, .. } => pipeline,
-                        SpritePath::Instanced { pipeline, .. } => pipeline,
-                    });
-                    match path {
-                        SpritePath::Storage {
-                            sprite_bind_group, ..
-                        } => {
-                            pass.set_bind_group(1, sprite_bind_group, &[]);
-                        }
-                        SpritePath::Instanced {
-                            instance_buffer, ..
-                        } => {
-                            pass.set_vertex_buffer(0, instance_buffer.slice(..));
-                        }
-                    }
-                    for run in runs.iter().filter(|r| r.post_fog) {
-                        if let Some(bg) = self.texture_bind_groups.get(&run.texture_key) {
-                            pass.set_bind_group(2, bg, &[]);
-                            pass.draw(0..6, run.start..run.end);
-                        }
-                    }
-                }
-            }
-
-            // Graphics (M7): draw all retained-mode Graphics after fog.
-            // Sort by z_order so multiple Graphics layer correctly within
-            // the Z.* bands (ORBITS=20, ROUTES=25, BEAMS=35,
-            // UI_GRAPHICS=51). Each Graphics emits 0-2 draws (fill +
-            // stroke); sort cost is O(N log N) with N typically < 50.
-            if let (Some(pool), Some(pipeline)) =
-                (self.graphics_pool.as_ref(), self.graphics_pipeline.as_ref())
-            {
-                let draw_order = pool.draw_order();
-                let mut ordered = draw_order;
-                ordered.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                pass.set_bind_group(0, &self.engine.bind_group, &[]);
-                for (_z, h) in ordered {
-                    if let Some(g) = pool.get(h) {
-                        // Gate on index COUNT, not buffer presence: buffers now
-                        // persist across re-tessellation for reuse, so an empty
-                        // (cleared) Graphics still has buffers but draws nothing.
-                        if g.visible && (g.fill_index_count > 0 || g.stroke_index_count > 0) {
-                            g.draw(&mut pass, pipeline);
-                        }
-                    }
-                }
-            }
+            // Post-fog sprites + Graphics (z >= FOG_Z): fog-memory ghosts and
+            // anything else that must show THROUGH the fog.
+            self.draw_sprites_and_graphics(
+                &mut pass,
+                runs.iter().filter(|r| r.post_fog),
+                &graphics_order[split..],
+            );
 
             // Text (M8): one draw per TextNode, grouped by atlas so the
             // bind group 2 (atlas texture) only changes between
@@ -1248,7 +1309,7 @@ impl Renderer {
                 let n_atlases = self.text_registry.atlases.len();
                 let mut by_atlas: Vec<Vec<(f32, Handle)>> = vec![Vec::new(); n_atlases];
                 for (h, n) in self.text_registry.nodes.iter() {
-                    if n.visible && n.vertex_count > 0 {
+                    if n.visible && n.vertex_count > 0 && layer_bit(n.z_order) & mask != 0 {
                         by_atlas[n.atlas].push((n.z_order, h));
                     }
                 }
@@ -1287,6 +1348,48 @@ impl Renderer {
 /// split, every sprite rendered under the fog overlay regardless of its z.
 const FOG_Z: f32 = 40.0;
 
+// Diagnostic layer bits for `set_layer_mask`. Keep in sync with
+// `LAYER_BIT` in src/core/render-order.ts.
+const LAYER_STARFIELD: u32 = 1 << 0;
+const LAYER_STARFIELD_BRIGHT: u32 = 1 << 1;
+const LAYER_PLANETS: u32 = 1 << 2;
+const LAYER_ORBITS: u32 = 1 << 3;
+const LAYER_ROUTES: u32 = 1 << 4;
+const LAYER_SHIP_TRAILS: u32 = 1 << 5;
+const LAYER_SHIPS: u32 = 1 << 6;
+const LAYER_BEAMS: u32 = 1 << 7;
+const LAYER_FOG: u32 = 1 << 8;
+const LAYER_FOG_MEMORY: u32 = 1 << 9;
+const LAYER_UI: u32 = 1 << 10;
+
+/// Layer bit for a sprite/graphics/text z_order, by the Z.* bands of
+/// src/core/render-order.ts (each band runs up to the next one).
+fn layer_bit(z: f32) -> u32 {
+    if z < 1.0 {
+        LAYER_STARFIELD
+    } else if z < 10.0 {
+        LAYER_STARFIELD_BRIGHT
+    } else if z < 20.0 {
+        LAYER_PLANETS
+    } else if z < 25.0 {
+        LAYER_ORBITS
+    } else if z < 28.0 {
+        LAYER_ROUTES
+    } else if z < 30.0 {
+        LAYER_SHIP_TRAILS
+    } else if z < 35.0 {
+        LAYER_SHIPS
+    } else if z < FOG_Z {
+        LAYER_BEAMS
+    } else if z < 42.0 {
+        LAYER_FOG
+    } else if z < 50.0 {
+        LAYER_FOG_MEMORY
+    } else {
+        LAYER_UI
+    }
+}
+
 #[derive(Debug)]
 struct SpriteRun {
     /// Texture handle packed as u64 — same key used by `texture_bind_groups`.
@@ -1296,9 +1399,230 @@ struct SpriteRun {
     /// True when this run's sprites sit at or above FOG_Z and must be
     /// drawn after the fog pass.
     post_fog: bool,
+    /// z_order of the run's first sprite (runs come sorted by z) — used to
+    /// interleave runs with Graphics.
+    z: f32,
 }
 
 impl Renderer {
+    fn build_planet_composite(&self) -> PlanetComposite {
+        let device = &self.ctx.device;
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("planet_composite.wgsl"),
+            source: wgpu::ShaderSource::Wgsl(PLANET_COMPOSITE_WGSL.into()),
+        });
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("planet composite layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(16),
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("planet composite pipeline layout"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("planet composite"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: self.surface.format,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        // Bilinear, like the Pixi filter's render texture.
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("planet composite sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        PlanetComposite {
+            pipeline,
+            layout,
+            sampler,
+        }
+    }
+
+    /// Draws sprite runs and Graphics merged by z_order (both inputs are
+    /// sorted by z), so a ship sprite (z 30) covers an orbit line (z 20)
+    /// exactly like the Pixi container order. Engine bind group 0 must be set.
+    fn draw_sprites_and_graphics<'a, 'r>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        runs: impl Iterator<Item = &'r SpriteRun>,
+        graphics: &[(f32, Handle)],
+    ) {
+        let mut runs = runs.peekable();
+        let mut gi = 0;
+        let mut sprite_state = false;
+        loop {
+            let next_run_z = runs.peek().map(|r| r.z);
+            let next_g = graphics.get(gi);
+            let take_sprite = match (next_run_z, next_g) {
+                (None, None) => break,
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                // Ties go to sprites: a ship and its ring share Z.SHIPS and
+                // Pixi draws the ring (added after the sprite) on top.
+                (Some(rz), Some((gz, _))) => rz <= *gz,
+            };
+            if take_sprite {
+                let run = runs.next().unwrap();
+                let Some(path) = &self.sprite_path else {
+                    continue;
+                };
+                if !sprite_state {
+                    match path {
+                        SpritePath::Storage {
+                            pipeline,
+                            sprite_bind_group,
+                            ..
+                        } => {
+                            pass.set_pipeline(pipeline);
+                            pass.set_bind_group(1, sprite_bind_group, &[]);
+                        }
+                        SpritePath::Instanced {
+                            pipeline,
+                            instance_buffer,
+                            ..
+                        } => {
+                            pass.set_pipeline(pipeline);
+                            pass.set_vertex_buffer(0, instance_buffer.slice(..));
+                        }
+                    }
+                    sprite_state = true;
+                }
+                if let Some(bg) = self.texture_bind_groups.get(&run.texture_key) {
+                    pass.set_bind_group(2, bg, &[]);
+                    pass.draw(0..6, run.start..run.end);
+                }
+            } else {
+                let (_, h) = graphics[gi];
+                gi += 1;
+                if let (Some(pool), Some(pipeline)) =
+                    (self.graphics_pool.as_ref(), self.graphics_pipeline.as_ref())
+                    && let Some(g) = pool.get(h)
+                {
+                    g.draw(pass, pipeline);
+                    sprite_state = false;
+                }
+            }
+        }
+    }
+
+    /// (Re)creates the half-res planet target when the frame size changed.
+    fn ensure_planet_target(&mut self, frame_w: u32, frame_h: u32) {
+        let (width, height) = (frame_w.div_ceil(2).max(1), frame_h.div_ceil(2).max(1));
+        if self
+            .planet_target
+            .as_ref()
+            .is_some_and(|t| t.frame == (frame_w, frame_h))
+        {
+            return;
+        }
+        let Some(comp) = self.planet_composite.as_ref() else {
+            return;
+        };
+        let texture = self.ctx.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("planet half-res target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: PLANET_TARGET_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let frame_size = self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("planet composite frame size"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let size_data = [frame_w.max(1) as f32, frame_h.max(1) as f32, 0.0, 0.0];
+        self.ctx
+            .queue
+            .write_buffer(&frame_size, 0, bytemuck::cast_slice(&size_data));
+        let bind_group = self
+            .ctx
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("planet composite bind group"),
+                layout: &comp.layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&comp.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: frame_size.as_entire_binding(),
+                    },
+                ],
+            });
+        self.planet_target = Some(PlanetTarget {
+            _texture: texture,
+            _frame_size: frame_size,
+            frame: (frame_w, frame_h),
+            view,
+            bind_group,
+        });
+    }
+
     /// Build the sprite pipeline lazily on the first texture upload so the
     /// Renderer can boot even if the game never calls upload_texture.
     /// Backend is fixed at this point: storage buffer where supported,
@@ -1519,7 +1843,8 @@ impl Renderer {
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: self.surface.format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        // sprite_batch*.wgsl emit premultiplied (srgb_over).
+                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                     compilation_options: Default::default(),
@@ -1588,6 +1913,9 @@ impl Renderer {
             if self.sprites.flags[slot] & FLAG_VISIBLE == 0 {
                 continue;
             }
+            if layer_bit(self.sprites.z_order[slot]) & self.layer_mask == 0 {
+                continue;
+            }
             let tex_key = meta.texture.to_u64();
             if !self.texture_bind_groups.contains_key(&tex_key) {
                 continue;
@@ -1632,6 +1960,7 @@ impl Renderer {
                     start: idx,
                     end: idx + 1,
                     post_fog,
+                    z: e.z,
                 }),
             }
         }

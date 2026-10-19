@@ -53,7 +53,11 @@ export class GraphicsAdapter {
       }
       return new GraphicsAdapter(null, g, r);
     }
-    return new GraphicsAdapter(new PixiGraphics(), null, null);
+    const pixi = new PixiGraphics();
+    // Lets the render-matrix layer mask classify Pixi Graphics by the same
+    // Z band weydra uses (src/world/render-matrix.ts).
+    if (opts.zOrder !== undefined) (pixi as any).__zOrder = opts.zOrder;
+    return new GraphicsAdapter(pixi, null, null);
   }
 
   // ─── Fluent drawing API — mirrors Pixi.Graphics subset ────────────────
@@ -198,7 +202,8 @@ export class GraphicsAdapter {
    */
   destroy(): void {
     if (this.pixi) {
-      this.pixi.destroy();
+      // A parent container's destroy cascade may have freed it already.
+      if (!this.pixi.destroyed) this.pixi.destroy();
     } else if (this.weydra && this.renderer) {
       this.renderer.destroyGraphics(this.weydra);
     }

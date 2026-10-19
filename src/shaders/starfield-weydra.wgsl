@@ -45,7 +45,10 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
     let c = corners[idx];
     var out: VsOut;
     out.clip_pos = vec4<f32>(c * 2.0 - 1.0, 0.0, 1.0);
-    out.uv = c;
+    // Clip y points up, world y points down: uv.y = 0 must be the TOP of the
+    // screen, like the Pixi mesh's vUV — otherwise the whole starfield came
+    // out mirrored vertically against Pixi.
+    out.uv = vec2<f32>(c.x, 1.0 - c.y);
     return out;
 }
 
@@ -125,5 +128,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     col = col + starLayer(worldPos, cam, 24.0, 0.40, 0.75, 1, 0.80, 1, t, dens, 1.0);
     col = col + starLayer(worldPos, cam, 60.0, 0.25, 0.40, 1, 0.95, 2, t, dens, 1.0);
 
-    return vec4<f32>(col, 1.0);
+    // The surface is an sRGB view (encodes on store); the Pixi starfield
+    // writes these values raw. Decode so both display the same grey levels.
+    return vec4<f32>(srgb_to_linear(col), 1.0);
+}
+
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let low = c / vec3<f32>(12.92);
+    let high = pow((c + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
+    return select(low, high, c > vec3<f32>(0.04045));
 }

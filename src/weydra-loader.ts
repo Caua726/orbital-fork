@@ -11,12 +11,14 @@
  */
 
 import { initWeydra, Renderer } from '@weydra/renderer';
+import { criarSoftwareHooks } from './world/weydra-software-hooks';
+import { devePintar, registrarQuadroPintado } from './core/frame-pacer';
+import type { WeydraBackend } from './core/config';
 import starfieldWgsl from './shaders/starfield-weydra.wgsl';
 import planetWgsl from './shaders/planeta-weydra.wgsl';
 import fogWgsl from './shaders/fog.wgsl';
 import graphicsWgsl from './shaders/graphics.wgsl';
 import { getConfig, isAnyWeydraSubsystemOn } from './core/config';
-import { detectarRendererSoftware } from './core/software-gpu';
 import { tickOverlays } from './ui/overlay-registry';
 
 let _renderer: Renderer | null = null;
@@ -25,37 +27,16 @@ let _lastT: number = 0;
 let _firstFrame = true;
 let _resizeAbort: AbortController | null = null;
 
-// Render-loop fps cap. 0 = uncapped (rAF paces to the display refresh =
-// vsync). When the user picks vsync-off + a cap, we throttle the render
-// loop to `1000/cap` ms between painted frames. Replaces the old dead-Pixi
-// -ticker path in main.ts (which also leaked a perpetual setTimeout).
-let _renderIntervalMs = 0;
-let _lastRenderT = 0;
 let _renderCanvas: HTMLCanvasElement | null = null;
-let _effectiveBackend: 'auto' | 'webgpu' | 'webgl2' | null = null;
-// Painted-frame counter for the FPS HUD. Incremented in the render loop
-// (NOT the game loop) so the HUD reflects actual painted frames — which is
-// what an fps cap throttles. Read+reset via takePaintedFrameCount.
-let _paintedFrames = 0;
+let _effectiveBackend: WeydraBackend | null = null;
+/** Canvases that already handed out a rendering context (see startWeydra). */
+const _canvasUsados = new WeakSet<HTMLCanvasElement>();
 let _consecutiveRenderFailures = 0;
 
 export function getWeydraRenderer(): Renderer | null {
   return _renderer;
 }
 
-/** Set the render-loop fps cap (0 = uncapped). Driven by the graphics
- *  vsync/fpsCap settings via main.ts. */
-export function setRenderFpsCap(cap: number): void {
-  _renderIntervalMs = cap > 0 ? 1000 / cap : 0;
-}
-
-/** Painted frames since the last call; resets the counter. Used by the FPS
- *  HUD so it reports painted frames (cap-aware), not uncapped game ticks. */
-export function takePaintedFrameCount(): number {
-  const n = _paintedFrames;
-  _paintedFrames = 0;
-  return n;
-}
 
 /** Recompute the canvas backing-store size (applies renderScale) and
  *  resize the weydra surface. Call after a renderScale config change. */
@@ -131,9 +112,7 @@ function anyFlagEnabled(): boolean {
  * opt-in is intentional (Nightly + working driver) but the policy is
  * "your config, your risk", not "we mitigated the crash for you".
  */
-function resolveBackend(
-  configured: 'auto' | 'webgpu' | 'webgl2',
-): 'auto' | 'webgpu' | 'webgl2' {
+function resolveBackend(configured: WeydraBackend): WeydraBackend {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   // `Gecko/` + `Firefox/` is the canonical UA fingerprint; Seamonkey/Pale
   // Moon also match, which is fine — they share the same wgpu IPC path.
@@ -162,8 +141,8 @@ function resolveBackend(
 }
 
 export interface WeydraStartResult {
-  requestedBackend: 'auto' | 'webgpu' | 'webgl2';
-  effectiveBackend: 'auto' | 'webgpu' | 'webgl2';
+  requestedBackend: WeydraBackend;
+  effectiveBackend: WeydraBackend;
 }
 
 export async function startWeydra(): Promise<WeydraStartResult> {
@@ -181,7 +160,7 @@ export async function startWeydra(): Promise<WeydraStartResult> {
     };
   }
 
-  const canvas = document.getElementById('weydra-canvas') as HTMLCanvasElement | null;
+  let canvas = document.getElementById('weydra-canvas') as HTMLCanvasElement | null;
   if (!canvas) {
     console.warn('[weydra] #weydra-canvas not found in DOM — skipping init');
     throw new Error('[weydra] #weydra-canvas not found in DOM');
@@ -204,24 +183,37 @@ export async function startWeydra(): Promise<WeydraStartResult> {
 
   const requestedBackend = getConfig().rendering.weydra.backend ?? 'auto';
   const firstBackend = resolveBackend(requestedBackend);
-  const candidates = ([firstBackend, 'webgpu', 'webgl2'] as const)
+  // 'software' (Canvas2D/CPU) is the last resort, like Pixi's canvas backend.
+  const candidates = ([firstBackend, 'webgpu', 'webgl2', 'software'] as const)
     .filter((v, i, all) => all.indexOf(v) === i);
   const errors: string[] = [];
-  // Software rasterizers (SwiftShader/WARP/LLVMpipe) can't afford the 3-layer
-  // procedural starfield: the Pixi path already swaps to a static tile in that
-  // case (fundo.ts). Keep the bright-tile layer (starfieldBright) so the sky
-  // isn't empty, skip the fullscreen shader. Detection is engine-agnostic
-  // (software-gpu.ts) — before this, the weydra engine never noticed.
-  const software = detectarRendererSoftware(null).isSoftware;
-  if (software) {
-    console.info('[weydra] GPU por software detectada — starfield procedural desligado (tiles estáticos).');
-  }
-  await initWeydra();
+  // The software backend doesn't need wasm: a module that fails to load must
+  // still leave the Canvas2D fallback available.
+  let wasmErro: unknown = null;
+  try { await initWeydra(); } catch (err) { wasmErro = err; }
   for (const backend of candidates) {
     try {
-      _renderer = await Renderer.create(canvas, backend);
+      if (backend !== 'software' && wasmErro) throw wasmErro;
+      // A canvas keeps the first context type it handed out (2D, WebGL2 or
+      // WebGPU) for life, so a failed attempt or an earlier session on another
+      // backend would make every later getContext() return null. Each attempt
+      // on a used canvas gets a fresh element in its place.
+      if (_canvasUsados.has(canvas)) {
+        const fresh = canvas.cloneNode(false) as HTMLCanvasElement;
+        fresh.width = canvas.width;
+        fresh.height = canvas.height;
+        canvas.replaceWith(fresh);
+        canvas = fresh;
+        _renderCanvas = fresh;
+      }
+      _canvasUsados.add(canvas);
+      _renderer = backend === 'software'
+        ? await Renderer.create(canvas, 'software', criarSoftwareHooks())
+        : await Renderer.create(canvas, backend);
       _effectiveBackend = backend;
-      if (getConfig().weydra.starfield && !software) {
+      // Same sky on every backend: software rasterizers keep the starfield
+      // shader (2 cheap hash layers) instead of dropping to a black sky.
+      if (getConfig().weydra.starfield) {
         _renderer.createStarfield(starfieldWgsl);
       }
       if (getConfig().weydra.planetsLive) {
@@ -267,12 +259,9 @@ export async function startWeydra(): Promise<WeydraStartResult> {
 
   const loop = (t: number) => {
     if (_renderer) {
-      // fps cap: skip painting (but keep the rAF chain alive) until the
-      // configured inter-frame interval has elapsed. Uncapped when 0.
-      const due = _renderIntervalMs === 0 || (t - _lastRenderT) >= _renderIntervalMs;
-      if (due) {
-        _lastRenderT = t;
-        _paintedFrames++;
+      // fps cap (frame-pacer.ts): skip painting but keep the rAF chain alive.
+      if (devePintar(t)) {
+        registrarQuadroPintado();
         try {
           // First frame: seed _lastT to `t` so the overlay delta is 0
           // instead of the multi-second page-load timestamp (which would
@@ -325,7 +314,6 @@ export function stopWeydra(): void {
   // Reset frame timing so a re-init reseeds the overlay delta cleanly
   // instead of replaying the boot-time jump.
   _firstFrame = true;
-  _lastRenderT = 0;
   _consecutiveRenderFailures = 0;
 }
 

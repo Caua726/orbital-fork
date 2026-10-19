@@ -63,6 +63,8 @@ interface RenderCtx {
   // derived
   mX: number;   // rand() modulo tiling X
   mY: number;   // rand() modulo tiling Y
+  seed32: number; // rand() salts — constant per raster, so derived once
+  seedY: number;
   uSize: number;
   uSeed: number;
   uTime: number;
@@ -92,10 +94,13 @@ function buildCtx(paleta: PaletaPlaneta, state: PlanetRenderState, uPixels: numb
   const sizeFloor = Math.floor(paleta.size + 0.5);
   const mX = (paleta.planetType === 0 || paleta.planetType === 1) ? 2 * sizeFloor : sizeFloor;
   const mY = sizeFloor;
+  const seed32 = (uSeed * 65537) >>> 0;
   return {
     paleta,
     state,
     mX, mY,
+    seed32,
+    seedY: (Math.imul(seed32, 1664525) + 1013904223) >>> 0,
     uSize: paleta.size,
     uSeed,
     uTime: state.uTime,
@@ -146,12 +151,9 @@ function rand(ctx: RenderCtx, cx: number, cy: number): number {
   let y = cy % ctx.mY; if (y < 0) y += ctx.mY;
   const ix = Math.floor(x) + 32768;
   const iy = Math.floor(y) + 32768;
-  // uSeed*65537 cast to u32 as salt. Y-axis salt is derived by one
-  // PCG step on the seed (matches the shader exactly — see the
-  // detailed reasoning in planeta.frag::rand).
-  const seed32 = (ctx.uSeed * 65537) >>> 0;
-  const seedY = (Math.imul(seed32, 1664525) + 1013904223) >>> 0;
-  return pcg2d((ix + seed32) >>> 0, (iy + seedY) >>> 0) / 4294967296;
+  // uSeed*65537 cast to u32 as salt; the Y-axis salt is one PCG step on it
+  // (matches the shader — see planeta.frag::rand). Precomputed in buildCtx.
+  return pcg2d((ix + ctx.seed32) >>> 0, (iy + ctx.seedY) >>> 0) / 4294967296;
 }
 
 function noise(ctx: RenderCtx, cx: number, cy: number): number {
@@ -305,7 +307,7 @@ function terranPixel(ctx: RenderCtx, uvx: number, uvy: number, uvRawX: number, u
       spherify(pxSnapX, pxSnapY, _sph);
       const d_cloud_light = Math.hypot(_sph[0] - ctx.uLightX, _sph[1] - ctx.uLightY);
       let cr = 0.96, cg = 1.0, cb = 0.91;
-      if (cloudFbm < ctx.uCloudCover + 0.03) { cr = 0.87; cg = 0.88; cb = 0.91; }
+      if (cloudFbm < ctx.uCloudAlpha + 0.03) { cr = 0.87; cg = 0.88; cb = 0.91; }
       if (d_cloud_light + cloudFbm * 0.2 > 0.52) { cr = 0.41; cg = 0.44; cb = 0.60; }
       if (d_cloud_light + cloudFbm * 0.2 > 0.62) { cr = 0.25; cg = 0.29; cb = 0.45; }
       outRGBA[0] = cr * 255;
@@ -439,9 +441,14 @@ function gasPixel(ctx: RenderCtx, uvx: number, uvy: number, _uvRawX: number, _uv
 // ─── Star shader helpers + function ───────────────────────────────
 
 function hash2(ctx: RenderCtx, px: number, py: number, out: [number, number]): void {
-  const r = 523 * Math.sin(px * 53.3158 + py * 43.6143) * ctx.uSeed;
-  out[0] = fract(15.32354 * r);
-  out[1] = fract(17.25865 * r);
+  // sin-hash amplified ×~8000 before fract(): the GPU evaluates it in
+  // float32, so emulate f32 rounding at each step or the cells come out
+  // as a different (if similar-looking) pattern.
+  const f = Math.fround;
+  const d = f(f(f(px) * f(53.3158)) + f(f(py) * f(43.6143)));
+  const r = f(f(f(523) * f(Math.sin(d))) * f(ctx.uSeed));
+  out[0] = fract(f(f(15.32354) * r));
+  out[1] = fract(f(f(17.25865) * r));
 }
 
 function cells(ctx: RenderCtx, px: number, py: number, numCells: number): number {
@@ -473,8 +480,9 @@ function starCircle(ctx: RenderCtx, uvx: number, uvy: number, amount: number, cS
   }
   const randCoX = Math.floor(ux * amount) / amount;
   const randCoY = Math.floor(uy * amount) / amount;
-  const moddedX = fract(ux / invert) * amount;
-  const moddedY = fract(uy / invert) * amount;
+  // GLSL: mod(uv, invert) * amount = fract(uv / invert) * invert * amount.
+  const moddedX = fract(ux / invert) * invert * amount;
+  const moddedY = fract(uy / invert) * invert * amount;
   const r = rand(ctx, randCoX, randCoY);
   const rc = clamp(r, invert, 1 - invert);
   const dx = moddedX - rc;
@@ -508,8 +516,11 @@ function starPixel(ctx: RenderCtx, uvx: number, uvy: number, uvRawX: number, uvR
   if (bodyA > 0) {
     rotate2d(ctx, bodyPixX, bodyPixY, _rot);
     spherify(_rot[0], _rot[1], _sph);
-    const cn1 = cells(ctx, _sph[0] - bodyTime * ctx.uTimeSpeed * 2, _sph[1], 10);
-    const cn2 = cells(ctx, _sph[0] - bodyTime * ctx.uTimeSpeed, _sph[1], 20);
+    // Copy out first: cells() → hash2() reuses _sph as scratch, so reading
+    // _sph for the second call used to feed it garbage (blocky body).
+    const sphX = _sph[0], sphY = _sph[1];
+    const cn1 = cells(ctx, sphX - bodyTime * ctx.uTimeSpeed * 2, sphY, 10);
+    const cn2 = cells(ctx, sphX - bodyTime * ctx.uTimeSpeed, sphY, 20);
     let n = clamp(cn1 * cn2 * 2, 0, 1);
     if (dith) n *= 1.3;
     let idx = Math.floor(n * 3);
@@ -527,7 +538,7 @@ function starPixel(ctx: RenderCtx, uvx: number, uvy: number, uvRawX: number, uvR
 
   let blobC = 0;
   for (let i = 0; i < 15; i++) {
-    const r = rand(ctx, i, 0);
+    const r = rand(ctx, i, i); // GLSL: rand(vec2(float(i)))
     blobC += starCircle(
       ctx,
       fullD * ctx.uSize - blobTime * ctx.uTimeSpeed - (1 / Math.max(fullD, 0.001)) * 0.1 + r,

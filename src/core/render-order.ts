@@ -28,3 +28,40 @@ export const Z = Object.freeze({
 });
 
 export type ZLayer = typeof Z[keyof typeof Z];
+
+/**
+ * Diagnostic layer bits — one per Z band (each band runs up to the next
+ * Z value). Mirrors `LAYER_*` / `layer_bit` in
+ * weydra-renderer/adapters/wasm/src/lib.rs; the render-matrix harness
+ * (src/world/render-matrix.ts) uses it to draw one layer at a time in
+ * either engine.
+ */
+export const LAYER_BIT = Object.freeze({
+  STARFIELD: 1 << 0,
+  STARFIELD_BRIGHT: 1 << 1,
+  PLANETS: 1 << 2,
+  ORBITS: 1 << 3,
+  ROUTES: 1 << 4,
+  SHIP_TRAILS: 1 << 5,
+  SHIPS: 1 << 6,
+  BEAMS: 1 << 7,
+  FOG: 1 << 8,
+  FOG_MEMORY: 1 << 9,
+  UI: 1 << 10,
+});
+
+export const LAYER_ALL = 0xffffffff;
+
+export function layerBitForZ(z: number): number {
+  if (z < Z.STARFIELD_BRIGHT) return LAYER_BIT.STARFIELD;
+  if (z < Z.PLANET_BAKED) return LAYER_BIT.STARFIELD_BRIGHT;
+  if (z < Z.ORBITS) return LAYER_BIT.PLANETS;
+  if (z < Z.ROUTES) return LAYER_BIT.ORBITS;
+  if (z < Z.SHIP_TRAILS) return LAYER_BIT.ROUTES;
+  if (z < Z.SHIPS) return LAYER_BIT.SHIP_TRAILS;
+  if (z < Z.BEAMS) return LAYER_BIT.SHIPS;
+  if (z < Z.FOG) return LAYER_BIT.BEAMS;
+  if (z < Z.FOG_MEMORY) return LAYER_BIT.FOG;
+  if (z < Z.UI_BACKGROUND) return LAYER_BIT.FOG_MEMORY;
+  return LAYER_BIT.UI;
+}

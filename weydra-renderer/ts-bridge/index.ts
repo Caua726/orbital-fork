@@ -19,6 +19,10 @@
  */
 
 import init, { Renderer as WasmRenderer, type InitOutput } from 'weydra-renderer-wasm';
+import { SoftwareInner, type SoftwareHooks } from './software';
+
+export type { SoftwareHooks, PlanetUniformsSnapshot, SoftwareCamera } from './software';
+export type WeydraBackendName = 'auto' | 'webgpu' | 'webgl2' | 'software';
 
 let _initPromise: Promise<InitOutput> | null = null;
 let _wasm: InitOutput | null = null;
@@ -69,6 +73,7 @@ const OFF = Object.freeze({
   u_world_pos:     80 / 4, // vec2 — occupies +0, +1
   u_world_size:    88 / 4, // vec2 — occupies +0, +1
   u_colors:        96 / 4, // 6 × vec4 — start of array; element N occupies +N*4..+N*4+3
+  u_alpha:        192 / 4,
 } as const);
 
 /**
@@ -89,6 +94,11 @@ interface PoolViews {
  */
 export class Renderer {
   private readonly inner: WasmRenderer;
+  /** Backing memory of the shared pools: the wasm linear memory, or the
+   *  software backend's own ArrayBuffer. */
+  private readonly memory: () => ArrayBuffer | null;
+  /** Backend actually driving this renderer. */
+  readonly backend: 'gpu' | 'software';
   private _views: PoolViews | null = null;
   private _lastMemVersion = 0;
   private _lastBuffer: ArrayBuffer | null = null;
@@ -106,8 +116,17 @@ export class Renderer {
   /** @internal — number of slots in the planet pool. */
   planetUniformsCapacity = 0;
 
-  private constructor(inner: WasmRenderer) {
+  private constructor(inner: WasmRenderer, memory: () => ArrayBuffer | null, backend: 'gpu' | 'software') {
     this.inner = inner;
+    this.memory = memory;
+    this.backend = backend;
+  }
+
+  /** @internal — current backing buffer of the shared pools. */
+  _memoryBuffer(): ArrayBuffer {
+    const b = this.memory();
+    if (!b) throw new Error('weydra: memory not initialised');
+    return b;
   }
 
   /**
@@ -121,15 +140,22 @@ export class Renderer {
    */
   static async create(
     canvas: HTMLCanvasElement,
-    backend: 'auto' | 'webgpu' | 'webgl2' = 'auto',
+    backend: WeydraBackendName = 'auto',
+    softwareHooks?: SoftwareHooks,
   ): Promise<Renderer> {
+    if (backend === 'software') {
+      // Canvas2D/CPU backend: same pools and API, no wasm/GPU involved.
+      if (!softwareHooks) throw new Error('weydra software backend needs SoftwareHooks');
+      const sw = await SoftwareInner.create(canvas, softwareHooks);
+      return new Renderer(sw as unknown as WasmRenderer, () => sw.buffer, 'software');
+    }
     if (!_initPromise) {
       throw new Error('initWeydra() must be called before Renderer.create()');
     }
     await _initPromise;
     const code = backend === 'webgpu' ? 1 : backend === 'webgl2' ? 2 : 0;
     const inner = await WasmRenderer.create(canvas, code);
-    return new Renderer(inner);
+    return new Renderer(inner, () => (_wasm ? _wasm.memory.buffer as ArrayBuffer : null), 'gpu');
   }
 
   /**
@@ -140,6 +166,14 @@ export class Renderer {
    */
   get maxTextureDimension2d(): number {
     return this.inner.max_texture_dimension_2d();
+  }
+
+  /**
+   * Diagnostic draw filter: one bit per layer (`LAYER_BIT` in the game's
+   * render-order.ts). `0xffffffff` draws everything (the default).
+   */
+  setLayerMask(mask: number): void {
+    this.inner.set_layer_mask(mask >>> 0);
   }
 
   resize(width: number, height: number): void {
@@ -182,10 +216,11 @@ export class Renderer {
   }
 
   setStarfieldDensity(v: number): void {
-    if (!_wasm) return;
+    const buffer = this.memory();
+    if (!buffer) return;
     const ptr = this.inner.starfield_uniforms_ptr();
     if (ptr === 0) return;
-    new Float32Array(_wasm.memory.buffer, ptr, 4)[0] = v;
+    new Float32Array(buffer, ptr, 4)[0] = v;
   }
 
   // ─── Sprite batcher (M3) ─────────────────────────────────────────────
@@ -475,7 +510,10 @@ export class Renderer {
   createPlanetInstance(): PlanetInstance {
     const h = this.inner.create_planet_instance();
     this.revalidate();
-    return new PlanetInstance(h, this);
+    const inst = new PlanetInstance(h, this);
+    // Recycled slots keep the previous occupant's bytes.
+    inst.alpha = 1;
+    return inst;
   }
 
   destroyPlanetInstance(p: PlanetInstance): void {
@@ -503,7 +541,8 @@ export class Renderer {
    * identity changed (the M2 dual-check pattern).
    */
   private refreshPlanetViews(): void {
-    if (!_wasm) return;
+    const buffer = this.memory();
+    if (!buffer) return;
     this.planetUniformsPtr = this.inner.planet_uniforms_ptr();
     this.planetUniformsStride = this.inner.planet_uniforms_stride();
     this.planetUniformsCapacity = this.inner.planet_uniforms_capacity();
@@ -512,7 +551,6 @@ export class Renderer {
       return;
     }
     const totalF32 = (this.planetUniformsCapacity * this.planetUniformsStride) / 4;
-    const buffer = _wasm.memory.buffer;
     this._planetUniformsView = new Float32Array(buffer, this.planetUniformsPtr, totalF32);
     this._planetUniformsIView = new Int32Array(buffer, this.planetUniformsPtr, totalF32);
   }
@@ -541,11 +579,11 @@ export class Renderer {
    * just two integer/reference compares.
    */
   private revalidate(): void {
-    if (!_wasm) {
+    const buffer = this.memory();
+    if (!buffer) {
       throw new Error('weydra: initWeydra() must have resolved before revalidate');
     }
     const version = this.inner.mem_version();
-    const buffer = _wasm.memory.buffer;
     if (
       this._views !== null
       && version === this._lastMemVersion
@@ -667,9 +705,9 @@ export class PlanetInstance {
     const slot = Number(handle & 0xFFFFFFFFn);
     // Stride is ALIGNED bytes; divide by 4 for f32 index. Each planet
     // occupies stride/4 f32 slots in the shared view, even if the actual
-    // PlanetUniforms struct is smaller (192 B vs 256 B stride on most
+    // PlanetUniforms struct is smaller (208 B vs 256 B stride on most
     // adapters — the shader's min_binding_size guards against reading
-    // past 192).
+    // past 208).
     this.base = slot * (this.r.planetUniformsStride / 4);
   }
 
@@ -697,6 +735,8 @@ export class PlanetInstance {
   set uCloudCurve(v: number)   { this.f[this.base + OFF.u_cloud_curve] = v; }
   set uTiles(v: number)        { this.f[this.base + OFF.u_tiles] = v; }
   set uCloudAlpha(v: number)   { this.f[this.base + OFF.u_cloud_alpha] = v; }
+  /** Opacity like Pixi `alpha`; 0 hides the instance (draw skipped). */
+  set alpha(v: number)         { this.f[this.base + OFF.u_alpha] = v; }
 
   setLightOrigin(x: number, y: number): void {
     const off = this.base + OFF.u_light_origin;
@@ -764,13 +804,11 @@ export class FogLayer {
   }
 
   private f32(): Float32Array {
-    if (!_wasm) throw new Error('weydra: WASM not initialised');
-    return new Float32Array(_wasm.memory.buffer, this.r._fogUniformsPtr(), this.totalF32);
+    return new Float32Array(this.r._memoryBuffer(), this.r._fogUniformsPtr(), this.totalF32);
   }
 
   private u32(): Uint32Array {
-    if (!_wasm) throw new Error('weydra: WASM not initialised');
-    return new Uint32Array(_wasm.memory.buffer, this.r._fogUniformsPtr(), this.totalF32);
+    return new Uint32Array(this.r._memoryBuffer(), this.r._fogUniformsPtr(), this.totalF32);
   }
 
   setBaseAlpha(v: number): void {

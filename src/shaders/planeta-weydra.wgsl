@@ -9,9 +9,9 @@ struct CameraUniforms {
     _pad0: f32, _pad1: f32, _pad2: f32,
 };
 
-// 24 fields, 192 bytes total (6 prefix rows × 16B + 6 vec4 colors × 16B).
-// Layout MUST match the Rust `PlanetUniforms` struct that Task 2 will
-// create — any reorder breaks std140 alignment and the GPU reads garbage.
+// 208 bytes: 6 prefix rows × 16B + 6 vec4 colors × 16B + 1 alpha row.
+// Layout MUST match the Rust `PlanetUniforms` struct (pools/planet.rs) —
+// any reorder breaks std140 alignment and the GPU reads garbage.
 struct PlanetUniforms {
     // 16 bytes
     u_time: f32,
@@ -42,6 +42,11 @@ struct PlanetUniforms {
     u_world_size: vec2<f32>,
     // 6 × 16 = 96 bytes
     u_colors: array<vec4<f32>, 6>,
+    // 16 bytes: per-instance opacity (Pixi `alpha`)
+    u_alpha: f32,
+    _pad_alpha0: f32,
+    _pad_alpha1: f32,
+    _pad_alpha2: f32,
 };
 
 @group(0) @binding(0) var<uniform> engine_camera: CameraUniforms;
@@ -309,7 +314,7 @@ fn gasPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
     return vec4<f32>(col.rgb, a * col.a);
 }
 
-// === Star (body only for WGSL) ===
+// === Star (3 layers merged: body + blobs + flares) — port of planeta.frag ===
 fn Hash2(p: vec2<f32>) -> vec2<f32> {
     let r = 523.0 * sin(dot(p, vec2<f32>(53.3158, 43.6143))) * planet.u_seed;
     return vec2<f32>(fract(15.32354 * r), fract(17.25865 * r));
@@ -328,27 +333,113 @@ fn Cells(p_in: vec2<f32>, numCells: f32) -> f32 {
     return sqrt(d);
 }
 
-fn starPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
-    let d = distance(uv_in, vec2<f32>(0.5));
-    let a = step(d, 0.49999);
-    let dith = dither(uvRaw, uv_in);
+// GLSL mod(): x - y * floor(x / y). WGSL `%` truncates toward zero, which
+// differs for the negative polar coordinates the star layers feed it.
+fn glslMod(x: f32, y: f32) -> f32 {
+    return x - y * floor(x / y);
+}
 
-    let ruv = rotate2d(uv_in, planet.u_rotation);
-    let suv = spherify(ruv);
+fn glslMod2(x: vec2<f32>, y: f32) -> vec2<f32> {
+    return x - vec2<f32>(y) * floor(x / vec2<f32>(y));
+}
 
-    let bodyTime = planet.u_time * 0.5;
-    var n = Cells(suv - vec2<f32>(bodyTime * planet.u_time_speed * 2.0, 0.0), 10.0);
-    n *= Cells(suv - vec2<f32>(bodyTime * planet.u_time_speed, 0.0), 20.0);
-    n = clamp(n * 2.0, 0.0, 1.0);
+// Circle pattern for blobs/flares (from StarBlobs.gdshader)
+fn starCircle(uv_in: vec2<f32>, amount: f32, cSize: f32) -> f32 {
+    let invert = 1.0 / amount;
+    var uv = uv_in;
+    if (glslMod(uv.y, invert * 2.0) < invert) {
+        uv.x = uv.x + invert * 0.5;
+    }
+    let rand_co = floor(uv * amount) / amount;
+    uv = glslMod2(uv, invert) * amount;
+    var r = rand(rand_co);
+    r = clamp(r, invert, 1.0 - invert);
+    let circ = distance(uv, vec2<f32>(r));
+    return smoothstep(circ, circ + 0.5, invert * cSize * rand(rand_co * 1.5));
+}
+
+fn starPlanet(uv: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
+    // The star quad is 2× the body: body in the centre 50%, blobs and
+    // flares (corona) over the full quad. Same layout and time multipliers
+    // as the GLSL reference (planeta.frag starPlanet).
+    if (distance(uv, vec2<f32>(0.5)) > 0.52) { return vec4<f32>(0.0); }
+
+    let mult = floor(planet.u_size + 0.5) * 2.0 / max(planet.u_time_speed, 0.001);
+    let bodyTime = planet.u_time * mult * 0.005;
+    let blobTime = planet.u_time * mult * 0.01;
+    let flareTime = planet.u_time * mult * 0.015;
+
+    let dith = dither(uvRaw, uv);
+
+    // === Body: remap centre 50% of quad to 0..1 ===
+    let bodyUV = (uv - vec2<f32>(0.25)) * 2.0;
+    let bodyPix = floor(bodyUV * planet.u_pixels) / planet.u_pixels;
+    let bodyD = distance(bodyPix, vec2<f32>(0.5));
+    let bodyA = step(bodyD, 0.49999);
+
+    let bodyRot = rotate2d(bodyPix, planet.u_rotation);
+    let bodySph = spherify(bodyRot);
+
+    let cn1 = Cells(bodySph - vec2<f32>(bodyTime * planet.u_time_speed * 2.0, 0.0), 10.0);
+    let cn2 = Cells(bodySph - vec2<f32>(bodyTime * planet.u_time_speed, 0.0), 20.0);
+    var n = clamp(cn1 * cn2 * 2.0, 0.0, 1.0);
     if (dith) { n *= 1.3; }
 
     let idx = i32(floor(n * 3.0));
-    var col = planet.u_colors[0];
-    if (idx == 1) { col = planet.u_colors[1]; }
-    if (idx == 2) { col = planet.u_colors[2]; }
-    if (idx >= 3) { col = planet.u_colors[3]; }
+    var bodyCol = planet.u_colors[0];
+    if (idx == 1) { bodyCol = planet.u_colors[1]; }
+    if (idx == 2) { bodyCol = planet.u_colors[2]; }
+    if (idx >= 3) { bodyCol = planet.u_colors[3]; }
 
-    return vec4<f32>(col.rgb, a * col.a);
+    // === Blobs & Flares: full quad UV (0..1) ===
+    let fullPix = floor(uv * planet.u_pixels) / planet.u_pixels;
+    let fullRot = rotate2d(fullPix, planet.u_rotation);
+    let fullD = distance(fullPix, vec2<f32>(0.5));
+    let fullAngle = atan2(fullRot.x - 0.5, fullRot.y - 0.5);
+
+    var blobC = 0.0;
+    for (var i = 0; i < 15; i++) {
+        let r = rand(vec2<f32>(f32(i)));
+        let cUV = vec2<f32>(fullD, fullAngle);
+        blobC += starCircle(cUV * planet.u_size - vec2<f32>(blobTime * planet.u_time_speed) - vec2<f32>((1.0 / max(fullD, 0.001)) * 0.1) + vec2<f32>(r), 2.0, 1.0);
+    }
+    blobC *= 0.37 - fullD;
+    let blobA = step(0.07, blobC - fullD);
+
+    let fAngle = fullAngle * 0.4;
+    let fUV = vec2<f32>(fullD, fAngle);
+    let fn1 = fbm(fUV * planet.u_size - vec2<f32>(flareTime * planet.u_time_speed));
+    var fc = starCircle(fUV * 1.0 - vec2<f32>(flareTime * planet.u_time_speed) + vec2<f32>(fn1), 2.0, 1.0);
+    fc *= 1.5;
+    let fn2 = fbm(fUV * planet.u_size - vec2<f32>(flareTime) + vec2<f32>(100.0, 100.0));
+    fc -= fn2 * 0.1;
+
+    var flareAlpha = 0.0;
+    if (1.0 - fullD > fc) {
+        if (fc > 0.3 - 0.07 + fullD && dith) { flareAlpha = 1.0; }
+        if (fc > 0.3 + fullD) { flareAlpha = 1.0; }
+    }
+    flareAlpha *= step(fn2 * 0.25, fullD);
+
+    // === Composite back-to-front ===
+    var result = vec4<f32>(0.0);
+    if (flareAlpha > 0.0 && bodyA < 1.0) {
+        let fIdx = i32(floor(fn2 + fc));
+        var flareCol = planet.u_colors[0];
+        if (fIdx > 0) { flareCol = planet.u_colors[1]; }
+        result = vec4<f32>(flareCol.rgb, flareAlpha);
+    }
+    if (blobA > 0.0) {
+        if (bodyA > 0.0) {
+            bodyCol = vec4<f32>(mix(bodyCol.rgb, planet.u_colors[0].rgb, vec3<f32>(0.6)), bodyCol.a);
+        } else {
+            result = vec4<f32>(planet.u_colors[0].rgb, blobA);
+        }
+    }
+    if (bodyA > 0.0) {
+        result = vec4<f32>(bodyCol.rgb, 1.0);
+    }
+    return result;
 }
 
 // === Main fragment ===
@@ -376,22 +467,10 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
         col = starPlanet(uvPix, uv);
     }
 
-    // The wgpu swap chain on the web is sRGB-formatted (Bgra8UnormSrgb).
-    // Hardware applies a linear→sRGB encode on store. The Pixi reference
-    // writes its planet colors to a non-sRGB WebGL framebuffer where no
-    // such encode happens, so the artist-authored palettes (e.g. the
-    // `[0.39, 0.67, 0.25]` Earth land tuple) display as the saturated
-    // values they were eyed in. Without compensation the same shader
-    // output here lands one gamma curve brighter — pale washed-out
-    // planets exactly matching the report.
-    //
-    // Pre-decode with the exact IEC 61966-2-1 transfer function so the
-    // hardware encode round-trips to the artist-intended bytes. A pow(2.2)
-    // approximation visibly matched but shifted palette channels by 1–5
-    // levels and failed the cross-engine pixel gate.
-    // Premultiply happens AFTER the linearization so the alpha-edge
-    // pixels keep their gradient in linear space rather than sRGB,
-    // which is the technically-correct blending domain anyway.
-    let linear_rgb = srgb_to_linear(col.rgb);
-    return vec4<f32>(linear_rgb * col.a, col.a);
+    // Output goes to the half-res planet target (Rgba8Unorm, no encode),
+    // as sRGB-space premultiplied colour — the same bytes the Pixi half-res
+    // filter's render texture holds. planet_composite.wgsl decodes to linear
+    // for the sRGB surface view AFTER the bilinear upscale.
+    let a = col.a * planet.u_alpha;
+    return vec4<f32>(col.rgb * a, a);
 }

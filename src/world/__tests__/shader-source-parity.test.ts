@@ -148,10 +148,13 @@ describe('shader source parity: fog', () => {
     // navy one LSB and break visual parity with the Pixi canvas path.
     expect(wgsl).toContain('vec3<f32>(0.008, 0.02, 0.0627)');
     // The canvas composites `navy * alpha` in sRGB space; this pass blends in
-    // linear space, so it must decode the premultiplied target and divide the
-    // alpha back out. Replacing this with a plain `pow(navy, 2.2)` (the old
-    // code) made the whole fogged area ~2.5x darker than the canvas.
-    expect(wgsl).toContain('srgb_to_linear(navy * alpha) / max(alpha, 1e-5)');
+    // linear space, so it emits the decoded premultiplied navy and darkens the
+    // destination by the linear equivalent of (1 - a) in encoded space.
+    // Replacing this with a plain `pow(navy, 2.2)` (the old code) made the
+    // whole fogged area ~2.5x darker than the canvas; a plain `alpha` left
+    // stars and suns far too bright behind the fog.
+    expect(wgsl).toContain('srgb_to_linear(navy * alpha)');
+    expect(wgsl).toContain('pow(1.0 - alpha, 2.2)');
     expect(wgsl).toMatch(/fn srgb_to_linear\(/);
   });
 

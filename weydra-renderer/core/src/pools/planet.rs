@@ -1,9 +1,9 @@
 //! Procedural planet uniforms + GPU pool.
 //!
 //! `PlanetUniforms` mirrors `struct PlanetUniforms` in
-//! `src/shaders/planeta-weydra.wgsl` byte-for-byte (192 bytes, std140-aligned).
+//! `src/shaders/planeta-weydra.wgsl` byte-for-byte (208 bytes, std140-aligned).
 //! Any reorder, insert, or type change here MUST be matched in the WGSL or the
-//! GPU reads garbage. The compile-time `assert!(size_of == 192)` is the
+//! GPU reads garbage. The compile-time `assert!(size_of == 208)` is the
 //! single most important guard: the cargo build itself fails on drift.
 //!
 //! `PlanetPool` owns one shared `wgpu::Buffer` sized for `capacity` planets
@@ -20,14 +20,15 @@ use bytemuck::{Pod, Zeroable};
 /// Byte size of a single `PlanetUniforms` instance — also the WGSL struct
 /// size. Exposed as a public constant so the wasm adapter / TS bridge can
 /// validate handshake sizing without `mem::size_of` round-trips.
-pub const PLANET_UNIFORMS_SIZE: usize = 192;
+pub const PLANET_UNIFORMS_SIZE: usize = 208;
 
 /// Per-instance uniforms for the procedural planet shader.
 ///
 /// Field order is **load-bearing**: it must match the WGSL `PlanetUniforms`
 /// struct in `src/shaders/planeta-weydra.wgsl` exactly. The 6 prefix rows
 /// (96 B) pack scalars + vec2s into 16-byte std140 rows; the trailing
-/// `u_colors` array is 6 × vec4 = 96 B. Total = 192 B.
+/// `u_colors` array is 6 × vec4 = 96 B, then one row for the per-instance
+/// alpha. Total = 208 B.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct PlanetUniforms {
@@ -66,6 +67,11 @@ pub struct PlanetUniforms {
 
     // 6 × vec4 = 96 B
     pub u_colors: [[f32; 4]; 6],
+
+    // Row 13 (16 B): per-instance opacity, like Pixi `alpha` (0 = hidden,
+    // the draw is skipped; 0.28 = discovered sun out of vision).
+    pub u_alpha: f32,
+    pub _pad_alpha: [f32; 3],
 }
 
 // Compile-time guard: any field-order or type drift away from the WGSL
@@ -105,6 +111,8 @@ impl Default for PlanetUniforms {
                 [1.0, 1.0, 1.0, 1.0],
                 [1.0, 1.0, 1.0, 1.0],
             ],
+            u_alpha: 1.0,
+            _pad_alpha: [0.0; 3],
         }
     }
 }
@@ -120,13 +128,8 @@ pub struct PlanetPool {
     /// uniforms straight into this memory at `slot * stride` (typed-array
     /// views over `instances_ptr`), and `offset_for` computes GPU offsets
     /// the same way — CPU, GPU, and TS all agree where each instance lives.
-    ///
-    /// Was previously `Vec<PlanetUniforms>` (packed at 192 B) while the TS
-    /// views indexed at the ALIGNED stride (256 B on most adapters): every
-    /// instance except slot 0 uploaded from the wrong bytes and silently
-    /// rendered nothing (zero world_size), and high slots let the TS view
-    /// write past the Vec allocation. Never reallocates — TS views stay
-    /// valid across frames.
+    /// Must never be packed at the struct size: the TS views index at the
+    /// aligned stride. Never reallocates — TS views stay valid across frames.
     pub instances: Vec<u8>,
     pub gpu_buffer: wgpu::Buffer,
     pub bind_group_layout: wgpu::BindGroupLayout,
@@ -147,8 +150,8 @@ impl PlanetPool {
         let alignment = ctx.device.limits().min_uniform_buffer_offset_alignment as u64;
         // Round element_size up to alignment. WebGPU requires dynamic-offset
         // strides be a multiple of min_uniform_buffer_offset_alignment (256
-        // on most desktop GPUs, sometimes 64 on mobile). 192 < 256 → most
-        // hardware will pad to 256 and the per-slot upload loop kicks in.
+        // on most desktop GPUs, sometimes 64 on mobile). 208 < 256 → most
+        // hardware pads each slot to 256.
         let stride = element_size.div_ceil(alignment) * alignment;
         let byte_size = stride * capacity as u64;
 
@@ -233,6 +236,14 @@ impl PlanetPool {
         self.slotmap.remove(h).is_some()
     }
 
+    /// Opacity of a slot, read from the CPU mirror. The render loop skips
+    /// slots at 0 (hidden) without touching the GPU.
+    pub fn alpha_of(&self, slot: u32) -> f32 {
+        let off =
+            slot as usize * self.stride as usize + core::mem::offset_of!(PlanetUniforms, u_alpha);
+        f32::from_le_bytes(self.instances[off..off + 4].try_into().unwrap())
+    }
+
     /// Byte offset into `gpu_buffer` for the given slot. Asserts the offset
     /// fits in `u32` (WebGPU's dynamic-offset slice type). With 256 capacity
     /// × 256 B stride = 65536 B, it always fits, but the assertion keeps
@@ -291,7 +302,7 @@ mod tests {
     #[test]
     fn planet_uniforms_layout() {
         // Total size + alignment.
-        assert_eq!(std::mem::size_of::<PlanetUniforms>(), 192);
+        assert_eq!(std::mem::size_of::<PlanetUniforms>(), 208);
         // bytemuck::Pod allows any alignment; vec2/vec4 fields are [f32; N]
         // arrays which align to f32 (4). std140 rules are upheld by the
         // explicit field ORDER, not by Rust alignment — the WGSL side does
@@ -307,6 +318,7 @@ mod tests {
         assert_eq!(core::mem::offset_of!(PlanetUniforms, u_world_pos), 80);
         assert_eq!(core::mem::offset_of!(PlanetUniforms, u_world_size), 88);
         assert_eq!(core::mem::offset_of!(PlanetUniforms, u_colors), 96);
+        assert_eq!(core::mem::offset_of!(PlanetUniforms, u_alpha), 192);
     }
 
     #[test]

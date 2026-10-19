@@ -58,7 +58,8 @@ fn mainVertex(
 ) -> VSOutput {
     var output: VSOutput;
     output.vUV = aUV;
-    let mvp = globalUniforms.uProjectionMatrix * localUniforms.uTransformMatrix;
+    // Pixi v8 MVP: projection × world (render-group / filter offset) × local.
+    let mvp = globalUniforms.uProjectionMatrix * globalUniforms.uWorldTransformMatrix * localUniforms.uTransformMatrix;
     let pos = mvp * vec3<f32>(aPosition, 1.0);
     output.position = vec4<f32>(pos.xy, 0.0, 1.0);
     return output;
@@ -311,7 +312,7 @@ fn gasPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
     return vec4<f32>(col.rgb, a * col.a);
 }
 
-// === Star (body only for WGSL) ===
+// === Star (3 layers merged: body + blobs + flares) — port of planeta.frag ===
 fn Hash2(p: vec2<f32>) -> vec2<f32> {
     let r = 523.0 * sin(dot(p, vec2<f32>(53.3158, 43.6143))) * planetUniforms.uSeed;
     return vec2<f32>(fract(15.32354 * r), fract(17.25865 * r));
@@ -330,27 +331,113 @@ fn Cells(p_in: vec2<f32>, numCells: f32) -> f32 {
     return sqrt(d);
 }
 
-fn starPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
-    let d = distance(uv_in, vec2<f32>(0.5));
-    let a = step(d, 0.49999);
-    let dith = dither(uvRaw, uv_in);
+// GLSL mod(): x - y * floor(x / y). WGSL `%` truncates toward zero, which
+// differs for the negative polar coordinates the star layers feed it.
+fn glslMod(x: f32, y: f32) -> f32 {
+    return x - y * floor(x / y);
+}
 
-    let ruv = rotate2d(uv_in, planetUniforms.uRotation);
-    let suv = spherify(ruv);
+fn glslMod2(x: vec2<f32>, y: f32) -> vec2<f32> {
+    return x - vec2<f32>(y) * floor(x / vec2<f32>(y));
+}
 
-    let bodyTime = planetUniforms.uTime * 0.5;
-    var n = Cells(suv - vec2<f32>(bodyTime * planetUniforms.uTimeSpeed * 2.0, 0.0), 10.0);
-    n *= Cells(suv - vec2<f32>(bodyTime * planetUniforms.uTimeSpeed, 0.0), 20.0);
-    n = clamp(n * 2.0, 0.0, 1.0);
+// Circle pattern for blobs/flares (from StarBlobs.gdshader)
+fn starCircle(uv_in: vec2<f32>, amount: f32, cSize: f32) -> f32 {
+    let invert = 1.0 / amount;
+    var uv = uv_in;
+    if (glslMod(uv.y, invert * 2.0) < invert) {
+        uv.x = uv.x + invert * 0.5;
+    }
+    let rand_co = floor(uv * amount) / amount;
+    uv = glslMod2(uv, invert) * amount;
+    var r = rand(rand_co);
+    r = clamp(r, invert, 1.0 - invert);
+    let circ = distance(uv, vec2<f32>(r));
+    return smoothstep(circ, circ + 0.5, invert * cSize * rand(rand_co * 1.5));
+}
+
+fn starPlanet(uv: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
+    // The star quad is 2× the body: body in the centre 50%, blobs and
+    // flares (corona) over the full quad. Same layout and time multipliers
+    // as the GLSL reference (planeta.frag starPlanet).
+    if (distance(uv, vec2<f32>(0.5)) > 0.52) { return vec4<f32>(0.0); }
+
+    let mult = floor(planetUniforms.uSize + 0.5) * 2.0 / max(planetUniforms.uTimeSpeed, 0.001);
+    let bodyTime = planetUniforms.uTime * mult * 0.005;
+    let blobTime = planetUniforms.uTime * mult * 0.01;
+    let flareTime = planetUniforms.uTime * mult * 0.015;
+
+    let dith = dither(uvRaw, uv);
+
+    // === Body: remap centre 50% of quad to 0..1 ===
+    let bodyUV = (uv - vec2<f32>(0.25)) * 2.0;
+    let bodyPix = floor(bodyUV * planetUniforms.uPixels) / planetUniforms.uPixels;
+    let bodyD = distance(bodyPix, vec2<f32>(0.5));
+    let bodyA = step(bodyD, 0.49999);
+
+    let bodyRot = rotate2d(bodyPix, planetUniforms.uRotation);
+    let bodySph = spherify(bodyRot);
+
+    let cn1 = Cells(bodySph - vec2<f32>(bodyTime * planetUniforms.uTimeSpeed * 2.0, 0.0), 10.0);
+    let cn2 = Cells(bodySph - vec2<f32>(bodyTime * planetUniforms.uTimeSpeed, 0.0), 20.0);
+    var n = clamp(cn1 * cn2 * 2.0, 0.0, 1.0);
     if (dith) { n *= 1.3; }
 
     let idx = i32(floor(n * 3.0));
-    var col = planetUniforms.uColors0;
-    if (idx == 1) { col = planetUniforms.uColors1; }
-    if (idx == 2) { col = planetUniforms.uColors2; }
-    if (idx >= 3) { col = planetUniforms.uColors3; }
+    var bodyCol = planetUniforms.uColors0;
+    if (idx == 1) { bodyCol = planetUniforms.uColors1; }
+    if (idx == 2) { bodyCol = planetUniforms.uColors2; }
+    if (idx >= 3) { bodyCol = planetUniforms.uColors3; }
 
-    return vec4<f32>(col.rgb, a * col.a);
+    // === Blobs & Flares: full quad UV (0..1) ===
+    let fullPix = floor(uv * planetUniforms.uPixels) / planetUniforms.uPixels;
+    let fullRot = rotate2d(fullPix, planetUniforms.uRotation);
+    let fullD = distance(fullPix, vec2<f32>(0.5));
+    let fullAngle = atan2(fullRot.x - 0.5, fullRot.y - 0.5);
+
+    var blobC = 0.0;
+    for (var i = 0; i < 15; i++) {
+        let r = rand(vec2<f32>(f32(i)));
+        let cUV = vec2<f32>(fullD, fullAngle);
+        blobC += starCircle(cUV * planetUniforms.uSize - vec2<f32>(blobTime * planetUniforms.uTimeSpeed) - vec2<f32>((1.0 / max(fullD, 0.001)) * 0.1) + vec2<f32>(r), 2.0, 1.0);
+    }
+    blobC *= 0.37 - fullD;
+    let blobA = step(0.07, blobC - fullD);
+
+    let fAngle = fullAngle * 0.4;
+    let fUV = vec2<f32>(fullD, fAngle);
+    let fn1 = fbm(fUV * planetUniforms.uSize - vec2<f32>(flareTime * planetUniforms.uTimeSpeed));
+    var fc = starCircle(fUV * 1.0 - vec2<f32>(flareTime * planetUniforms.uTimeSpeed) + vec2<f32>(fn1), 2.0, 1.0);
+    fc *= 1.5;
+    let fn2 = fbm(fUV * planetUniforms.uSize - vec2<f32>(flareTime) + vec2<f32>(100.0, 100.0));
+    fc -= fn2 * 0.1;
+
+    var flareAlpha = 0.0;
+    if (1.0 - fullD > fc) {
+        if (fc > 0.3 - 0.07 + fullD && dith) { flareAlpha = 1.0; }
+        if (fc > 0.3 + fullD) { flareAlpha = 1.0; }
+    }
+    flareAlpha *= step(fn2 * 0.25, fullD);
+
+    // === Composite back-to-front ===
+    var result = vec4<f32>(0.0);
+    if (flareAlpha > 0.0 && bodyA < 1.0) {
+        let fIdx = i32(floor(fn2 + fc));
+        var flareCol = planetUniforms.uColors0;
+        if (fIdx > 0) { flareCol = planetUniforms.uColors1; }
+        result = vec4<f32>(flareCol.rgb, flareAlpha);
+    }
+    if (blobA > 0.0) {
+        if (bodyA > 0.0) {
+            bodyCol = vec4<f32>(mix(bodyCol.rgb, planetUniforms.uColors0.rgb, vec3<f32>(0.6)), bodyCol.a);
+        } else {
+            result = vec4<f32>(planetUniforms.uColors0.rgb, blobA);
+        }
+    }
+    if (bodyA > 0.0) {
+        result = vec4<f32>(bodyCol.rgb, 1.0);
+    }
+    return result;
 }
 
 // === Main fragment ===

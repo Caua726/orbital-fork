@@ -15,6 +15,7 @@
  * Only one details modal open at a time.
  */
 
+import { agoraMs } from '../core/relogio';
 import type { Mundo, Nave, Planeta } from '../types';
 import { marcarInteracaoUi } from './interacao-ui';
 import { nomeTipoPlaneta, TIPO_PLANETA } from '../world/planeta';
@@ -1291,7 +1292,7 @@ function buildSectionRegistro(p: Planeta, mundo: Mundo): HTMLDivElement {
     const v = document.createElement('div'); v.className = 'v'; v.textContent = 'Em tempo real';
     memWrap.append(k, v);
   } else if (mem?.dados) {
-    const age = performance.now() - mem.dados.timestamp;
+    const age = agoraMs() - mem.dados.timestamp;
     const k1 = document.createElement('div'); k1.className = 'k'; k1.textContent = 'Última memória';
     const v1 = document.createElement('div'); v1.className = 'v'; v1.textContent = fmtTempoAtras(age);
     memWrap.append(k1, v1);

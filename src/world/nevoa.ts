@@ -13,6 +13,7 @@ const _fogBoundsScratch: ViewportBounds = {
   esq: 0, dir: 0, cima: 0, baixo: 0, halfW: 0, halfH: 0, margem: 0,
 };
 import { getConfig } from '../core/config';
+import { agoraMs } from '../core/relogio';
 import { t } from '../core/i18n/t';
 import { getPersonalidades } from './ia-decisao';
 
@@ -237,8 +238,10 @@ class MemoriaVisual {
       if (this.fantasma) r.destroySprite(this.fantasma);
       if (this.fantasmaTex !== null) r.destroyTexture(this.fantasmaTex);
     }
-    this.info._pixi?.destroy();
-    this.tempoLabel._pixi?.destroy();
+    // Pixi objects parented to memoriaPlanetasContainer may already be gone
+    // (destruirMundo destroys the container first).
+    if (this.info._pixi && !this.info._pixi.destroyed) this.info._pixi.destroy();
+    if (this.tempoLabel._pixi && !this.tempoLabel._pixi.destroyed) this.tempoLabel._pixi.destroy();
     // `destruirMundo` destroys `mundo.container` (and with it this sprite, which
     // is parented to memoriaPlanetasContainer) BEFORE calling
     // liberarMemoriasVisuais — so the sprite is already gone here and a second
@@ -265,7 +268,7 @@ function capturarMemoriaPlaneta(planeta: Planeta): MemoriaPlanetaSnapshot {
     x: planeta.x,
     y: planeta.y,
     frame: 0,
-    timestamp: performance.now(),
+    timestamp: agoraMs(),
     dados: {
       dono: planeta.dados.dono,
       tipoPlaneta: planeta.dados.tipoPlaneta,
@@ -300,8 +303,6 @@ export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void 
   //
   // Both engines get it: the weydra sprite when a renderer is up, otherwise a
   // Pixi sprite in `memoriaPlanetasContainer` (which sits above the fog layer).
-  // Before this, only the weydra path had a silhouette — the Pixi engine showed
-  // the ring and the labels over an invisible planet.
   let fantasma: WeydraSprite | null = null;
   let fantasmaTex: bigint | null = null;
   let fantasmaPixi: Sprite | null = null;
@@ -356,6 +357,18 @@ export function criarMemoriaVisualPlaneta(mundo: Mundo, planeta: Planeta): void 
   const tempoLabel = criarText('', 9, 0x8899aa, true);
   tempoLabel.visible = false;
   if (tempoLabel._pixi) tempoLabel._pixi.anchor.set(0.5, 0);
+
+  // Pixi engine: the ring, plate and labels must join the memory layer (above
+  // the fog) like the baseline container did — they were created but never
+  // parented, so Pixi drew only the silhouette. Order = baseline: silhouette,
+  // ring, plate, info, tempo.
+  if (!getWeydraRenderer()) {
+    const camada = mundo.memoriaPlanetasContainer;
+    anel.attachTo(camada);
+    infoBg.attachTo(camada);
+    if (info._pixi) camada.addChild(info._pixi);
+    if (tempoLabel._pixi) camada.addChild(tempoLabel._pixi);
+  }
 
   const memoria: MemoriaPlaneta = {
     conhecida: false,
@@ -440,7 +453,7 @@ export function registrarMemoriaPlaneta(planeta: Planeta): void {
   // ghost's location and its "há X min" age once the planet leaves view).
   snap.x = planeta.x;
   snap.y = planeta.y;
-  snap.timestamp = performance.now();
+  snap.timestamp = agoraMs();
 
   if (mudou) {
     snap.dados.dono = pd.dono;
@@ -522,7 +535,7 @@ export function atualizarVisibilidadeMemoria(planeta: Planeta, visivelAoJogador:
     memoria.visual.y = memoriaDados.y;
     memoria.visual.alpha = ALPHA_FANTASMA + 0.15;
 
-    const agora = performance.now();
+    const agora = agoraMs();
     const tempoTexto = formatarTempoPassado(agora - memoriaDados.timestamp);
     if (memoria.tempoLabel.text !== tempoTexto) {
       memoria.tempoLabel.text = tempoTexto;

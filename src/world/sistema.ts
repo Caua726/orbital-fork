@@ -147,7 +147,9 @@ const useWeydraGraphics = weydraRenderer !== null;
     p._visivelAoJogador = false;
     p._descobertoAoJogador = false;
 
-    const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: 55 /* Z.UI_HOVER */ });
+    // Just above the planet, under orbits and fog — in Pixi the ring is a
+    // child of the planet mesh, so it inherits that stacking.
+    const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.PLANET_LIVE + 0.5 });
     anel.attachTo(p);
     p._anel = anel;
     // Register so destruirWeidraGraphicsGlobais frees it on world teardown —
