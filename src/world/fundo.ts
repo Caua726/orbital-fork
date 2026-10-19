@@ -265,7 +265,9 @@ export function criarFundo(tamanhoMundo: number): FundoContainer {
   // stars as the shader, at a few hundred cells per frame instead of a
   // fullscreen fragment pass. (The old static tile was different art, so
   // software GPUs showed another sky than Weydra or hardware Pixi.)
-  if (isCanvas2dRenderer() || isSoftwareRenderer()) {
+  // Pixi engine only: weydra draws its own starfield + bright sprite (shader
+  // or software backend) and needs the regular container's update path.
+  if ((isCanvas2dRenderer() || isSoftwareRenderer()) && !getWeydraRenderer()) {
     const canvasFundo = criarFundoCanvas(tamanhoMundo) as unknown as FundoContainer;
     (canvasFundo as any)._isCanvasFundo = true;
     // Same bright-star tile as the TilingSprite / weydra sprite, drawn into

@@ -41,6 +41,9 @@ const BASE = (process.env.ORBITAL_DEV_URL ?? 'http://localhost:4173/orbital-fork
 const OUT = path.resolve(process.env.ORBITAL_MATRIX_OUT ?? path.join(import.meta.dirname, '..', 'test-results', 'render-matrix'));
 const SEED = 20261018;
 const VIEW = { width: 1280, height: 720 };
+// A hung variant (e.g. a mid-session engine recovery while the harness keeps
+// the sim frozen) must not hold the whole run: close its browser and move on.
+const VARIANT_TIMEOUT_MS = 5 * 60_000;
 const systemChromium = process.env.PLAYWRIGHT_CHROMIUM_PATH
   ?? (fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
 
@@ -139,6 +142,16 @@ const EXCECOES = [
     cenas: ['sol', 'sistema'],
     motivo: 'o corpo do sol usa um hash com sin(); CPU e rasterizadores por software têm outra precisão — mesma aparência, outro padrão de células',
   },
+  {
+    variantes: /canvas|software/,
+    cenas: ['orbitas', 'rota', 'anel-planeta', 'naves-selecionadas'],
+    motivo: 'o Canvas2D sempre suaviza (antialias) linhas finas e a GPU não; imitar o serrilhado exigiria reler e regravar o quadro inteiro a cada frame',
+  },
+  {
+    variantes: /pixi-canvas/,
+    cenas: ['sol', 'planeta-zoom-baixo', 'nevoa-sobre-mundo', 'cena-completa-longe'],
+    motivo: 'o renderer Canvas do Pixi não tem filtros: a meia resolução dos planetas é por sprite, com a grade alinhada ao sprite e não à tela — bordas de bloco deslocadas 1 px (mesma imagem, ver report)',
+  },
 ];
 // Known, intended differences against the pre-weydra reference (d51623e).
 const ESPERADAS_BASELINE = {
@@ -226,6 +239,11 @@ async function captureVariant(v, scenes) {
     env: { ...process.env, ...(prof.env ?? {}) },
     args: ['--enable-webgl', '--ignore-gpu-blocklist', ...prof.args],
   });
+  let timedOut = false;
+  const watchdog = setTimeout(() => {
+    timedOut = true;
+    browser.close().catch(() => {});
+  }, VARIANT_TIMEOUT_MS);
   try {
     const context = await browser.newContext({ viewport: VIEW, deviceScaleFactor: 1 });
     await context.addInitScript(({ seed, engine, backend }) => {
@@ -358,9 +376,12 @@ async function captureVariant(v, scenes) {
     }
     await page.evaluate(() => window.__render.setLayers(window.__render.ALL));
   } catch (err) {
-    result.crash = String(err.message ?? err).slice(0, 800);
+    result.crash = timedOut
+      ? `tempo esgotado (${VARIANT_TIMEOUT_MS / 60_000} min) — variante travou`
+      : String(err.message ?? err).slice(0, 800);
   } finally {
-    await browser.close();
+    clearTimeout(watchdog);
+    await browser.close().catch(() => {});
   }
   return result;
 }
@@ -507,7 +528,8 @@ for (const r of results) {
   for (const [cena, e] of Object.entries(r.scenes)) {
     for (const key of ['vsEngine', 'vsPixi']) {
       const c = e[key];
-      if (c?.verdict === 'diverge' && !excecao(r.id, cena)) {
+      // An exception covers the pair when either side is the variant it names.
+      if (c?.verdict === 'diverge' && !excecao(r.id, cena) && !excecao(c.base, cena)) {
         falhas.push(`${r.id} ${cena} ${key}=${c.base} (${(c.d16 * 100).toFixed(1)}% do quadro, ${(c.d16rel * 100).toFixed(0)}% do conteúdo com Δ≥16)`);
       }
     }

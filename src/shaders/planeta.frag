@@ -321,9 +321,15 @@ vec4 gasPlanet(vec2 uv, vec2 uvRaw) {
 }
 
 // === STAR (3 layers merged: body + blobs + flares) ===
+// Integer PCG cell hash, salted with the seed like rand(). The original
+// `fract(523·sin(dot)·uSeed·15.3)` amplified sin() rounding ~8000×, so every
+// driver (and the CPU port) drew a different cell pattern on the sun.
+// `p` is always an integer cell coordinate (mod of floor()ed values).
 vec2 Hash2(vec2 p) {
-    float r = 523.0 * sin(dot(p, vec2(53.3158, 43.6143))) * uSeed;
-    return vec2(fract(15.32354 * r), fract(17.25865 * r));
+    uint seed32 = uint(uSeed * 65537.0);
+    uvec2 c = uvec2(ivec2(floor(p)) + ivec2(32768)) + uvec2(seed32, seed32 * 1664525u + 1013904223u);
+    uint h = pcg2d(c);
+    return vec2(float(h & 0xFFFFu), float(h >> 16u)) * (1.0 / 65536.0);
 }
 
 float Cells(vec2 p, float numCells) {

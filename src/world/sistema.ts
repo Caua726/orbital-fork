@@ -147,10 +147,11 @@ const useWeydraGraphics = weydraRenderer !== null;
     p._visivelAoJogador = false;
     p._descobertoAoJogador = false;
 
-    // Just above the planet, under orbits and fog — in Pixi the ring is a
-    // child of the planet mesh, so it inherits that stacking.
+    // Just above the planet, under orbits and fog. On Pixi it is a SIBLING
+    // added right after the planet (see below), not a child: inside the
+    // planet mesh it inherited the ×tamanho scale and the half-res filter,
+    // which tessellated a hair-thin stroke into a dotted ring.
     const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.PLANET_LIVE + 0.5 });
-    anel.attachTo(p);
     p._anel = anel;
     // Register so destruirWeidraGraphicsGlobais frees it on world teardown —
     // the weydra ring has no Pixi parent, so the container destroy cascade
@@ -159,6 +160,7 @@ const useWeydraGraphics = weydraRenderer !== null;
 
     p.visible = false;
     container.addChild(p);
+    anel.attachTo(container);
     planetas.push(p);
     ultimoRaioOrbita = raioOrbita;
     ultimoRaioPlaneta = raioPlaneta;

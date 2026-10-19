@@ -122,12 +122,13 @@ function aplicarMascaraPixi(): void {
   }
   marcar(mundo.visaoContainer, LAYER_BIT.FOG);
   marcar(mundo.memoriaPlanetasContainer, LAYER_BIT.FOG_MEMORY);
-  // Everything else at the top level is a sun, a planet mesh or its baked
-  // sprite. Their tagged children (the `_anel` ring) follow their own band —
-  // but a non-renderable parent still hides them in Pixi.
+  // Everything else at the top level is a sun, a planet mesh, its baked
+  // sprite or its selection ring (tagged with its own Z band). Tagged
+  // children follow their own band — but a non-renderable parent still
+  // hides them in Pixi.
   for (const filho of mundo.container.children as any[]) {
     if (especiais.has(filho)) continue;
-    marcar(filho, LAYER_BIT.PLANETS);
+    marcar(filho, bitDoPixi(filho, LAYER_BIT.PLANETS));
     for (const neto of filho.children ?? []) {
       if (typeof neto.__zOrder === 'number') marcarFilho(filho, neto, layerBitForZ(neto.__zOrder));
     }

@@ -23,9 +23,9 @@ import type { Sprite as WeydraSprite } from '@weydra/renderer';
  *   memory; the render loop batches all trail particles across all ships
  *   into one draw call because they share the trail texture.
  *
- * The particle texture is a soft radial blob rasterised once at first use
- * (16×16 white with a quadratic alpha falloff) — matches the old Pixi
- * Graphics circle look closely enough to pass visual parity.
+ * The particle texture is a solid white disc rasterised once at first use —
+ * the same flat circle the Pixi path fills (the per-particle fade lives in
+ * the tint alpha in both paths).
  */
 
 const LIFETIME_MS = 600;
@@ -75,26 +75,22 @@ function getOrInitState(nave: Nave): TrailState {
   return s;
 }
 
-// ─── Weydra particle texture (16×16 soft circle, RGBA8) ─────────────────
+// ─── Weydra particle texture (solid disc, RGBA8) ─────────────────────────
 
-const TRAIL_TEX_SIZE = 16;
+// 32 px so the disc edge stays round when scaled up like a tessellated
+// Pixi circle (it was a 16 px soft blob: smaller and dimmer than Pixi's).
+const TRAIL_TEX_SIZE = 32;
 let _weydraTrailTex: bigint | null = null;
 
 function makeTrailTexBytes(): Uint8Array {
   const n = TRAIL_TEX_SIZE;
   const bytes = new Uint8Array(n * n * 4);
-  const cx = (n - 1) / 2;
-  const cy = (n - 1) / 2;
-  const maxDist = cx;
+  const r = n / 2;
   for (let y = 0; y < n; y++) {
     for (let x = 0; x < n; x++) {
-      const dx = x - cx;
-      const dy = y - cy;
-      const dist = Math.hypot(dx, dy);
-      // Quadratic falloff — matches the old Pixi per-particle
-      // `alpha = t*t*0.8` look with radial shape instead of flat circle.
-      const t = Math.max(0, 1 - dist / maxDist);
-      const a = Math.floor(t * t * 255);
+      // Pixel centre inside the disc → opaque (a filled circle, no falloff).
+      const dist = Math.hypot(x + 0.5 - r, y + 0.5 - r);
+      const a = dist <= r ? 255 : 0;
       const i = (y * n + x) * 4;
       bytes[i] = 255;
       bytes[i + 1] = 255;

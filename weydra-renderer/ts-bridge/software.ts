@@ -243,6 +243,7 @@ export class SoftwareInner {
     pose: { seed: number; time: number; rot: number; lx: number; ly: number } | null;
   }>();
   private fogCanvas: [HTMLCanvasElement, CanvasRenderingContext2D] | null = null;
+  private planetLayer: [HTMLCanvasElement, CanvasRenderingContext2D] | null = null;
   /** Text measuring context (and its canvas, kept alive with it). */
   private readonly measure: CanvasRenderingContext2D;
   private readonly measureCanvas: HTMLCanvasElement;
@@ -491,10 +492,23 @@ export class SoftwareInner {
     else this.ctx.setTransform(sx, 0, 0, sy, 0, 0);
   }
 
+  /**
+   * Planets go through a half-resolution layer composited with bilinear
+   * filtering — the same pipeline as the GPU backends (Pixi half-res filter,
+   * weydra planet target), so small planets alias and soften identically.
+   */
   private drawPlanets(W: number, H: number, sx: number, sy: number): void {
-    const ctx = this.ctx;
-    this.setSpace(true, W, H, sx, sy);
+    const lw = Math.ceil(W / 2), lh = Math.ceil(H / 2);
+    if (!this.planetLayer || this.planetLayer[0].width !== lw || this.planetLayer[0].height !== lh) {
+      this.planetLayer = canvas2d(lw, lh);
+    }
+    const [layer, ctx] = this.planetLayer;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, lw, lh);
+    // World → half-res layer pixels.
+    ctx.setTransform(sx / 2, 0, 0, sy / 2, (W / 2 - this.cam.x * sx) / 2, (H / 2 - this.cam.y * sy) / 2);
     ctx.imageSmoothingEnabled = false;
+    let algum = false;
     const halfW = this.cam.vw / 2;
     const halfH = this.cam.vh / 2;
     for (const [slot] of this.planets.entries()) {
@@ -510,8 +524,14 @@ export class SoftwareInner {
       const src = this.rasterPlanet(slot);
       ctx.globalAlpha = Math.min(1, alpha);
       ctx.drawImage(src, x - w / 2, y - h / 2, w, h);
+      algum = true;
     }
     ctx.globalAlpha = 1;
+    if (!algum) return;
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.imageSmoothingEnabled = true;
+    // Exactly 2× (the layer may be one pixel wider than half the frame).
+    this.ctx.drawImage(layer, 0, 0, lw * 2, lh * 2);
   }
 
   private tinted(tex: Tex, rgb: number): HTMLCanvasElement {

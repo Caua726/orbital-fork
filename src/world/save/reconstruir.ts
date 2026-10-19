@@ -1,4 +1,5 @@
 import { agoraMs } from '../../core/relogio';
+import { Z } from '../../core/render-order';
 import type { Application } from 'pixi.js';
 import type { Mundo, Sol, Planeta, Sistema, Nave, FonteVisao } from '../../types';
 import type { MundoDTO, SolDTO, PlanetaDTO, NaveDTO, AlvoDTO } from './dto';
@@ -73,6 +74,7 @@ export async function reconstruirMundo(
     const planeta = reconstruirPlaneta(planetaDto, factories, mv);
     planetasById.set(planeta.id, planeta);
     mv.container.addChild(planeta);
+    planeta._anel.attachTo(mv.container);
   }
 
   // 3. Stack the overlay containers (orbits, fleets, ships, routes, fog,
@@ -316,8 +318,9 @@ function reconstruirPlaneta(
   // every save-load leaks a weydra Graphics + GPU buffer.
   trackOrbitaLinha(linhaOrbita);
 
-  const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: 55 /* Z.UI_HOVER */ });
-  anel.attachTo(planeta);
+  // Same as the live create path (sistema.ts): just above the planet, under
+  // orbits and fog; parented as the planet's next sibling by the caller.
+  const anel = GraphicsAdapter.create({ worldSpace: true, zOrder: Z.PLANET_LIVE + 0.5 });
   planeta._anel = anel;
   // Register the ring so world teardown frees it (same as the live create
   // path). Without this every loaded planet's ring leaks per world.

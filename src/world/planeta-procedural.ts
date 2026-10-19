@@ -337,6 +337,42 @@ export interface CanvasPlanetState {
   dirty: boolean;
   /** Pose of the last raster — redraw only when it moved visibly. */
   ultimaPose?: { time: number; rot: number; lx: number; ly: number };
+  /** World size of the body (sprite display size). */
+  tamanho: number;
+  /** Half-screen-resolution copy the sprite shows (see atualizarMeiaRes). */
+  meia?: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; textura: Texture };
+}
+
+/**
+ * The GPU backends render planets at half the screen resolution and upscale
+ * bilinearly (Pixi half-res filter, weydra planet target). The canvas backend
+ * mirrors that per sprite: the uPixels raster is sampled nearest into a
+ * canvas of ceil(screen size / 2) px, which the sprite shows with linear
+ * filtering — so small planets alias and soften like on the GPU.
+ */
+function atualizarMeiaRes(planeta: any, cs: CanvasPlanetState, rasterMudou: boolean): void {
+  const alvo = Math.max(2, Math.ceil((cs.tamanho * (getZoom() || 1)) / 2));
+  let meia = cs.meia;
+  if (!meia || meia.canvas.width !== alvo) {
+    meia?.textura.destroy(true);
+    const canvas = document.createElement('canvas');
+    canvas.width = alvo;
+    canvas.height = alvo;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const textura = Texture.from(canvas);
+    textura.source.scaleMode = 'linear';
+    meia = { canvas, ctx, textura };
+    cs.meia = meia;
+    (planeta as Sprite).texture = textura;
+    (planeta as Sprite).scale.set(cs.tamanho / alvo);
+  } else if (!rasterMudou) {
+    return;
+  }
+  meia.ctx.clearRect(0, 0, alvo, alvo);
+  meia.ctx.imageSmoothingEnabled = false;
+  meia.ctx.drawImage(cs.canvas, 0, 0, alvo, alvo);
+  meia.textura.source.update();
 }
 
 /** Initial clock/rotation of a body. Callers draw these from the RNG in the
@@ -388,7 +424,7 @@ function criarPlanetaCanvasSprite(
   const rotSpeed = pose.rotSpeed;
   const canvasState: CanvasPlanetState = {
     paleta, seed, uPixels, canvas, ctx: ctx2d, imageData,
-    state: renderState, dirty: true,
+    state: renderState, dirty: true, tamanho,
   };
   (sprite as any)._canvasRender = canvasState;
   (sprite as any)._rotSpeed = rotSpeed;
@@ -1042,19 +1078,18 @@ export function atualizarTempoPlanetas(planetas: any[], deltaMs: number): void {
     // (same rule as the weydra software backend).
     const st = cs.state;
     const pose = cs.ultimaPose;
-    if (pose && Math.abs(st.uTime - pose.time) < 0.1 && Math.abs(st.uRotation - pose.rot) < 0.002
-      && Math.abs(st.uLightOriginX - pose.lx) < 0.002 && Math.abs(st.uLightOriginY - pose.ly) < 0.002) {
-      continue;
+    const parado = !!pose && Math.abs(st.uTime - pose.time) < 0.1 && Math.abs(st.uRotation - pose.rot) < 0.002
+      && Math.abs(st.uLightOriginX - pose.lx) < 0.002 && Math.abs(st.uLightOriginY - pose.ly) < 0.002;
+    if (!parado) {
+      cs.ultimaPose = { time: st.uTime, rot: st.uRotation, lx: st.uLightOriginX, ly: st.uLightOriginY };
+      renderPlanetParaImageData(
+        cs.imageData.data,
+        cs.canvas.width, cs.canvas.height,
+        cs.paleta, cs.state, cs.uPixels, cs.seed,
+      );
+      cs.ctx.putImageData(cs.imageData, 0, 0);
     }
-    cs.ultimaPose = { time: st.uTime, rot: st.uRotation, lx: st.uLightOriginX, ly: st.uLightOriginY };
-    renderPlanetParaImageData(
-      cs.imageData.data,
-      cs.canvas.width, cs.canvas.height,
-      cs.paleta, cs.state, cs.uPixels, cs.seed,
-    );
-    cs.ctx.putImageData(cs.imageData, 0, 0);
-    const src = (planeta as any).texture?.source;
-    if (src && typeof src.update === 'function') src.update();
+    atualizarMeiaRes(planeta, cs, !parado);
   }
   // If we're in the canvas dispatcher's world (any canvas planet seen),
   // the shader-mode bake/unbake logic below doesn't apply — skip it so

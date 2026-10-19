@@ -441,14 +441,10 @@ function gasPixel(ctx: RenderCtx, uvx: number, uvy: number, _uvRawX: number, _uv
 // ─── Star shader helpers + function ───────────────────────────────
 
 function hash2(ctx: RenderCtx, px: number, py: number, out: [number, number]): void {
-  // sin-hash amplified ×~8000 before fract(): the GPU evaluates it in
-  // float32, so emulate f32 rounding at each step or the cells come out
-  // as a different (if similar-looking) pattern.
-  const f = Math.fround;
-  const d = f(f(f(px) * f(53.3158)) + f(f(py) * f(43.6143)));
-  const r = f(f(f(523) * f(Math.sin(d))) * f(ctx.uSeed));
-  out[0] = fract(f(f(15.32354) * r));
-  out[1] = fract(f(f(17.25865) * r));
+  // Integer PCG cell hash salted with the seed — same as planeta.frag Hash2.
+  const h = pcg2d((Math.floor(px) + 32768 + ctx.seed32) >>> 0, (Math.floor(py) + 32768 + ctx.seedY) >>> 0);
+  out[0] = (h & 0xFFFF) / 65536;
+  out[1] = (h >>> 16) / 65536;
 }
 
 function cells(ctx: RenderCtx, px: number, py: number, numCells: number): number {

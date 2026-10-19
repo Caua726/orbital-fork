@@ -313,9 +313,13 @@ fn gasPlanet(uv_in: vec2<f32>, uvRaw: vec2<f32>) -> vec4<f32> {
 }
 
 // === Star (3 layers merged: body + blobs + flares) — port of planeta.frag ===
+// Integer PCG cell hash salted with the seed (see planeta.frag Hash2): the
+// old sin()-based hash depended on each driver's float precision.
 fn Hash2(p: vec2<f32>) -> vec2<f32> {
-    let r = 523.0 * sin(dot(p, vec2<f32>(53.3158, 43.6143))) * planetUniforms.uSeed;
-    return vec2<f32>(fract(15.32354 * r), fract(17.25865 * r));
+    let seed32 = bitcast<u32>(i32(planetUniforms.uSeed * 65537.0));
+    let c = vec2<u32>(vec2<i32>(floor(p)) + vec2<i32>(32768)) + vec2<u32>(seed32, seed32 * 1664525u + 1013904223u);
+    let h = pcg2d(c);
+    return vec2<f32>(f32(h & 0xFFFFu), f32(h >> 16u)) * (1.0 / 65536.0);
 }
 
 fn Cells(p_in: vec2<f32>, numCells: f32) -> f32 {

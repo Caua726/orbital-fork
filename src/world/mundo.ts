@@ -567,16 +567,11 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
     planeta._linhaOrbita.alpha = planeta._visivelAoJogador && !!(solDoSistema?._visivelAoJogador) ? 0.5 : 0.18;
     tVis += performance.now() - tV0;
 
-    // Selection ring: the ring is drawn at (0,0)-relative. On the Pixi
-    // path it inherited the planet container's transform + visibility;
-    // on the weydra path it has no scene-graph parent, so carry the
-    // planet's world position as the ring's own translation and toggle
-    // its visibility per frame (else it would render at world origin and
-    // stay visible for off-screen planets).
-    if (planeta._anel.weydra) {
-      planeta._anel.visible = vis;
-      if (vis) planeta._anel.setPosition(planeta.x, planeta.y);
-    }
+    // Selection ring: drawn at (0,0)-relative with no transform parent in
+    // either engine (Pixi: a sibling of the planet; weydra: no scene graph),
+    // so carry the planet's world position and visibility per frame.
+    planeta._anel.visible = vis;
+    if (vis) planeta._anel.setPosition(planeta.x, planeta.y);
     if (vis) {
       // Redraw só quando estado visual do anel muda. Seleção muda em
       // clique (~1×/seg), tamanho é constante durante o jogo — antes
@@ -592,13 +587,7 @@ export function atualizarMundo(mundo: Mundo, app: Application, camera: Camera): 
         const largura = selecionado ? 2.5 : 1.25;
         const raioBase = tamanho * 0.42;
         const raio = Math.max(10, raioBase - largura * 0.5);
-        // On Pixi the ring is a child of the planet display object, whose
-        // scale is the planet size (mesh) or size/texture (canvas sprite):
-        // draw in its local units or it inherits that scale (it used to land
-        // tamanho× too big — off-screen, so the ring never showed). Weydra
-        // rings have no parent transform.
-        const escala = anel.weydra ? 1 : (planeta.scale?.x || 1);
-        anel.circle(0, 0, raio / escala).stroke({ color: COR_ANEL_PLANETA, width: largura / escala, alpha: 0.72 });
+        anel.circle(0, 0, raio).stroke({ color: COR_ANEL_PLANETA, width: largura, alpha: 0.72 });
         anelAny._anelSelecionadoCache = selecionado;
         anelAny._anelTamanhoCache = tamanho;
         tAnel += performance.now() - tA0;

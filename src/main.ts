@@ -716,16 +716,23 @@ function startTicker(): void {
     const _passo = passoFixoRenderMatrix();
     (app.ticker as { deltaMS: number }).deltaMS = _passo?.dt ?? _dt;
     (app.ticker as { speed: number }).speed = _passo?.speed ?? getDebugState().gameSpeed;
-    _gameTickBody(app);
-    // Pixi engine paints here, after the update (its own ticker is stopped in
-    // engine-runtime.ts), so the FPS cap and frame count behave exactly like
-    // weydra's render loop.
-    // rAF timestamp (vsync-aligned) for the cap, like weydra's render loop.
-    if (getEngineRuntime()?.engine === 'pixi' && devePintar(rafTs ?? _now)) {
-      app.render();
-      registrarQuadroPintado();
-    }
+    // Schedule the next frame FIRST: an exception in the update or the paint
+    // (e.g. a WebGPU device that starts rejecting buffers) used to end the
+    // rAF chain and freeze the whole game. It still reaches the global error
+    // handling (WebGPU recovery, error screen) via reportError.
     requestAnimationFrame(_gameTick);
+    try {
+      _gameTickBody(app);
+      // Pixi engine paints here, after the update (its own ticker is stopped
+      // in engine-runtime.ts), so the FPS cap and frame count behave exactly
+      // like weydra's render loop — with the vsync-aligned rAF timestamp.
+      if (getEngineRuntime()?.engine === 'pixi' && devePintar(rafTs ?? _now)) {
+        app.render();
+        registrarQuadroPintado();
+      }
+    } catch (err) {
+      reportError(err);
+    }
   }
   function _gameTickBody(app: Application): void {
 
