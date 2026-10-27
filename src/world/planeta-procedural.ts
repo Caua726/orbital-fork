@@ -1376,14 +1376,18 @@ export function criarEstrelaProcedural(
 }
 
 /**
- * Mirrors a body's Pixi-side `visible`/`alpha` (set every frame by the world
- * update: off-screen or undiscovered = hidden, discovered sun out of vision =
- * 0.28) onto its weydra PlanetInstance, which has no scene graph to inherit
- * them from. alpha 0 skips the draw.
+ * Mirrors a body's Pixi-side `visible` (set every frame by the world update:
+ * off-screen or undiscovered = hidden) onto its weydra PlanetInstance, which
+ * has no scene graph to inherit it from. alpha 0 skips the draw.
+ *
+ * The Pixi `alpha` is NOT mirrored: the live planet shader never reads the
+ * container alpha (baseline d51623e included), so the 0.28 the world update
+ * puts on a discovered sun out of vision never dimmed it on Pixi. Applying it
+ * here drew that sun at ~56% brightness behind the fog (fog-parity gate).
  */
 export function sincronizarVisibilidadeWeydra(corpo: any): void {
   const w = corpo._weydraPlanet as PlanetInstance | null | undefined;
-  if (w) w.alpha = corpo.visible ? (corpo.alpha ?? 1) : 0;
+  if (w) w.alpha = corpo.visible ? 1 : 0;
 }
 
 export function atualizarLuzPlaneta(planeta: any, solX: number, solY: number): void {
