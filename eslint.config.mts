@@ -21,6 +21,7 @@ export default [
         navigator: 'readonly',
         performance: 'readonly',
         setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         requestAnimationFrame: 'readonly',
         getComputedStyle: 'readonly',
       },

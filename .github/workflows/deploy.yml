@@ -55,7 +55,9 @@ jobs:
         with:
           workspaces: weydra-renderer
       - if: steps.cache-dist.outputs.cache-hit != 'true'
-        uses: jetli/wasm-pack-action@v0.4.0
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
 
       # wasm-pack output cache — MUST be resolved before `bun install`.
       # @weydra/renderer (workspace) has a file: dep on
