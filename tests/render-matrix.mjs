@@ -55,7 +55,9 @@ const LAVAPIPE_ICD = ['/usr/share/vulkan/icd.d/lvp_icd.json', '/usr/share/vulkan
 const PROFILES = {
   'hw-vulkan': {
     label: 'GPU real · ANGLE/Vulkan + Dawn/Vulkan',
-    args: ['--use-angle=vulkan', '--enable-features=Vulkan', '--enable-unsafe-webgpu'],
+    // Sem `--use-webgpu-adapter=default` o WebGPU headless escolhe o adapter
+    // SwiftShader mesmo com GPU real (medido numa RTX 3060).
+    args: ['--use-angle=vulkan', '--enable-features=Vulkan,VulkanFromANGLE', '--enable-unsafe-webgpu', '--use-webgpu-adapter=default'],
     expectWebgl: (s) => !/swiftshader|llvmpipe/i.test(s),
     expectWebgpu: (a) => a && !a.isFallbackAdapter && a.architecture !== 'swiftshader',
   },
